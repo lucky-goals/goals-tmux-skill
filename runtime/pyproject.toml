@@ -1,0 +1,17 @@
+[project]
+name = "goals-tmux-skill-runtime"
+version = "0.1.0"
+description = "Standard-library tmux runtime and task coordination for coding agents"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+goals-tmux = "goals_tmux.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["goals_tmux*"]

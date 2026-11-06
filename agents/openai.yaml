@@ -1,0 +1,4 @@
+interface:
+  display_name: "Goals tmux"
+  short_description: "Coordinate and monitor Coding CLI work in tmux"
+  default_prompt: "Use $goals-tmux-skill to delegate a coding task in tmux, verify the result, and account for its resources."

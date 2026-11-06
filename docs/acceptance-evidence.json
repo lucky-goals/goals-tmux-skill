@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-06",
+  "environment": {
+    "platform": "macOS",
+    "python": "3.12.8",
+    "tmux": "3.6a"
+  },
+  "four_clis": [
+    "claude",
+    "cursor",
+    "codex",
+    "agy"
+  ],
+  "dispatches": 6,
+  "runtime_targeted_tests": 95,
+  "fixture_targeted_tests": 19,
+  "source_sha256": {
+    "event_summary.py": "737e8ed301d7187b749131bdf29deef8d0cc57e62d3ebb43b559f2034712580b",
+    "test_event_summary.py": "da91150e78c2762dcb74dc7658c48bc4ded1eb5d1126f3dbdaf690d189c901b7",
+    "example_usage.py": "1df78ca695d3dfb653c21e353bbbe92ab9b8a4e4f8720845f5673e8eee5ef8f0",
+    "USAGE.md": "09381d679482e3413144c1859dbadbc7d0d016e4a6dfb3db5707ab9667f6fe66",
+    "cursor-review.md": "c3df32fa19356eee482134d18422a28cd0c787ac7595034599e5fa9172d0ee2e"
+  },
+  "cleanup": {
+    "close_forced": false,
+    "panes_remaining": 0,
+    "resources": {
+      "cleanup_status": {
+        "closed": 4
+      },
+      "coordinator_phase": {
+        "settled": 4
+      },
+      "execution_status": {
+        "completed": 4
+      },
+      "monitor_status": {
+        "stopped": 4
+      },
+      "outstanding": 0,
+      "pending_creations": 0,
+      "recovery_status": {
+        "degraded": 4
+      },
+      "settled": 4,
+      "total": 4
+    },
+    "server_present": false,
+    "task_status": "settled",
+    "viewer_detached": true
+  },
+  "recovery": "not verified; unknown/degraded; no ready claim"
+}

@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-11-06T11:26:00.883081+00:00",
+  "version": "tmux 3.6a",
+  "scope": "unique private socket, /dev/null configuration, disposable cat/sh processes",
+  "checks": {
+    "literal_and_targeted_send": {
+      "passed": false,
+      "evidence": {
+        "target_contains_literal": true,
+        "sibling_contains_literal": true,
+        "synchronize_panes": "on"
+      }
+    },
+    "send_with_sync_disabled": {
+      "passed": true,
+      "evidence": "target received marker; sibling did not"
+    },
+    "buffer_input_and_delete": {
+      "passed": true,
+      "evidence": "stdin load-buffer, paste-buffer -d -p -r, named buffer removed"
+    },
+    "control_mode": {
+      "passed": true,
+      "evidence": {
+        "reply_frames": true,
+        "output_event": true
+      }
+    },
+    "format_subscription": {
+      "passed": true,
+      "evidence": [
+        "%subscription-changed probe $0 @0 0 %0 : probe-changed"
+      ]
+    },
+    "detach_preserves_panes": {
+      "passed": true,
+      "evidence": "control client detached; session still exists"
+    },
+    "linked_window_graph": {
+      "passed": true,
+      "evidence": "$1|@1\n$1|@0\n$0|@0"
+    },
+    "dead_pane_exit_status": {
+      "passed": true,
+      "evidence": "1|7"
+    },
+    "wait_for_signal": {
+      "passed": true,
+      "evidence": "channel signal released waiting client"
+    },
+    "version_capability_gate": {
+      "passed": true,
+      "evidence": [
+        "capture-pane (capturep) [-aCeJMNpPqT] [-b buffer-name] [-E end-line] [-S start-line] [-t target-pane]",
+        "set-hook [-agpRuw] [-t target-pane] hook [command]",
+        "wait-for (wait) [-L|-S|-U] channel"
+      ]
+    },
+    "ids_reused_after_server_restart": {
+      "passed": true,
+      "evidence": {
+        "ids_before": [
+          "$0",
+          "@0",
+          "%0"
+        ],
+        "ids_after": [
+          "$0",
+          "@0",
+          "%0"
+        ],
+        "server_identity_changed": true
+      }
+    }
+  },
+  "cleanup_verified": true
+}

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+SKILL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export PYTHONPATH="$SKILL_DIR/runtime${PYTHONPATH:+:$PYTHONPATH}"
+exec "${GOALS_TMUX_PYTHON:-python3}" -m goals_tmux.cli "$@"
