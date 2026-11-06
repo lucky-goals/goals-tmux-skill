@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.0)
+Skill version: [v0.2.1](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.1)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a Codex skill for coordinating coding CLIs through tmux. Version 0.2.0 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a Codex skill for coordinating coding CLIs through tmux. Version 0.2.1 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
 

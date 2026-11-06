@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill バージョン：[v0.2.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.0)
+Skill バージョン：[v0.2.1](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.1)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる Codex skill です。0.2.0 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
+`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる Codex skill です。0.2.1 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
 
 調整役は目標の理解、進捗の観察、通常の判断、完了条件の確認を担当します。プロジェクトの編集、テスト、ビルドなど、状態を変更する作業は制御対象の Coding CLI が行います。実行境界と手順の詳細は [SKILL.md](SKILL.md) を参照してください。
 

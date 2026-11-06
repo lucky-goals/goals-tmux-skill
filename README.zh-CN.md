@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill 版本：[v0.2.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.0)
+Skill 版本：[v0.2.1](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.1)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的 Codex skill。0.2.0 包含可执行的独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、有限时长的内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
+`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的 Codex skill。0.2.1 包含可执行的独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、有限时长的内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
 
 协调者负责理解目标、观察、常规决策和验收；项目修改、测试、构建及其他改变项目状态的工作由受控 Coding CLI 完成。先读 [SKILL.md](SKILL.md) 了解完整执行边界和流程。
 
