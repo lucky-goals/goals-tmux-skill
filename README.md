@@ -1,38 +1,161 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.1](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.1)
+Skill version: [v0.2.2](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a Codex skill for coordinating coding CLIs through tmux. Version 0.2.1 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a Codex skill for coordinating coding CLIs through tmux. Version 0.2.2 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
 
-## Quick start
+## Install through a coding agent
 
-Requires Python 3.12+ and tmux 3.6a+. From the repository directory, run:
+Copy this prompt to a coding agent with local filesystem access. Replace the placeholders with your target client and the coding CLI you intend to use. Installation prepares the skill; it does not start a coding task.
+
+```text
+Please install goals-tmux-skill v0.2.2 for [target client].
+Repository: https://github.com/lucky-goals/goals-tmux-skill
+Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2
+Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
+
+1. Inspect the target client's supported skill mechanism, actual search paths, and
+   existing installations. Use the requested scope; default to user scope when supported.
+   Do not guess paths or create a duplicate. If an installation exists, preserve it and
+   its local changes, back it up outside skill search paths, and treat this as an update.
+2. Check Python 3.12+ and tmux 3.6a+ in the environment where the agent will run.
+   tmux 3.8+ is needed only for Events/Monitors enhancements. Install missing dependencies
+   or upgrade insufficient versions through an existing platform package manager.
+   Change only the required packages. If no supported installer or necessary privileges
+   are available, report the exact remaining manual step. Do not install a package manager
+   or change the system Python implicitly. No MCP service or pip runtime packages are needed.
+3. Download the release asset goals-tmux-skill.zip for the specified version, inspect it,
+   and install the complete goals-tmux-skill directory. Preserve SKILL.md, LICENSE,
+   agents/, references/, scripts/, and runtime/. Do not copy only SKILL.md.
+4. From the installed directory, run scripts/bootstrap.sh --check, then scripts/tmuxctl
+   --version, capabilities --json, doctor --json, and doctor --cli-check --json.
+   Verify Python and tmux versions explicitly. bootstrap.sh --apply is a check-only
+   compatibility alias: it does not install dependencies. If using GOALS_TMUX_PYTHON,
+   ensure that the actual agent host receives the same interpreter setting.
+5. Check availability of the chosen coding CLI. Report any required installation or
+   interactive sign-in separately; do not install all four CLIs or put credentials in prompts.
+   iTerm2 is optional for execution and required only for its native GUI viewer mode.
+6. Verify metadata, relative references, and executable permissions. Use the client's
+   supported reload/discovery mechanism and confirm it can find $goals-tmux-skill.
+   Report unverified discovery honestly. Do not start a model request, create a tmux
+   session, read existing terminal contents, or widen the default read-only policy.
+7. Report the installed path and version, Python/tmux paths and versions, dependency
+   changes, chosen CLI readiness, viewer availability, skill discovery, and remaining steps.
+```
+
+## Check and install dependencies for an existing skill
+
+Use this prompt when the skill files are already installed but runtime readiness is uncertain.
+
+```text
+Check and prepare dependencies for the existing goals-tmux-skill installation in [target client].
+Installation path: [absolute path, or discover the client's active installation]
+Required mode: [basic tmux / tmux 3.8 Events/Monitors / iTerm2 native viewer / SSH]
+Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
+
+1. Locate the active installation and inspect its current instructions. Do not install
+   a second copy or replace skill files as part of this dependency check.
+2. Inspect the OS, architecture, package manager, Python executable/version, tmux
+   executable/version, chosen CLI, and the actual agent host's PATH/environment.
+   Require Python 3.12+ and tmux 3.6a+; require tmux 3.8+ for Events/Monitors.
+3. Install only missing required dependencies or upgrade insufficient ones through
+   the existing package manager. Preserve unrelated packages, system Python, client
+   configuration, existing tmux servers, and task state. Do not run a blanket upgrade.
+   If an installer or privileges are unavailable, report the exact manual step.
+4. There are no third-party Python runtime packages or MCP setup steps. If the default
+   python3 is too old, select a supported interpreter with GOALS_TMUX_PYTHON or the host's
+   supported PATH configuration. Verify the setting inside the actual agent environment.
+   For native viewing, check iTerm2 and report any required macOS automation permission.
+   For SSH, check the local SSH client and the selected remote host's runner, Python,
+   tmux, and existing trusted host configuration; do not auto-accept host keys.
+5. From the installed skill root, run scripts/bootstrap.sh --check and scripts/tmuxctl
+   --version, capabilities --json, doctor --json, and doctor --cli-check --json (or use
+   absolute script paths). --apply only checks; it is not a dependency installer. Do not use
+   doctor --live unless an exact existing endpoint was explicitly selected.
+6. Report before/after versions and paths, changes made, readiness, and unresolved
+   authentication or permission steps. Do not launch coding tasks or modify write policy.
+```
+
+## Fresh manual installation
+
+The verified baseline is macOS. Linux and separate remote hosts still need platform acceptance; installing their dependencies alone does not establish full support.
+
+### 1. Prepare the runtime
+
+Check the Python and tmux executables that the agent will actually use:
 
 ```sh
+python3 --version
+tmux -V
+```
+
+Requires **Python 3.12+** and **tmux 3.6a+**. Events/Monitors enhancements require **tmux 3.8+**. The runtime uses only the Python standard library; no virtual environment, `pip install`, or MCP server is required for the bundled launcher.
+
+On a fresh macOS machine with Homebrew already installed, this installs both dependencies:
+
+```sh
+brew install python@3.12 tmux
+export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
+```
+
+If one dependency already satisfies the requirement, install only the missing one. For an installed but insufficient version, upgrade only that formula and recheck. Homebrew handles the packages' own dependencies. See the official [Python formula](https://formulae.brew.sh/formula/python@3.12) and [tmux formula](https://formulae.brew.sh/formula/tmux). If Homebrew is absent, use an explicitly chosen installer rather than assuming `brew` exists.
+
+`GOALS_TMUX_PYTHON` selects the interpreter for both bundled scripts. An `export` affects this shell and its child processes only. Ensure the actual coding-agent host also sees the setting, or has a supported `python3` on its PATH; a desktop app may not inherit your shell settings.
+
+### 2. Choose the skill location
+
+Inspect the target client's supported installation mechanism and existing copies first. Current Codex documentation lists `~/.agents/skills/` for user scope and `.agents/skills/` in a repository for project scope. Use the path actually recognized by your client; if an existing installation uses `~/.codex/skills/` or another configured location, inspect that installation instead of adding a competing copy. See [Codex local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
+
+### 3. Download and install the complete package
+
+Download **goals-tmux-skill.zip** from [v0.2.2 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
+
+For a new user-scoped Codex installation, with the asset saved in `~/Downloads/`:
+
+```sh
+skill_parent="$HOME/.agents/skills"
+if [ -e "$skill_parent/goals-tmux-skill" ] || [ -L "$skill_parent/goals-tmux-skill" ]; then
+  printf '%s\n' 'An installation already exists. Inspect and back it up before updating.' >&2
+else
+  mkdir -p "$skill_parent" &&
+    unzip "$HOME/Downloads/goals-tmux-skill.zip" -d "$skill_parent"
+fi
+```
+
+For another client or scope, change `skill_parent` to its verified skill directory. Keep the complete package together, including `SKILL.md`, `LICENSE`, `agents/`, `references/`, `scripts/`, and `runtime/`.
+
+### 4. Verify the installed copy
+
+After a successful fresh install, run these commands from its directory:
+
+```sh
+cd "$HOME/.agents/skills/goals-tmux-skill"
 scripts/bootstrap.sh --check
+scripts/tmuxctl --version
 scripts/tmuxctl capabilities --json
 scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-`doctor --cli-check` checks only locally installed CLI executables and versions; it does not start model requests. To inspect a selected tmux server, specify its exact socket and add `--live`. Do not scan for or guess sockets.
+Use your actual installed path if different. `--version` should report `0.2.2`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
 
-Build and install the skill package:
+`doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; all four are not required. iTerm2 is optional for tmux execution and required for `iterm2-native` display. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
 
-```sh
-scripts/package_skill.py
-unzip dist/goals-tmux-skill.zip -d ~/.codex/skills
-```
+These installation checks do not need a running tmux server. Use `doctor --live` only with the exact socket of an explicitly selected existing endpoint; do not scan for or guess sockets. No runtime check alone proves that the client has discovered the skill.
 
-If you use a custom `CODEX_HOME`, extract into its `skills/` subdirectory. You can then start a task like this:
+### 5. Confirm discovery and start a task
+
+Confirm that the client exposes `$goals-tmux-skill`. Codex detects skill changes automatically; if it does not appear, restart Codex and check again. Other clients should use their supported reload mechanism. See the [official skill guide](https://learn.chatgpt.com/docs/build-skills).
+
+After installation and CLI sign-in, you can start a task:
 
 > Use `$goals-tmux-skill` to have Claude Code fix the login timeout in `/absolute/project/path`. Follow the project's `AGENTS.md`, verify the relevant cases, then check acceptance and clean up the panes created for this task while preserving other sessions.
 
-The initial policy is read-only. Before starting work that writes, run `scripts/tmuxctl policy show` to check the endpoint and existing permissions. Configure additional socket, pane, and operation scopes only as authorized by the user. The policy's read-only switch affects configured endpoints; avoid enabling unrelated resources for convenience. See the [runtime reference](references/runtime.md) for commands and request formats.
+The initial policy is read-only. Before work that writes, run `scripts/tmuxctl policy show` to inspect the endpoint and existing permissions. Configure only the socket, pane, and operations authorized for that task. The policy's read-only switch affects configured endpoints; avoid enabling unrelated resources for convenience. See the [runtime reference](references/runtime.md).
 
 ## Current support
 

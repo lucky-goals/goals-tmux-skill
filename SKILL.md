@@ -2,7 +2,7 @@
 name: goals-tmux-skill
 description: Delegate, take over, or resume Coding CLI work in managed tmux panes; monitor it inline, verify acceptance, and account for task-owned resources. Use when coordinating Claude Code, Cursor, Codex, or Antigravity CLI through the bundled tmux runner.
 metadata:
-  version: "0.2.1"
+  version: "0.2.2"
 ---
 
 # Goals tmux skill
