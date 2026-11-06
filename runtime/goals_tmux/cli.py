@@ -22,13 +22,19 @@ from .viewer import Viewer
 
 
 def parser():
-    p = argparse.ArgumentParser(description="Goals tmux standalone skill runtime")
+    p = argparse.ArgumentParser(description="Goals tmux standalone skill runtime", allow_abbrev=False)
     p.add_argument("--version", action="version", version=__version__)
     p.add_argument("--state-dir", type=Path, help="Explicit private coordination root (not accepted in requests)")
     p.add_argument("--config", type=Path, help="Explicit user display configuration")
     p.add_argument("--socket", help="Exact tmux socket; defaults to private goals socket")
     p.add_argument("--tmux-binary", help="Override tmux executable for a known installation")
+    p.add_argument("--ssh-host", help="Explicit SSH destination; all endpoint paths then refer to the remote host")
+    p.add_argument("--ssh-port", type=int)
+    p.add_argument("--ssh-config", help="Local OpenSSH configuration file")
+    p.add_argument("--ssh-timeout", type=float, default=30)
+    p.add_argument("--remote-runner", default="tmuxctl", help="Installed remote runner executable")
     sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("bridge", help=argparse.SUPPRESS)
     for command in ("capabilities", "doctor"):
         q = sub.add_parser(command)
         q.add_argument("--json", action="store_true")
@@ -54,7 +60,7 @@ def parser():
     ids = edit.add_mutually_exclusive_group()
     ids.add_argument("--all-panes", action="store_true")
     ids.add_argument("--pane-id", action="append", default=[])
-    for flag in ("create", "close", "layout", "interrupt", "view", "capture"):
+    for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor"):
         edit.add_argument("--allow-" + flag, action="store_true")
     q = sub.add_parser("task")
     qs = q.add_subparsers(dest="action", required=True)
@@ -109,10 +115,23 @@ def parser():
     q.add_argument("--pane-id", action="append")
     q.add_argument("--max-events", type=int, default=200)
     q.add_argument("--json", action="store_true")
+    q = sub.add_parser("wait-event", help="Bounded tmux 3.8 event wait on one exact target")
+    q.add_argument("--event", required=True)
+    q.add_argument("--pane-id", required=True)
+    q.add_argument("--timeout", type=float, default=30)
+    q.add_argument("--json", action="store_true")
+    q = sub.add_parser("wait-state", help="Bounded tmux 3.8 format monitor for a managed pane")
+    q.add_argument("--task-id", required=True)
+    q.add_argument("--pane-id", required=True)
+    q.add_argument("--field", required=True)
+    q.add_argument("--timeout", type=float, default=30)
+    q.add_argument("--json", action="store_true")
     return p
 
 
-def _load_request(path):
+def _load_request(path, supplied=None):
+    if path == "-" and supplied is not None:
+        return supplied
     if path == "-":
         raw = sys.stdin.buffer.read(contract.MAX_REQUEST_BYTES + 1)
     else:
@@ -123,6 +142,11 @@ def _load_request(path):
 
 def run(args):
     root = state_dir_path(args.state_dir)
+    namespace = getattr(args, "_endpoint_namespace", None)
+    if namespace:
+        root = root / "endpoints" / namespace
+        if args.config is None:
+            args.config = root / "config.json"
     socket = args.socket or str(root / "sockets" / "default.sock")
     if args.command == "config":
         config = ConfigStore(args.config)
@@ -142,7 +166,7 @@ def run(args):
         data = policy.configure(socket, read_only=not args.allow_writes,
                                 pane_ids=None if args.all_panes else args.pane_id,
                                 **{"allow_" + flag: getattr(args, "allow_" + flag)
-                                   for flag in ("create", "close", "layout", "interrupt", "view", "capture")})
+                                   for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor")})
         return contract.result(None, data=data, side_effects="confirmed")
     if args.command == "operation-status":
         return contract.result(args.request_id, data=OperationStore(root).status(args.request_id))
@@ -173,20 +197,23 @@ def run(args):
                     registry.update(record["record_id"], _context(record), patch)
                 data = {"task": data, "resources": registry.report(args.task_id)}
             elif args.action == "settle":
-                endpoint = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary)
+                endpoint = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
+                                   endpoint_namespace=namespace)
                 data = tasks.settle(args.task_id, resource_report=endpoint.resource_report(args.task_id))
             elif args.action == "observe-dispatch":
                 data = tasks.mark_dispatch(args.task_id, args.dispatch_id, status="observed", evidence=args.evidence)
             else:
                 data = tasks.event(args.task_id, args.kind, contract.decode_json(args.details.encode()))
         return contract.result(None, data=data, side_effects="confirmed")
-    service = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary)
+    service = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
+                      endpoint_namespace=namespace)
     if args.command == "invoke":
-        return service.invoke(_load_request(args.request_file))
+        return service.invoke(_load_request(args.request_file, getattr(args, "_stdin_json", None)))
     if args.command in {"doctor", "capabilities"}:
         version = service.tmux.version()
         data = {"runtime_version": __version__, "python": sys.version.split()[0], "tmux": version,
                 "socket_path": socket, "state_dir": str(root), "endpoint_id": service.endpoint_id,
+                "transport": "ssh" if namespace else "local",
                 "operations": {name: {"required": sorted(required), "allowed": sorted(allowed)}
                                for name, (allowed, required) in contract.SCHEMAS.items()},
                 "monitoring": "finite inline watch; no automatic host wakeup",
@@ -194,9 +221,12 @@ def run(args):
         if args.command == "doctor":
             data["policy"] = service.policy.load()
             config = service.config.effective()
-            data["tui"] = service.viewer.diagnose(config)
+            data["tui"] = ({"available": False, "reason": "ssh_viewer_requires_manual_attach"}
+                           if namespace else service.viewer.diagnose(config))
             if args.live:
                 data["resources"] = service._filtered(service._snapshot())
+                from .events38 import capabilities as event_capabilities
+                data["events38"] = event_capabilities(service.tmux.binary, socket)
             if args.cli_check:
                 from .cli_adapters import describe_clis
                 data["clis"] = describe_clis()
@@ -225,7 +255,7 @@ def run(args):
                                          server_instance_id=snap["server"]["instance_id"], task_id=args.task_id,
                                          coordinator_id=args.coordinator_id, origin="borrowed", cleanup_policy="retain")
             elif args.action == "handoff":
-                data = registry.handoff(args.record_id, _load_request(args.context_file), args.new_coordinator_id,
+                data = registry.handoff(args.record_id, _load_request(args.context_file, getattr(args, "_stdin_json", None)), args.new_coordinator_id,
                                         new_task_id=args.new_task_id, reason=args.reason)
             elif args.action == "retain":
                 record = registry.get(args.record_id)
@@ -236,7 +266,7 @@ def run(args):
                     patch["coordinator_phase"] = "settled"
                     if record.get("recovery_status") == "unknown":
                         patch["recovery_status"] = "degraded"
-                data = registry.update(args.record_id, _load_request(args.context_file), patch)
+                data = registry.update(args.record_id, _load_request(args.context_file, getattr(args, "_stdin_json", None)), patch)
             elif args.action == "rebind":
                 record = registry.get(args.record_id)
                 if not record or record.get("socket_path") != service.socket_path:
@@ -245,12 +275,44 @@ def run(args):
                 pane = next((p for p in snap["panes"] if p["pane_id"] == record["pane_id"]), None)
                 if not pane:
                     raise DomainError("TARGET_MISSING", "original pane is absent")
-                data = registry.rebind(args.record_id, _load_request(args.context_file), pane,
+                data = registry.rebind(args.record_id, _load_request(args.context_file, getattr(args, "_stdin_json", None)), pane,
                                        endpoint_id=service.endpoint_id, socket_path=socket,
                                        server_instance_id=snap["server"]["instance_id"])
             else:
                 data = _reconcile(service, args.task_id)
         return contract.result(None, data=data, side_effects="confirmed")
+    if args.command == "wait-state":
+        from .events38 import wait_state
+        contract.exact_id(args.pane_id, "%")
+        task = service.tasks.get(args.task_id)
+        if task["status"] != "active":
+            raise DomainError("TASK_FINALIZING", "state monitors require an active task")
+        snap = service._snapshot()
+        resources = service._affected({"operation": "read_screen", "arguments": {},
+                                       "target": {"pane_id": args.pane_id}}, snap)
+        service._read_scope(snap, resources)
+        record = next((r for r in service._records(snap)
+                       if r["pane_id"] == args.pane_id and r["task_id"] == args.task_id), None)
+        if record is None:
+            raise DomainError("TARGET_NOT_REGISTERED", "state monitor requires this task's exact pane binding")
+        data = wait_state(service.tmux.binary, socket, state_dir=root, endpoint_id=service.endpoint_id,
+                          task_id=args.task_id, pane_record=record, field=args.field, timeout=args.timeout)
+        data["observation"] = service._snapshot()["observation"]
+        return contract.result(None, data=data, side_effects="confirmed")
+    if args.command == "wait-event":
+        from .events38 import wait_event
+        snap = service._snapshot()
+        target = {"pane_id": args.pane_id}
+        resources = service._affected({"operation": "read_screen", "arguments": {}, "target": target}, snap)
+        service._read_scope(snap, resources)
+        data = wait_event(service.tmux.binary, socket, args.event, timeout=args.timeout, **target)
+        after = service._snapshot()
+        data["server_instance_id"] = (snap.get("server") or {}).get("instance_id")
+        data["server_present_after"] = bool(after.get("server"))
+        if after.get("server") and after["server"]["instance_id"] != data["server_instance_id"]:
+            raise DomainError("SERVER_CHANGED", "server changed during event wait")
+        data["observation"] = after["observation"]
+        return contract.result(None, data=data)
     if args.command == "watch":
         from .collector import watch
         contract.exact_id(args.session_id, "$")
@@ -276,9 +338,10 @@ def _reconcile(service, task_id):
     for record in service.registry.list(task_id=task_id):
         if record.get("socket_path") != service.socket_path:
             continue
-        original_gone = bool(server_id and record.get("server_instance_id") != server_id) or (
-            bool(server_id) and record.get("server_instance_id") == server_id and record["pane_id"] not in current
-        )
+        # Replacing the socket can leave the original server alive. Without
+        # its OS identity, only absence on the same server proves this pane gone.
+        original_gone = (bool(server_id) and record.get("server_instance_id") == server_id
+                         and record["pane_id"] not in current)
         if original_gone and record.get("cleanup_status") in {"unknown", "closing", "pending"}:
             evidence = {
                 "source": "registry_reconcile",
@@ -307,9 +370,8 @@ def _reconcile(service, task_id):
                 continue
             known_instance = receipt.get("server_instance_id")
             known_pane = receipt.get("pane_id")
-            original_gone = bool(server_id and known_instance and known_instance != server_id) or (
-                bool(server_id) and known_instance == server_id and known_pane and known_pane not in current
-            )
+            original_gone = (bool(server_id) and known_instance == server_id
+                             and known_pane and known_pane not in current)
             if receipt.get("status") == "created_unregistered" and not original_gone:
                 saved = receipt.get("pane")
                 live = current.get(known_pane)
@@ -418,14 +480,64 @@ def _reconcile(service, task_id):
             creation_outcomes.append({"receipt": str(path), "status": receipt.get("status"),
                                       "pane_id": known_pane,
                                       "reason": "original_resource_absent" if original_gone else "identity_unverified"})
-    return {"outcomes": outcomes, "creations": creation_outcomes,
-            "note": "Read-only terminal reconciliation; no operation was replayed."}
+    monitors = {"outcomes": [], "pending": [], "settled": True}
+    if (service.state_dir / "state-monitors").exists():
+        from .events38 import reconcile_state_receipts
+        monitors = reconcile_state_receipts(service.state_dir, tmux_binary=service.tmux.binary,
+                                            endpoint_id=service.endpoint_id, socket_path=service.socket_path,
+                                            task_id=task_id, current_server=snap.get("server"))
+    return {"outcomes": outcomes, "creations": creation_outcomes, "state_monitors": monitors,
+            "note": "No business operation was replayed; only verified owned monitor hooks may be removed."}
+
+
+def _forward_ssh(args, argv):
+    from .remote import SshEndpoint, forward
+    endpoint = SshEndpoint(args.ssh_host, args.remote_runner, port=args.ssh_port, config=args.ssh_config)
+    removed = {"--ssh-host", "--ssh-port", "--ssh-config", "--ssh-timeout", "--remote-runner"}
+    forwarded = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        key = token.split("=", 1)[0]
+        if key in removed:
+            index += 1 if "=" in token else 2
+        else:
+            forwarded.append(token)
+            index += 1
+    stdin_json = None
+    file_option = "--request-file" if args.command == "invoke" else (
+        "--context-file" if args.command == "registry" and args.action in {"handoff", "retain", "rebind"} else None)
+    if file_option:
+        value = args.request_file if file_option == "--request-file" else args.context_file
+        stdin_json = _load_request(value)
+        for index, token in enumerate(forwarded):
+            if token == file_option:
+                forwarded[index + 1] = "-"
+            elif token.startswith(file_option + "="):
+                forwarded[index] = file_option + "=-"
+    return forward(endpoint, forwarded,
+                   json.dumps(stdin_json, ensure_ascii=False).encode() if stdin_json is not None else None,
+                   mutating=False, timeout=args.ssh_timeout)
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(argv)
     try:
-        payload = run(args)
+        if args.ssh_host:
+            payload = _forward_ssh(args, argv)
+        elif args.command == "bridge":
+            from .remote import MAX_BRIDGE_BYTES, validate_bridge
+            remote_argv, namespace, stdin_json = validate_bridge(sys.stdin.buffer.read(MAX_BRIDGE_BYTES + 1))
+            remote_args = parser().parse_args(remote_argv)
+            remote_args._endpoint_namespace = namespace
+            remote_args._stdin_json = stdin_json
+            payload = run(remote_args)
+        else:
+            if any(token.split("=", 1)[0] in {"--ssh-port", "--ssh-config", "--ssh-timeout", "--remote-runner"}
+                   for token in argv):
+                raise DomainError("SSH_HOST_REQUIRED", "SSH connection options require --ssh-host")
+            payload = run(args)
     except DomainError as exc:
         payload = exc.as_result()
     except (OSError, ValueError) as exc:

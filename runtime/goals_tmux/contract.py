@@ -31,7 +31,7 @@ SCHEMAS = {
     "create_window": ({"name", "cwd", "program_argv", "tui", "cli"}, {"cwd"}),
     "split_pane": ({"cwd", "program_argv", "orientation", "size", "cli"}, {"cwd"}),
     "launch_cli": ({"cli", "cwd", "name", "permission_mode", "tui", "extra_args"}, {"cli", "cwd"}),
-    "restore_cli": ({"cli", "cwd", "conversation_id", "name", "permission_mode", "tui"}, {"cli", "cwd", "conversation_id"}),
+    "restore_cli": ({"cli", "cwd", "conversation_id", "name", "permission_mode", "tui", "extra_args"}, {"cli", "cwd", "conversation_id"}),
     "rename_session": ({"name"}, {"name"}),
     "rename_window": ({"name"}, {"name"}),
     "set_pane_title": ({"name"}, {"name"}),

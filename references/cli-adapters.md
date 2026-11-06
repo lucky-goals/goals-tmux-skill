@@ -11,7 +11,7 @@ Use the runner's adapter name rather than constructing a shell command:
 
 Run `scripts/tmuxctl doctor --cli-check --json` to see whether an adapter binary is installed and what version is detected. This is a local check and makes no model request. The adapter list does not prove that a CLI is logged in, that a particular feature is available, or that a conversation can be restored; report only what current checks establish.
 
-`launch_cli` currently applies these project-selected model presets:
+`launch_cli` and `restore_cli` currently apply these project-selected model presets:
 
 | Adapter | Preset arguments |
 | --- | --- |
@@ -29,3 +29,10 @@ The runner reports `agy` interactivity as unknown: its installed help mentions `
 For restore, first obtain a conversation ID from the adapter's own verified recovery evidence. A tmux pane ID, process ID, or recent history filename is not a conversation ID. After launch/restore, inspect the pane and verify the working directory, CLI identity, prompt state, and (for restore) that the expected conversation actually resumed before dispatching work.
 
 Use adapter-specific normal quit behavior only after acceptance and when the CLI has stopped working. If the runtime cannot establish a supported exit path or stable conversation identity, distinguish that recovery limitation from task acceptance and resource cleanup; do not make unsupported claims.
+
+
+## Recovery evidence
+
+An exact native exit hint is only a candidate. After normal exit, the runner can verify it against the original pane PID/process identity, the latest observed dispatch bound to that record/process, the expected working directory, and the CLI's exact durable conversation record. It does not select a recent transcript or read unrelated conversation contents. Claude/Codex use structured transcript metadata; Cursor checks its per-conversation metadata and transcript; Antigravity additionally checks the exact SQLite cascade ID and workspace bytes in its opaque metadata blob. The latter evidence is labelled as opaque metadata, not a structured cwd field.
+
+`ready` means durable recovery evidence agrees. A resume launch still reports `recovery_verification=pending`: inspect the resumed prompt/identity and independently verify that the expected context is available before treating a restore as complete. If durable evidence is missing, ambiguous, truncated, or conflicts with startup identity, report unknown/degraded. Cleanup receipts and the registry retain the recovery result separately from task completion.

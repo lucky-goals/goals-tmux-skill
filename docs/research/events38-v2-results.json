@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-06",
+  "scope": "tmux 3.8 filtered event waits and receipt-backed pane state monitors",
+  "official_sources": [
+    {
+      "url": "https://github.com/tmux/tmux/wiki/Events",
+      "claims_checked": [
+        "wait-for -E waits for events, -F filters event payloads, -v prints payload, and -l lists waiters",
+        "set-hook -B monitors a format once per second and fires a user event when the value changes",
+        "the first monitor sample records a baseline without firing an event",
+        "set-hook -B -u removes a monitor"
+      ]
+    },
+    {
+      "url": "https://github.com/tmux/tmux/blob/7f2a35a/CHANGES",
+      "claims_checked": [
+        "tmux 3.8 introduced event-based hooks, wait-for -E, and set-hook -B monitors"
+      ]
+    },
+    {
+      "url": "https://github.com/tmux/tmux/blob/7f2a35a/cmd-wait-for.c",
+      "claims_checked": [
+        "wait-for -E attaches a named event sink and removes it after a matching event"
+      ]
+    },
+    {
+      "url": "https://github.com/tmux/tmux/blob/7f2a35a/monitor.c",
+      "claims_checked": [
+        "monitor values are sampled once per second and the first value initializes the baseline"
+      ]
+    }
+  ],
+  "binary": {
+    "version": "tmux 3.8",
+    "path": "/tmp/goals-tmux38-20261106/tmux-3.8/tmux",
+    "sha256": "60f6209f2270b6349d7c7dd79cad348d37e775eff76a8d3244a40fc943bd2e93",
+    "server_scope": "Each integration test used a unique temporary directory and explicit private -S socket with /dev/null configuration."
+  },
+  "supported_events": [
+    "pane-command-finished",
+    "pane-command-started",
+    "pane-died",
+    "pane-exited",
+    "pane-mode-changed",
+    "pane-resized",
+    "pane-shell-prompt"
+  ],
+  "supported_state_fields": [
+    "pane_current_command",
+    "pane_current_path",
+    "pane_dead",
+    "pane_height",
+    "pane_in_mode",
+    "pane_title",
+    "pane_width"
+  ],
+  "targeting": {
+    "wait_event": "One exact pane ID per allowlisted event; caller-provided format strings are rejected.",
+    "wait_state": "One registry-bound pane whose task, endpoint, server, pane PID, window, and process identity match; closed records are rejected.",
+    "state_policy": "Policy allow_monitor is required. Task and registry state plus policy are rechecked under the operation lock before receipt creation and before monitor installation.",
+    "hooks": "A receipt-backed unique user event and one pane-local fixed-format monitor are installed without a hook command. The event waiter is confirmed in wait-for -E -l before installation. Cleanup removes a monitor only after exact definition and server identity checks."
+  },
+  "focused_tests": {
+    "command": "python3 -m unittest tests.test_events38 -v",
+    "result": "13 passed; 9 tmux 3.8 integration tests skipped because GOALS_TMUX38_BINARY was not set.",
+    "checks": [
+      "bounded streaming rejects output above 64 KiB",
+      "empty, duplicate, and mismatched event payloads are rejected",
+      "tmux 3.6a and missing-server capability probes fail closed",
+      "a live PID with an unmatched start string remains unknown; only ProcessLookupError proves absence"
+    ]
+  },
+  "live_tests": {
+    "command": "GOALS_TMUX38_BINARY=/tmp/goals-tmux38-20261106/tmux-3.8/tmux python3 -m unittest tests.test_events38.Tmux38IntegrationTests -v",
+    "result": "9 passed",
+    "checks": [
+      "exact pane-exited wait ignores an earlier sibling-pane exit",
+      "pane-died event is observed with remain-on-exit",
+      "timeout disconnect leaves no event waiter",
+      "pane_title change is observed and the exact monitor is removed",
+      "pane_dead change on a retained pane is observed and cleaned up after the pane PID disappears",
+      "state timeout removes its monitor and settles its receipt",
+      "monitor policy denial writes no receipt, and a task entering finalizing before install receives no monitor",
+      "reconcile removes an exact orphan monitor and verifies absence",
+      "reconcile preserves a mismatched hook and does not contact a replacement server while the old PID is alive"
+    ],
+    "cleanup": "All tests used per-test private sockets and called kill-server only against those exact sockets. A post-run process scan found no tmux process using the isolated 3.8 binary."
+  },
+  "cli_acceptance": {
+    "evidence_file": "events38-cli-v2-results.json",
+    "summary": "The packaged CLI observed pane_title change and timeout with monitor cleanup, reported 3.6a event features unavailable, and settled the managed task after close."
+  },
+  "conservative_reconciliation": {
+    "server_replaced": "A different server identity is not enough to settle a receipt. The old server PID must be proven absent first; a live PID with a mismatching start string remains unknown to cover PID reuse and timezone/locale differences.",
+    "hook_conflict": "If an event name exists with a different monitor definition, reconciliation leaves it untouched and keeps the receipt pending."
+  },
+  "limitations": [
+    "Only the seven listed pane events are exposed; no window- or session-event allowlist is claimed.",
+    "tmux monitor sampling is once per second. Very brief state changes between samples may not be observed.",
+    "pane-command-started, pane-command-finished, and pane-shell-prompt events do not prove the target shell emitted OSC 133 markers in every environment.",
+    "If a server PID still exists but its saved OS start string cannot be matched, the old monitor receipt remains unsettled rather than assuming the server exited."
+  ]
+}

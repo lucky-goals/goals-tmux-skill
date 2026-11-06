@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-06",
+  "scope": "Live macOS iTerm2 check on a private tmux socket with disposable /bin/cat panes",
+  "environment": {
+    "tmux_version": "tmux 3.6a",
+    "viewer_mode": "iterm2-native",
+    "native_attach_flags": ["-CC", "-r"],
+    "api_read_only_scope": "native_gui_input",
+    "viewer_client_control_mode": true,
+    "viewer_client_readonly": true
+  },
+  "product_lifecycle": {
+    "open": "attached",
+    "same_mode_open": "attached; reused_existing_viewer",
+    "mode_mismatch": "unavailable; registered_viewer_mode_mismatch_requires_hide_first",
+    "hide": "detached",
+    "pane_survived_hide": true,
+    "cleanup": "detached the exact viewer clients and killed only the two disposable test panes",
+    "kill_server_used": false,
+    "gui_window_closed": false
+  },
+  "mapped_gui_input": {
+    "mapping_verification": "An OUTPUT_MARKER sent to the exact /bin/cat pane with tmux send-keys appeared in the corresponding iTerm mapped pane screen.",
+    "readonly_viewer": {
+      "client_readonly": true,
+      "input_method": "iTerm session connector send_text with a unique marker and newline",
+      "marker_reached_tmux_pane": false
+    },
+    "writable_control_baseline": {
+      "attach_flags": ["-CC"],
+      "client_readonly": false,
+      "input_method": "Same iTerm session connector send_text with a unique marker and newline",
+      "marker_reached_tmux_pane": true
+    }
+  },
+  "raw_control_mode_command": {
+    "client_readonly": true,
+    "command": "send-keys targeting the disposable /bin/cat pane",
+    "command_accepted": true,
+    "pane_mutated": true
+  },
+  "interpretation": [
+    "The actual mapped iTerm2 pane did not forward keyboard input to the /bin/cat pane under -CC -r.",
+    "The writable -CC baseline forwarded the same type of input, confirming the probe targeted the mapped pane and the input path worked.",
+    "The read_only property means native mapped-GUI input is blocked; it does not grant or enforce Control Mode command permissions.",
+    "A send-keys command on the same -C -r control-mode channel was accepted and mutated the pane. Coordinator writes must remain on the trusted runtime path and obey its policy."
+  ],
+  "limitations": [
+    "This live check used one macOS host, iTerm2, and tmux 3.6a.",
+    "It does not verify Terminal.app fallback, Linux GUI behavior, or other tmux releases."
+  ]
+}

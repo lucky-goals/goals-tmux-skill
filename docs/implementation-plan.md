@@ -1,8 +1,8 @@
 # goals-tmux-skill 实现方案与能力规划
 
-调研日期：2026-11-06，Asia/Shanghai。本文件保留当日的架构研究与分阶段方案，后续内容中的“拟议接口”“尚未开发”及阶段判断是历史记录，不代表当前进度；旧命令示例以当前运行器为准。当前项目已发布 0.1.0 代码，含标准库 `scripts/tmuxctl`、任务与 pane registry、私有 dispatch/audit、有限 Control Mode watch、四个 CLI adapter 和可选 TUI launcher。实际命令以 `scripts/tmuxctl --help` 与 `capabilities --json` 为准，当前发布范围和限制见 [README](../README.md) 与 [SKILL](../SKILL.md)。
+调研日期：2026-11-06，Asia/Shanghai。本文件保留当日的架构研究与分阶段方案，后续内容中的“拟议接口”“尚未开发”及阶段判断是历史记录，不代表当前进度；旧命令示例以当前运行器为准。当前代码为 0.2.0，新增恢复证据、SSH、tmux 3.8 等待与原生显示路径；当前验收见 [0.2 报告](acceptance-0.2-2026-11-06.md)。此前已发布的 0.1.0 代码含标准库 `scripts/tmuxctl`、任务与 pane registry、私有 dispatch/audit、有限 Control Mode watch、四个 CLI adapter 和可选 TUI launcher。实际命令以 `scripts/tmuxctl --help` 与 `capabilities --json` 为准，当前发布范围和限制见 [README](../README.md) 与 [SKILL](../SKILL.md)。
 
-当前状态边界：Claude Code、Cursor、Codex 与 Antigravity 的 adapter 已实现，但真实端到端 CLI 验收仍在进行中；桌面 GUI、Linux/跨平台闭环和恢复能力不作已验收声明。tmux 3.8 Events/Monitors、iTerm2 原生 tmux 模式及 SSH/远端 endpoint 属于后续规划，未列入 0.1 已交付能力。MCP 不是安装和使用的前提。
+历史阶段边界：本文原始方案中的阶段标签不代表 0.2 当前状态。四 CLI 原始协作闭环及其真实会话恢复、macOS iTerm2 原生显示与隔离 SSH 已有实测证据；版本和平台限制以当前 README 与验收报告为准。Linux/独立远端主机仍未验收。MCP 不是安装和使用的前提。
 
 当日设计主张是保留 goals-iterm-skill 的协调协议，以 **Python 独立运行器封装 tmux 命令，以 Control Mode 增强观察**；后文保留这一方案的理由、假设与风险，便于追溯设计来源。后续章节未因运行器落地而逐条改写，使用时应以当前 skill 指令、运行器契约和 capability 报告为准。
 

@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-11-06T13:48:24Z",
+  "status": "passed",
+  "task_id": "ssh-live-6bba8c2569ae",
+  "checks": {
+    "capabilities_transport": "ssh",
+    "session_created": {
+      "pane_id": "%0",
+      "program": "/bin/cat",
+      "tui_enabled": false,
+      "tui_status": "unavailable"
+    },
+    "tmux_server_pid": 89131,
+    "tmux_server_started_at": "Fri Nov 6 21:48:26 2026",
+    "cross_endpoint_request_id_reuse": "REQUEST_ID_CONFLICT",
+    "dispatch_file": {
+      "sha256_matches": true,
+      "contains_marker": true
+    },
+    "timeout_result": {
+      "status": "unknown",
+      "code": "REMOTE_TIMEOUT"
+    },
+    "operation_status_recovery": "completed_submitted",
+    "request_id_retry": "cached_result",
+    "screen_contains_dispatch_id": true,
+    "dispatch_id_occurrences_before_cached_retry": 4,
+    "dispatch_id_occurrences_after_cached_retry": 4,
+    "cached_retry_screen_unchanged": true,
+    "task_lifecycle": "accepted_closed_settled",
+    "closed_pane_id": "%0",
+    "server_absent_after_close": true,
+    "tmux_server_exited": true
+  },
+  "steps": [
+    {
+      "name": "capabilities",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.527
+    },
+    {
+      "name": "policy_configure",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.157
+    },
+    {
+      "name": "task_create",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.155
+    },
+    {
+      "name": "create_session",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.298
+    },
+    {
+      "name": "cross_endpoint_request_id_reuse",
+      "status": "refused",
+      "code": "REQUEST_ID_CONFLICT",
+      "exit_code": 2,
+      "duration_seconds": 0.149
+    },
+    {
+      "name": "list_resources_before_dispatch",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.215
+    },
+    {
+      "name": "dispatch",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.23
+    },
+    {
+      "name": "list_resources_before_submit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.21
+    },
+    {
+      "name": "submit_dispatch_timeout",
+      "status": "unknown",
+      "code": "REMOTE_TIMEOUT",
+      "exit_code": 3,
+      "duration_seconds": 2.073
+    },
+    {
+      "name": "operation_status_after_reconnect",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.159
+    },
+    {
+      "name": "list_resources_before_screen",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.21
+    },
+    {
+      "name": "read_screen_after_submit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.225
+    },
+    {
+      "name": "submit_dispatch_cached_retry",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.151
+    },
+    {
+      "name": "list_resources_after_retry",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.206
+    },
+    {
+      "name": "read_screen_after_cached_retry",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.214
+    },
+    {
+      "name": "observe_dispatch",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.156
+    },
+    {
+      "name": "task_accept",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.158
+    },
+    {
+      "name": "registry_list_before_exit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.151
+    },
+    {
+      "name": "list_resources_before_exit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.216
+    },
+    {
+      "name": "normal_ctrl_d_exit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.231
+    },
+    {
+      "name": "wait_for_normal_exit",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.216
+    },
+    {
+      "name": "registry_list_before_close",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.147
+    },
+    {
+      "name": "close_exact_pane",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.405
+    },
+    {
+      "name": "list_resources_after_close",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.157
+    },
+    {
+      "name": "task_settle",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.165
+    },
+    {
+      "name": "registry_require_settled",
+      "status": "ok",
+      "code": "OK",
+      "exit_code": 0,
+      "duration_seconds": 0.153
+    }
+  ],
+  "safety": {
+    "loopback_only": true,
+    "system_ssh_configuration_modified": false,
+    "tmux_kill_server_invoked": false
+  },
+  "ssh_fixture": {
+    "bind": "127.0.0.1",
+    "port": 65031,
+    "host_alias": "goals-isolated-ssh",
+    "terminated": true
+  },
+  "finished_at": "2026-11-06T13:48:32Z",
+  "duration_seconds": 7.617
+}

@@ -28,6 +28,7 @@ _ENDPOINT_FIELDS = frozenset(
         "allow_interrupt",
         "allow_view",
         "allow_capture",
+        "allow_monitor",
     }
 )
 _BOOLEAN_FIELDS = _ENDPOINT_FIELDS - {"pane_ids"}
@@ -61,6 +62,7 @@ _ALL_POLICY_OPERATIONS = (
     | _INTERRUPT_OPERATIONS
     | _GENERIC_WRITES
     | {"split_pane"}
+    | {"wait_state"}
 )
 
 
@@ -113,6 +115,8 @@ def _validate(value: Any) -> dict[str, Any]:
         canonical = _socket_path(socket_path)
         if canonical != socket_path:
             _fail("POLICY_INVALID", f"endpoint socket path is not canonical: {socket_path}")
+        if isinstance(endpoint, dict) and set(endpoint) == _ENDPOINT_FIELDS - {"allow_monitor"}:
+            endpoint = {**endpoint, "allow_monitor": False}
         if not isinstance(endpoint, dict) or set(endpoint) != _ENDPOINT_FIELDS:
             _fail("POLICY_INVALID", f"endpoint policy for {socket_path} has unknown or missing fields")
         for field in _BOOLEAN_FIELDS:
@@ -149,6 +153,7 @@ class Policy:
         allow_interrupt: bool = False,
         allow_view: bool = False,
         allow_capture: bool = False,
+        allow_monitor: bool = False,
     ) -> dict[str, Any]:
         canonical_socket = _socket_path(socket_path)
         bools = {
@@ -159,6 +164,7 @@ class Policy:
             "allow_interrupt": allow_interrupt,
             "allow_view": allow_view,
             "allow_capture": allow_capture,
+            "allow_monitor": allow_monitor,
         }
         for field, value in bools.items():
             if type(value) is not bool:
@@ -243,6 +249,9 @@ class Policy:
         elif operation in _CAPTURE_OPERATIONS:
             if not endpoint["allow_capture"]:
                 _fail("CAPTURE_NOT_ALLOWED", "endpoint policy does not allow output capture")
+        elif operation == "wait_state":
+            if not endpoint["allow_monitor"]:
+                _fail("MONITOR_NOT_ALLOWED", "endpoint policy does not allow managed format monitors")
         elif operation in _INTERRUPT_OPERATIONS:
             if not endpoint["allow_interrupt"]:
                 _fail("INTERRUPT_NOT_ALLOWED", "endpoint policy does not allow process interruption")

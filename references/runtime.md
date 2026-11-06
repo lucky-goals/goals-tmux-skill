@@ -1,6 +1,6 @@
 # Runner and request reference
 
-Use the bundled runner for all managed tmux discovery, input, observation, and resource operations. It uses Python 3.12+ and the standard library; `scripts/bootstrap.sh --check` checks Python and tmux availability and does not install dependencies. The first supported runtime target is local tmux 3.6a or later. Do not claim Linux, remote/SSH, or other platforms are supported without current capability evidence.
+Use the bundled runner for all managed tmux discovery, input, observation, and resource operations. It uses Python 3.12+ and the standard library; `scripts/bootstrap.sh --check` checks Python and tmux availability and does not install dependencies. The first supported runtime target is local tmux 3.6a or later. SSH forwarding is available through a remote copy of this runner; see [SSH endpoints](ssh.md). Linux and distinct-host support still require current platform evidence.
 
 Global flags go before the command:
 
@@ -72,6 +72,13 @@ After an unknown mutation result, query `operation-status --request-id ID` and i
 
 ## User display
 
-`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, and `tui.mode=tmux`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `iterm2-native` is not implemented; `current` TTY handoff is unavailable through this runner. In headless or unsupported environments the viewer reports `unavailable` with a manual read-only attach command. Report that state honestly; the task can still run through tmux if the user did not require a GUI.
+`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, and `tui.mode=tmux`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `iterm2-native` is available on macOS with iTerm2 and uses `-CC -r`, verified Control Mode/read-only flags, exact PID/session/TTY binding, and detach. An attached record reports `read_only=true` with `read_only_scope=native_gui_input`: mapped iTerm pane keystrokes do not reach the pane. This is not a Control Mode permission boundary; a `send-keys` command on the same `-C -r` channel can still mutate the session. Keep that command path under the trusted runtime, which issues only its fixed operations. Switching display modes requires hiding the existing viewer first. `current` TTY handoff remains unavailable through this runner. In headless or unsupported environments the viewer reports `unavailable` with a manual read-only attach command. Report that state honestly; the task can still run through tmux if the user did not require a GUI.
 
 The viewer is a separate read-only tmux client. Task input and capture stay on the runner path. Hiding/detaching the viewer must not be reported as stopping task monitoring or closing a pane.
+
+
+## 0.2 journal compatibility
+
+New mutation fingerprints include the resolved endpoint ID, including target-less creation requests. This prevents a reused request ID from returning another socket's cached result. Existing 0.1 journals remain readable through `operation-status`; invoking an old request may return `REQUEST_ID_CONFLICT` because its fingerprint predates endpoint binding. Inspect the saved result and current resources rather than changing the ID to replay an uncertain action.
+
+For remote execution, read [SSH endpoints](ssh.md). For version-gated event waits, read [tmux 3.8 events](events38.md).

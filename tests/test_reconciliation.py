@@ -62,6 +62,12 @@ class ReconciliationTests(unittest.TestCase):
 
             result = _reconcile(service, "task-a")
 
+            self.assertEqual(registry.get(record["record_id"])["cleanup_status"], "unknown")
+            self.assertEqual(result["outcomes"][0]["outcome"], "unchanged_or_requires_review")
+            service._snapshot = lambda: {"server": {"instance_id": "server-old"},
+                                         "panes": [], "links": [], "observed_at": "2026-11-06T12:00:01Z"}
+            result = _reconcile(service, "task-a")
+
             updated = registry.get(record["record_id"])
             self.assertEqual(updated["cleanup_status"], "closed")
             self.assertTrue(updated["cleanup_evidence"]["pane_absent"])

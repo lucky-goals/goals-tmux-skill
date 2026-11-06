@@ -42,6 +42,11 @@ _APPLE_SCRIPT = r'''on run argv
     end if
 end run'''
 
+_NATIVE_READONLY_SCOPE_WARNINGS = (
+    "native_gui_input_is_read_only",
+    "raw_control_mode_commands_can_still_mutate_the_session",
+)
+
 _ATTACH_WRAPPER = """#!/bin/sh
 set -eu
 if [ "$#" -lt 2 ]; then
@@ -115,21 +120,46 @@ class Viewer:
         requested_terminal = tui["terminal"]
         system = platform.system()
         current_tty = self._interactive_tty_available()
-        terminal, reason = self._resolve_terminal(requested_terminal, system)
-        mode_supported = mode == "tmux"
+        native_mode = mode == "iterm2-native"
+        if native_mode:
+            mode_supported = True
+            terminal = None
+            reason = None
+            if system != "Darwin":
+                reason = "iTerm2 native tmux integration requires macOS"
+            elif requested_terminal in {"terminal-app", "current"}:
+                reason = "iterm2-native mode requires the iTerm2 terminal"
+            elif not shutil.which("osascript"):
+                reason = "osascript is unavailable"
+            elif not self._app_installed("com.googlecode.iterm2"):
+                reason = "iTerm2 is not installed"
+            else:
+                terminal = "iTerm2"
+        else:
+            terminal, reason = self._resolve_terminal(requested_terminal, system)
+            mode_supported = mode == "tmux"
         if not enabled:
             available = False
             reason = "TUI display is disabled by configuration"
         elif not mode_supported:
             available = False
             reason = "iterm2-native mode is experimental and is not implemented"
-        elif requested_terminal == "current":
+        elif not native_mode and requested_terminal == "current":
             # A runner's stdio can carry the machine protocol. The current
             # process has no separate, explicit TTY handoff API.
             available = False
             reason = "current TTY attachment is unavailable through the runner API"
         else:
-            available = terminal is not None
+            available = terminal is not None and reason is None
+        warnings = [
+            "macOS launcher uses deprecated AppleScript",
+            "macOS may require terminal automation permission",
+        ] if available else []
+        if native_mode and available:
+            warnings.extend([
+                "Native iTerm2 mapped-pane input is read-only for this viewer client.",
+                "Raw tmux Control Mode commands can still mutate the session.",
+            ])
         return {
             "enabled": enabled,
             "available": available,
@@ -139,12 +169,9 @@ class Viewer:
             "mode": mode,
             "mode_supported": mode_supported,
             "current_tty_available": current_tty,
-            "iterm2_native_supported": False,
+            "iterm2_native_supported": native_mode and available,
             "reason": reason,
-            "warnings": [
-                "macOS launcher uses deprecated AppleScript",
-                "macOS may require terminal automation permission",
-            ] if available else [],
+            "warnings": warnings,
         }
 
     def open(
@@ -163,19 +190,15 @@ class Viewer:
         cfg = validate_config(config)
         tui = cfg["tui"]
         mode = tui["mode"]
-        manual = [tmux_binary, "-S", socket_path, "attach-session", "-r", "-t", session_id]
+        native_mode = mode == "iterm2-native"
+        manual = self._attach_argv(tmux_binary, socket_path, session_id, mode)
 
         if not tui["enabled"]:
             return self._base_result(
                 status="disabled", terminal=None, mode=mode, warnings=["tui_disabled"],
                 attach_command=manual,
             )
-        if mode != "tmux":
-            return self._base_result(
-                status="unavailable", terminal=tui["terminal"], mode=mode,
-                warnings=["iterm2_native_mode_not_implemented"], attach_command=manual,
-            )
-        if tui["terminal"] == "current":
+        if mode == "tmux" and tui["terminal"] == "current":
             return self._base_result(
                 status="unavailable", terminal="current", mode=mode,
                 warnings=["current_tty_handoff_unavailable"], attach_command=manual,
@@ -215,6 +238,13 @@ class Viewer:
                     )
                 prior = existing.get("record")
                 state = existing.get("state")
+                if isinstance(prior, dict) and state in {"attached", "launching", "unknown"}:
+                    if prior.get("mode") != mode:
+                        mismatch = dict(prior)
+                        mismatch["status"] = "unavailable" if state == "attached" else "unknown"
+                        mismatch["requested_mode"] = mode
+                        mismatch["warnings"] = ["registered_viewer_mode_mismatch_requires_hide_first"]
+                        return mismatch
                 if isinstance(prior, dict) and state == "attached":
                     clients = self._client_snapshot(tmux_binary, socket_path)
                     if clients is None:
@@ -223,7 +253,8 @@ class Viewer:
                         uncertain["warnings"] = ["existing_viewer_client_check_failed_no_retry"]
                         return uncertain
                     verified = self._match_client(
-                        clients, session_id, prior.get("viewer_pid"), readonly=True
+                        clients, session_id, prior.get("viewer_pid"), readonly=True,
+                        control_mode=(mode == "iterm2-native"),
                     )
                     if verified is not None and verified["client_tty"] == prior.get("_client_tty"):
                         reused = dict(prior)
@@ -231,8 +262,16 @@ class Viewer:
                             "reused_existing_viewer",
                             "launcher_uses_deprecated_applescript",
                             "macos_terminal_automation_permission_may_be_required",
+                            *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
                         ]
                         return reused
+                    if native_mode and self._find_client_identity(
+                        clients, session_id, prior.get("viewer_pid"), prior.get("_client_tty")
+                    ) is not None:
+                        uncertain = dict(prior)
+                        uncertain["status"] = "unknown"
+                        uncertain["warnings"] = ["existing_native_viewer_verification_failed_no_retry"]
+                        return uncertain
                     # A prior confirmed viewer has ended. A new explicit open may
                     # create a replacement, after confirming the server is stable.
                 elif state in {"launching", "unknown"}:
@@ -248,9 +287,10 @@ class Viewer:
                 "terminal": terminal,
                 "mode": mode,
                 "origin": "goals_tmux.viewer",
-                "viewer_origin": "macos_terminal_launcher",
+                "viewer_origin": "iterm2_native_launcher" if native_mode else "macos_terminal_launcher",
                 "viewer_client_id": None,
                 "viewer_pid": None,
+                "read_only_scope": None if native_mode else "viewer_client_input",
                 "socket_path": socket_path,
                 "session_id": session_id,
                 "server_instance_id": server_instance_id,
@@ -258,7 +298,7 @@ class Viewer:
                 "server_start_time": snapshot["start_time"],
                 "server_process_start": snapshot["process_start"],
                 "viewer_token": token,
-                "read_only": True,
+                "read_only": None if native_mode else True,
                 "warnings": [
                     "launcher_uses_deprecated_applescript",
                     "macos_terminal_automation_permission_may_be_required",
@@ -275,7 +315,7 @@ class Viewer:
             try:
                 self._launch_terminal(
                     terminal, marker_path=marker_path, tmux_binary=tmux_binary,
-                    socket_path=socket_path, session_id=session_id,
+                    socket_path=socket_path, session_id=session_id, mode=mode,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 entry["state"] = "unknown"
@@ -296,7 +336,8 @@ class Viewer:
                 self._write_registry(registry_path, entry)
                 return record
             client = self._wait_for_client(
-                tmux_binary, socket_path, session_id, pid, timeout=4.0, readonly=True
+                tmux_binary, socket_path, session_id, pid, timeout=4.0, readonly=True,
+                control_mode=native_mode,
             )
             if client is None:
                 entry["state"] = "unknown"
@@ -311,9 +352,12 @@ class Viewer:
                 "viewer_client_id": f"tty:{client['client_tty']}",
                 "viewer_pid": pid,
                 "_client_tty": client["client_tty"],
+                "read_only": True,
+                "read_only_scope": "native_gui_input" if native_mode else "viewer_client_input",
                 "warnings": [
                     "launcher_uses_deprecated_applescript",
                     "macos_terminal_automation_permission_may_be_required",
+                    *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
                 ],
             })
             entry["state"] = "attached"
@@ -378,9 +422,38 @@ class Viewer:
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
                 )
-            client = self._match_client(clients, session_id, viewer_pid, readonly=True)
             expected_tty = registered.get("_client_tty")
-            if client is None or client["client_tty"] != expected_tty or viewer_client_id != f"tty:{expected_tty}":
+            native_mode = registered.get("mode") == "iterm2-native"
+            client = self._match_client(
+                clients, session_id, viewer_pid, readonly=True, control_mode=native_mode
+            )
+            if client is None:
+                live_identity = self._find_client_identity(
+                    clients, session_id, viewer_pid, expected_tty
+                )
+                if native_mode and live_identity is not None:
+                    return self._base_result(
+                        status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
+                        warnings=["native_viewer_read_only_identity_changed_no_detach"],
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+                entry["state"] = "detached"
+                self._write_registry(registry_path, entry)
+                return self._base_result(
+                    status="not_attached", terminal=registered.get("terminal"), mode=registered.get("mode"),
+                    warnings=["registered_viewer_client_is_no_longer_attached"],
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if client["client_tty"] != expected_tty or viewer_client_id != f"tty:{expected_tty}":
+                if native_mode:
+                    return self._base_result(
+                        status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
+                        warnings=["native_viewer_tty_changed_no_detach"],
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
                 entry["state"] = "detached"
                 self._write_registry(registry_path, entry)
                 return self._base_result(
@@ -395,7 +468,10 @@ class Viewer:
             fresh_snapshot = self._server_snapshot(tmux_binary, socket_path, session_id)
             fresh_clients = self._client_snapshot(tmux_binary, socket_path)
             fresh_client = (
-                self._match_client(fresh_clients, session_id, viewer_pid, readonly=True)
+                self._match_client(
+                    fresh_clients, session_id, viewer_pid, readonly=True,
+                    control_mode=native_mode,
+                )
                 if fresh_clients is not None else None
             )
             if (
@@ -426,7 +502,7 @@ class Viewer:
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
                 )
-            after = self._match_client(after_clients, session_id, viewer_pid, readonly=True)
+            after = self._find_client_identity(after_clients, session_id, viewer_pid, expected_tty)
             if after is not None:
                 return self._base_result(
                     status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
@@ -716,17 +792,26 @@ class Viewer:
         except (OSError, subprocess.SubprocessError) as exc:
             return subprocess.CompletedProcess(argv, 127, "", str(exc))
 
+    @staticmethod
+    def _attach_argv(tmux_binary: str, socket_path: str, session_id: str, mode: str) -> list[str]:
+        argv = [tmux_binary, "-S", socket_path]
+        if mode == "iterm2-native":
+            argv.append("-CC")
+        argv.extend(["attach-session", "-r", "-t", session_id])
+        return argv
+
     def _client_snapshot(self, tmux_binary: str, socket_path: str) -> list[dict[str, object]] | None:
         result = self._run_tmux(
             tmux_binary, socket_path,
-            ["list-clients", "-F", "#{client_pid}|#{session_id}|#{client_tty}|#{client_flags}"],
+            ["list-clients", "-F",
+             "#{client_pid}|#{session_id}|#{client_tty}|#{client_flags}|#{client_control_mode}|#{client_readonly}"],
         )
         if result.returncode != 0:
             return None
         clients: list[dict[str, object]] = []
         for line in result.stdout.splitlines():
-            fields = line.split("|", 3)
-            if len(fields) != 4:
+            fields = line.split("|", 5)
+            if len(fields) < 4:
                 continue
             try:
                 pid = int(fields[0])
@@ -737,24 +822,28 @@ class Viewer:
                 "session_id": fields[1],
                 "client_tty": fields[2],
                 "client_flags": set(fields[3].split(",")) if fields[3] else set(),
+                "client_control_mode": fields[4] if len(fields) >= 5 else None,
+                "client_readonly": fields[5] if len(fields) >= 6 else None,
             })
         return clients
 
     def _find_verified_client(
         self, tmux_binary: str, socket_path: str, session_id: str,
-        viewer_pid: object, *, readonly: bool,
+        viewer_pid: object, *, readonly: bool, control_mode: bool = False,
     ) -> dict[str, object] | None:
         if type(viewer_pid) is not int or viewer_pid <= 0:
             return None
         clients = self._client_snapshot(tmux_binary, socket_path)
         if clients is None:
             return None
-        return self._match_client(clients, session_id, viewer_pid, readonly=readonly)
+        return self._match_client(
+            clients, session_id, viewer_pid, readonly=readonly, control_mode=control_mode
+        )
 
     @staticmethod
     def _match_client(
         clients: list[dict[str, object]], session_id: str,
-        viewer_pid: object, *, readonly: bool,
+        viewer_pid: object, *, readonly: bool, control_mode: bool = False,
     ) -> dict[str, object] | None:
         if type(viewer_pid) is not int or viewer_pid <= 0:
             return None
@@ -766,17 +855,41 @@ class Viewer:
             flags = client["client_flags"]
             if readonly and (not isinstance(flags, set) or "read-only" not in flags):
                 continue
+            if control_mode and (
+                client.get("client_control_mode") != "1"
+                or client.get("client_readonly") != "1"
+            ):
+                continue
             return client
+        return None
+
+    @staticmethod
+    def _find_client_identity(
+        clients: list[dict[str, object]], session_id: str,
+        viewer_pid: object, client_tty: object,
+    ) -> dict[str, object] | None:
+        if type(viewer_pid) is not int or viewer_pid <= 0:
+            return None
+        if not isinstance(client_tty, str) or not client_tty:
+            return None
+        for client in clients:
+            if (
+                client.get("client_pid") == viewer_pid
+                and client.get("session_id") == session_id
+                and client.get("client_tty") == client_tty
+            ):
+                return client
         return None
 
     def _wait_for_client(
         self, tmux_binary: str, socket_path: str, session_id: str,
-        pid: int, *, timeout: float, readonly: bool,
+        pid: int, *, timeout: float, readonly: bool, control_mode: bool = False,
     ) -> dict[str, object] | None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             client = self._find_verified_client(
-                tmux_binary, socket_path, session_id, pid, readonly=readonly
+                tmux_binary, socket_path, session_id, pid, readonly=readonly,
+                control_mode=control_mode,
             )
             if client is not None:
                 return client
@@ -802,14 +915,12 @@ class Viewer:
 
     def _launch_terminal(
         self, terminal: str, *, marker_path: str, tmux_binary: str,
-        socket_path: str, session_id: str,
+        socket_path: str, session_id: str, mode: str = "tmux",
     ) -> None:
         self._ensure_wrapper()
         wrapper = str(self._state_root / "attach-wrapper.sh")
-        command = " ".join(shlex.quote(part) for part in [
-            wrapper, marker_path, tmux_binary, "-S", socket_path,
-            "attach-session", "-r", "-t", session_id,
-        ])
+        attach_argv = self._attach_argv(tmux_binary, socket_path, session_id, mode)
+        command = " ".join(shlex.quote(part) for part in [wrapper, marker_path, *attach_argv])
         app_id = "com.googlecode.iterm2" if terminal == "iTerm2" else "com.apple.Terminal"
         osascript = shutil.which("osascript")
         if not osascript:
@@ -857,14 +968,23 @@ class Viewer:
         marker = entry.get("marker_path")
         pid = self._wait_for_pidfile(Path(marker), timeout=0.35) if isinstance(marker, str) else None
         if pid is not None:
-            client = self._wait_for_client(tmux_binary, socket_path, session_id, pid, timeout=0.6, readonly=True)
+            native_mode = mode == "iterm2-native"
+            client = self._wait_for_client(
+                tmux_binary, socket_path, session_id, pid, timeout=0.6,
+                readonly=True, control_mode=native_mode,
+            )
             if client is not None:
                 record.update({
                     "status": "attached",
                     "viewer_client_id": f"tty:{client['client_tty']}",
                     "viewer_pid": pid,
                     "_client_tty": client["client_tty"],
-                    "warnings": ["recovered_existing_viewer_launch"],
+                    "read_only": True,
+                    "read_only_scope": "native_gui_input" if native_mode else "viewer_client_input",
+                    "warnings": [
+                        "recovered_existing_viewer_launch",
+                        *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
+                    ],
                 })
                 entry["state"] = "attached"
                 entry["record"] = record
@@ -879,7 +999,7 @@ class Viewer:
         fields = (
             "socket_path", "session_id", "server_instance_id", "viewer_token",
             "viewer_pid", "viewer_client_id", "server_pid", "server_start_time",
-            "server_process_start", "terminal", "mode", "read_only",
+            "server_process_start", "terminal", "mode", "read_only", "read_only_scope",
         )
         return all(provided.get(field) == registered.get(field) for field in fields)
 

@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-06",
+  "scope": "scripts/tmuxctl subprocess against an isolated private socket and /bin/sh pane",
+  "tmux_38": "tmux 3.8",
+  "ordinary_tmux": "tmux 3.6a",
+  "policy": {
+    "read_only": false,
+    "pane_scope": "one managed test pane",
+    "grants": [
+      "create",
+      "close",
+      "monitor"
+    ]
+  },
+  "doctor_38": {
+    "event_wait_available": true,
+    "format_monitors_available": true
+  },
+  "wait_state_change": {
+    "cli_status": "ok",
+    "state": "changed",
+    "field": "pane_title",
+    "value_observed": "events38-title-observed",
+    "monitor_cleanup": "removed",
+    "pending_state_monitors_after": []
+  },
+  "wait_state_timeout": {
+    "cli_status": "ok",
+    "state": "timeout",
+    "monitor_cleanup": "removed",
+    "pending_state_monitors_after": []
+  },
+  "doctor_36a": {
+    "event_wait_available": false,
+    "format_monitors_available": false,
+    "event_wait_reason": "client_version_unsupported"
+  },
+  "wait_event_36a": {
+    "status": "refused",
+    "code": "TMUX_EVENT_WAIT_UNAVAILABLE"
+  },
+  "task_lifecycle": {
+    "accepted": true,
+    "service_close_pane": "closed",
+    "settled": true,
+    "pending_state_monitors": [],
+    "server_after_close": null
+  },
+  "cleanup": "Service.close_pane closed the only managed pane; no kill-server was used."
+}

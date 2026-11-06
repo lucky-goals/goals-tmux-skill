@@ -41,12 +41,17 @@ def _context(record):
 
 
 class Service:
-    def __init__(self, socket_path, *, state_dir=None, config_path=None, tmux_binary=None):
+    def __init__(self, socket_path, *, state_dir=None, config_path=None, tmux_binary=None, endpoint_namespace=None):
         path = Path(socket_path).expanduser()
         if not path.is_absolute() or "\0" in str(path):
             raise DomainError("INVALID_ENDPOINT", "socket path must be absolute")
         self.socket_path = os.path.abspath(path)
         self.endpoint_id = "local-" + hashlib.sha256(self.socket_path.encode()).hexdigest()[:20]
+        self.endpoint_namespace = endpoint_namespace
+        if endpoint_namespace:
+            if not re.fullmatch(r"ssh-[0-9a-f]{24}", endpoint_namespace):
+                raise DomainError("INVALID_ENDPOINT", "invalid SSH endpoint namespace")
+            self.endpoint_id = endpoint_namespace + "-" + hashlib.sha256(self.socket_path.encode()).hexdigest()[:20]
         self.state_dir = state_dir_path(state_dir)
         self.tmux = Tmux(self.socket_path, binary=tmux_binary, config_file="/dev/null")
         self.store = OperationStore(self.state_dir)
@@ -76,7 +81,7 @@ class Service:
                 data = self._read(request, snap, affected)
                 return contract.result(request_id, data=data)
             with self.store.operation_lock():
-                fingerprint = fingerprint_arguments(request)
+                fingerprint = self._request_fingerprint(request)
                 # A completed/uncertain request is reconciled before stale snapshots
                 # are evaluated: it can never execute a second time.
                 if self.store.status(request_id) is not None:
@@ -119,8 +124,22 @@ class Service:
                                    {"error_type": type(exc).__name__},
                                    side_effects="unknown" if unknown else "none")
 
+    def _request_fingerprint(self, request):
+        # Bind even target-less creation requests to the configured endpoint.
+        # Reusing an ID on another socket must never return the first result.
+        return fingerprint_arguments({"endpoint_id": self.endpoint_id, "request": request})
+
     def _snapshot(self):
-        snap = snapshot(self.tmux)
+        # A busy sibling pane can change while discovery reads its metadata.
+        # Retry only the read, never the command whose result is being checked.
+        for attempt in range(3):
+            try:
+                snap = snapshot(self.tmux)
+                break
+            except DomainError as exc:
+                if exc.code != "TMUX_TOPOLOGY_STALE" or attempt == 2:
+                    raise
+                time.sleep(0.02)
         snap["endpoint_id"] = self.endpoint_id
         snap["observation"] = self.observation(snap)
         return snap
@@ -281,10 +300,16 @@ class Service:
                         and receipt.get("status") not in {"registered", "absent"}):
                     pending.append({"path": str(path), **receipt})
         report["pending_creations"] = pending
+        monitors = []
+        if (self.state_dir / "state-monitors").exists():
+            from .events38 import report_state_receipts
+            monitors = report_state_receipts(self.state_dir, task_id=task_id)["pending"]
+        report["pending_state_monitors"] = monitors
         registered_count = report["counts"]["total"]
         outstanding = list(report.get("outstanding", []))
         outstanding.extend({"kind": "pending_creation", **item} for item in pending)
-        count = registered_count + len(pending)
+        outstanding.extend({"kind": "pending_state_monitor", **item} for item in monitors)
+        count = registered_count + len(pending) + len(monitors)
         unsettled_count = len(outstanding)
         report["count"] = count
         report["unsettled_count"] = unsettled_count
@@ -293,6 +318,7 @@ class Service:
         report["counts"]["outstanding"] = unsettled_count
         report["counts"]["settled"] = count - unsettled_count
         report["counts"]["pending_creations"] = len(pending)
+        report["counts"]["pending_state_monitors"] = len(monitors)
         report["settled"] = bool(count) and unsettled_count == 0
         return report
 
@@ -317,13 +343,12 @@ class Service:
             capture = read_capture(self.tmux, affected[0]["pane_id"], history=lines, max_lines=maximum, max_bytes=max_bytes)
             capture["pane"] = affected[0]
             return capture
-        from .cli_adapters import inspect_recovery
         records = {r["pane_id"]: r for r in self._records(snap)}
         if op == "inspect_recovery":
-            return inspect_recovery(affected[0], records.get(affected[0]["pane_id"], {}).get("cli"))
+            return self._inspect_recovery(affected[0], records.get(affected[0]["pane_id"]))
         table = process_table()
         return {"panes": [{"pane": p, "activity": inspect_pane(p, table=table),
-                           "recovery": inspect_recovery(p, records.get(p["pane_id"], {}).get("cli"))}
+                           "recovery": self._inspect_recovery(p, records.get(p["pane_id"]))}
                           for p in affected], "observation": snap["observation"]}
 
     def _execute(self, request, snap, affected, records):
@@ -377,15 +402,55 @@ class Service:
         raise DomainError("UNSUPPORTED_OPERATION", op)
 
     def _save_exit_recovery(self, pane, records):
-        from .cli_adapters import inspect_recovery
         for record in records:
-            evidence = inspect_recovery(pane, record.get("cli"))
+            evidence = self._inspect_recovery(pane, record)
             previous = record.get("recovery")
             if evidence.get("status") != "ready" and isinstance(previous, dict) and previous.get("status") == "ready":
                 evidence = previous
             quality = "ready" if evidence.get("status") == "ready" else "degraded" if record.get("cli") else "not_applicable"
             self.registry.update(record["record_id"], _context(record), {"recovery": evidence, "recovery_status": quality})
             self.tasks.event(record["task_id"], "normal_exit_recovery", {"quality": quality, "evidence": evidence}, pane_id=pane["pane_id"])
+
+    def _inspect_recovery(self, pane, record=None):
+        from .cli_adapters import inspect_recovery
+        cli = (record or {}).get("cli")
+        if not record or not cli or not pane.get("dead"):
+            return inspect_recovery(pane, cli)
+        from .cli_adapters import parse_exit_hint
+        # Exit-screen hints are candidates only. Require the exact historical
+        # pane PID and its own observed dispatch before consulting durable data.
+        if pane.get("pid") != record.get("pane_pid") or not record.get("process_instance_id"):
+            return inspect_recovery(pane, cli)
+        task = self.tasks.get(record["task_id"])
+        dispatches = [d for d in task.get("dispatches", [])
+                      if d.get("status") == "observed"
+                      and (d.get("binding") or {}).get("record_id") == record["record_id"]
+                      and (d.get("binding") or {}).get("process_instance_id") == record["process_instance_id"]]
+        if not dispatches:
+            return inspect_recovery(pane, cli)
+        text = read_capture(self.tmux, pane["pane_id"], history=2000, max_lines=2000,
+                            max_bytes=1048576)["text"]
+        # Native exit hints are short terminal-tail lines. Keep whole lines
+        # within the adapter's bound, even after a long-running conversation.
+        tail, size = [], 0
+        for line in reversed(text.splitlines()):
+            length = len(line.encode("utf-8")) + 1
+            if size + length > 65536:
+                break
+            tail.append(line)
+            size += length
+        text = "\n".join(reversed(tail))
+        candidate = parse_exit_hint(cli["name"], text)
+        if candidate.get("reason") == "native_resume_hint_not_found" and cli.get("conversation_id"):
+            candidate = {"status": "degraded", "reason": "startup_conversation_candidate",
+                         "id_source": "startup_only", "cli": cli["name"],
+                         "conversation_id": cli["conversation_id"]}
+        historical = {**pane, "cwd": cli.get("cwd", task["cwd"]),
+                      "process_instance_id": record["process_instance_id"]}
+        candidate.update(pane_id=pane["pane_id"], cwd=historical["cwd"],
+                         process_instance_id=record["process_instance_id"], observed_after_exit=True)
+        return inspect_recovery(historical, cli, exit_evidence=candidate,
+                                dispatch_markers=[dispatches[-1]["dispatch_id"]])
 
     def _create(self, request, snap):
         args, op = request["arguments"], request["operation"]
@@ -400,11 +465,15 @@ class Service:
             if op == "launch_cli":
                 argv = launch_argv(args["cli"], permission_mode=mode, extra_args=args.get("extra_args"))
             else:
-                argv = resume_argv(args["cli"], args["conversation_id"], permission_mode=mode)
+                argv = resume_argv(args["cli"], args["conversation_id"], permission_mode=mode,
+                                   extra_args=args.get("extra_args"))
             cli_info = {"name": args["cli"], "permission_mode": mode,
-                        "conversation_id": args.get("conversation_id"), "identity_status": "startup_only"}
+                        "conversation_id": args.get("conversation_id"), "identity_status": "startup_only",
+                        "extra_args": deepcopy(args.get("extra_args") or [])}
         else:
             argv = args.get("program_argv", ["/bin/sh"])
+        if isinstance(cli_info, dict):
+            cli_info = {**cli_info, "cwd": str(cwd)}
         if not isinstance(argv, list) or not argv or len(argv) > 128:
             raise DomainError("INVALID_ARGUMENT", "program_argv must contain 1–128 string arguments")
         for item in argv:
@@ -489,6 +558,9 @@ class Service:
                 "recovery_verification": "pending" if op == "restore_cli" else None}
 
     def _show_viewer(self, session_id, overrides, snap):
+        if self.endpoint_namespace:
+            return {"status": "unavailable", "reason": "ssh_viewer_requires_manual_attach",
+                    "socket_path": self.socket_path, "session_id": session_id}
         if overrides is not None and not isinstance(overrides, dict):
             raise DomainError("INVALID_ARGUMENT", "tui override must be an object")
         config = self.config.effective({"tui": overrides} if overrides else None)
@@ -607,7 +679,6 @@ class Service:
         return probes
 
     def _close(self, request, snap, affected, records):
-        from .cli_adapters import inspect_recovery
         receipt_id = uuid.uuid4().hex
         receipt_path = self.state_dir / "recovery" / (receipt_id + ".json")
         receipt = {"schema_version": 1, "request_id": request["request_id"], "created_at": _now(),
@@ -616,17 +687,22 @@ class Service:
                    "forced": request["arguments"].get("force", False), "panes": [], "outcomes": []}
         for pane in affected:
             record = next(r for r in records if r["pane_id"] == pane["pane_id"])
-            recovery = inspect_recovery(pane, record.get("cli"))
-            if recovery.get("status") != "ready" and isinstance(record.get("recovery"), dict):
-                recovery = {**record["recovery"], "historical": True}
+            recovery = self._inspect_recovery(pane, record)
+            previous = record.get("recovery")
+            if recovery.get("status") != "ready" and isinstance(previous, dict) and previous.get("status") == "ready":
+                recovery = {**previous, "historical": True, "current_inspection": recovery}
             receipt["panes"].append({"pane_id": pane["pane_id"], "process_instance_id": pane.get("process_instance_id"),
                                      "cwd": pane.get("cwd"), "recovery": recovery})
         atomic_json(receipt_path, receipt)
         closing_records = []
         for record in records:
+            recovery = next(item["recovery"] for item in receipt["panes"] if item["pane_id"] == record["pane_id"])
+            quality = recovery.get("status", "unknown") if record.get("cli") else "not_applicable"
             closing_records.append(self.registry.update(record["record_id"], _context(record),
                                    {"cleanup_status": "closing", "monitor_status": "stopped",
-                                    "coordinator_phase": "finalizing"}))
+                                    "coordinator_phase": "finalizing", "recovery": recovery,
+                                    "recovery_status": quality, "recovery_record_id": receipt_id,
+                                    "recovery_record_path": str(receipt_path)}))
         try:
             fresh = self._snapshot()
             if (fresh.get("server") or {}).get("instance_id") != snap["server"]["instance_id"]:

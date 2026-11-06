@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-06",
+  "task": {
+    "id": "four-cli-recovery-v2",
+    "root": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli-recovery-v2",
+    "historical_run": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli",
+    "workspace": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli/workspace",
+    "accepted_at": "2026-11-06T13:42:16+00:00",
+    "settled_at": "2026-11-06T13:44:04+00:00",
+    "coordinator_phase": "settled"
+  },
+  "summary": {
+    "cli_count": 4,
+    "resumed_and_proofed": 4,
+    "recovery_ready": 3,
+    "recovery_degraded": 1,
+    "normal_exit_panes_dead_status_0": 4,
+    "cleanup_closed": 4,
+    "settled": 4
+  },
+  "historical_memory_consistency": {
+    "result": "dispatch_ids_match",
+    "record": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli/run.json",
+    "note": "Each resumed-memory proof names the same original dispatch ID(s) recorded for that CLI in the historical run. That run record contains dispatch IDs and startup metadata, but no conversation IDs or proof payloads, so this is a dispatch-level consistency check."
+  },
+  "clis": {
+    "claude": {
+      "conversation_id": "226e9307-1d8b-41f6-b3ed-530fc8a6934b",
+      "original_dispatch_ids": [
+        "four-cli-collaboration-g1-b6736e7b-C01-dfc0cab0",
+        "four-cli-collaboration-g1-b6736e7b-C02-bedbc631"
+      ],
+      "proof_file": "recovery-v2-proof/claude.json",
+      "proof_sha256": "e1c17273c60ddf72fafcfbd3350ec61dfc71ef3dc686c785c953b477f6f8e1b9",
+      "semantic_outcome": "Implemented normalize_events to the shared contract; C01 smoke checks passed 19/19. C02 reproduced the huge-integer timestamp OverflowError, then fixed it; post-fix smoke checks passed 24/24.",
+      "recovery": {
+        "status": "ready",
+        "reason": "exit_hint_and_durable_transcript_verified",
+        "id_source": "durable_exit_transcript",
+        "evidence": [
+          "native_resume_command_line",
+          "durable_record_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "normal_exit": {
+        "operation": "send_text",
+        "input": "/exit",
+        "observed_at": "2026-11-06T13:42:22.907836Z",
+        "pane_id": "%0",
+        "pane_dead": true,
+        "exit_status": 0
+      },
+      "cleanup_status": "closed",
+      "coordinator_phase": "settled"
+    },
+    "codex": {
+      "conversation_id": "01a1b0d0-3b87-70a0-9175-dda0f50761bf",
+      "original_dispatch_ids": [
+        "four-cli-collaboration-g1-1c8792bf-C01-d55a567b",
+        "four-cli-collaboration-g1-1c8792bf-C02-9cf68e67"
+      ],
+      "proof_file": "recovery-v2-proof/codex.json",
+      "proof_sha256": "2d68adcd5cc2509335dc65ecd85548f7052975162772ffeaf923e635073baea0",
+      "semantic_outcome": "Owned the standard-library unittest coverage, including huge-integer timestamp regressions. C01 passed 16/16 tests; C02 passed 19/19 after Claude's fix.",
+      "recovery": {
+        "status": "ready",
+        "reason": "exit_hint_and_durable_transcript_verified",
+        "id_source": "durable_exit_transcript",
+        "evidence": [
+          "native_resume_command_line",
+          "durable_record_id_verified",
+          "session_meta_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "normal_exit": {
+        "operation": "send_keys",
+        "keys": [
+          "ctrl_d"
+        ],
+        "observed_at": "2026-11-06T13:42:52.143647Z",
+        "pane_id": "%1",
+        "pane_dead": true,
+        "exit_status": 0
+      },
+      "cleanup_status": "closed",
+      "coordinator_phase": "settled"
+    },
+    "cursor": {
+      "conversation_id": "503c7e56-8f7f-4d18-affe-af5a5a1f40fd",
+      "original_dispatch_ids": [
+        "four-cli-collaboration-g1-872081f5-C01-02d45227"
+      ],
+      "proof_file": "recovery-v2-proof/cursor.json",
+      "proof_sha256": "ebfb47542089baf8ab32a70762a09fd6c27b1d8ee29e4145147514cb8fd2d85c",
+      "semantic_outcome": "Independent review found no actionable issues. The final reviewed snapshot passed the 19-test suite, usage example, read-only edge-case probes, and file-hash consistency checks.",
+      "recovery": {
+        "status": "ready",
+        "reason": "exit_hint_and_durable_transcript_verified",
+        "id_source": "durable_exit_transcript",
+        "evidence": [
+          "native_resume_command_line",
+          "durable_record_id_verified",
+          "cursor_store_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "normal_exit": {
+        "operation": "send_keys",
+        "keys": [
+          "ctrl_d"
+        ],
+        "observed_at": "2026-11-06T13:43:08.174310Z",
+        "pane_id": "%2",
+        "pane_dead": true,
+        "exit_status": 0
+      },
+      "cleanup_status": "closed",
+      "coordinator_phase": "settled"
+    },
+    "agy": {
+      "conversation_id": "579eb5b7-419c-47f0-a1a6-f68cf16c55e4",
+      "original_dispatch_ids": [
+        "four-cli-collaboration-g1-d0261f34-C01-5ef80bee"
+      ],
+      "proof_file": "recovery-v2-proof/agy.json",
+      "proof_sha256": "6e2535689ee9ae1b7647f81de5577f888b25d08bb90823bca5c305aef8a80773",
+      "semantic_outcome": "Authored USAGE.md and example_usage.py; the example exited 0 and verified interleaved per-pane output, maximum timestamps, exit statuses, input immutability, and ValueError for an invalid pane ID.",
+      "recovery": {
+        "status": "degraded",
+        "reason": "agy_transcript_binding_unverified",
+        "id_source": "startup_only",
+        "evidence": [
+          "startup_conversation_id",
+          "resume_flag_documented"
+        ],
+        "transcript_paths": []
+      },
+      "last_exit_inspection": {
+        "reason": "agy_metadata_unavailable",
+        "id_source": "exit_screen_hint",
+        "evidence": [
+          "native_resume_command_line",
+          "durable_record_id_verified"
+        ],
+        "pane_dead": true,
+        "exit_status": 0,
+        "task_dispatch_marker_verified": false,
+        "durable_transcript_available": false
+      },
+      "normal_exit": {
+        "operation": "send_keys",
+        "keys": [
+          "ctrl_d"
+        ],
+        "observed_at": "2026-11-06T13:43:39.058532Z",
+        "pane_id": "%3",
+        "pane_dead": true,
+        "exit_status": 0
+      },
+      "cleanup_status": "closed",
+      "coordinator_phase": "settled"
+    }
+  },
+  "limits": [
+    "All four CLIs produced a proof after resuming, but agy's stored close registry remains degraded because transcript binding was not verified.",
+    "A post-exit agy screen hint recorded its native resume command and durable record ID, with reason agy_metadata_unavailable; no task-dispatch marker or durable transcript was confirmed, so the hint did not lift the degraded status."
+  ],
+  "post_cleanup_reinspection": {
+    "verified_at": "2026-11-06T14:01:40+00:00",
+    "source_run": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli-recovery-v2/run.json",
+    "method": "Read-only inspect_recovery using each closed registry record, its startup-only conversation candidate, and exactly its one recorded dispatch ID.",
+    "implementation": "Current cli_adapters requires the same pane/process/cwd binding and observed_after_exit=true, then checks exact durable conversation ID, cwd, and the current-run dispatch marker. For agy, immutable read-only mode is used only when the WAL is absent; a present WAL is opened mode=ro and is rejected before open if its existing SHM file is unavailable. Database, WAL, and SHM stat snapshots must remain unchanged.",
+    "candidate": {
+      "reason": "startup_conversation_candidate",
+      "id_source": "startup_only",
+      "observed_after_exit": true,
+      "native_exit_hint_claimed": false
+    },
+    "result": "4_of_4_ready",
+    "cwd": "/Users/jwyuan/.local/state/goals-tmux-skill/acceptance/20261106-four-cli/workspace",
+    "cwd_verified_for_all": true,
+    "registry_modified": false,
+    "models_restarted": false,
+    "historical_close_registry": {
+      "claude": "ready",
+      "codex": "ready",
+      "cursor": "ready",
+      "agy": "degraded",
+      "changed": false
+    },
+    "clis": {
+      "agy": {
+        "record_id": "pane-9a2300a8ddc5fd7369463ff238093f62154837546156eb0d31a88a7cfacfb349",
+        "conversation_id": "579eb5b7-419c-47f0-a1a6-f68cf16c55e4",
+        "dispatch_id": "four-cli-recovery-v2-g1-b28f760e-C01-e957598c",
+        "status": "ready",
+        "reason": "startup_candidate_and_durable_dispatch_verified",
+        "id_source": "durable_startup_transcript",
+        "evidence": [
+          "startup_conversation_id_candidate",
+          "durable_record_id_verified",
+          "agy_cascade_id_verified",
+          "agy_opaque_cwd_metadata_corroborated",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "claude": {
+        "record_id": "pane-8f1d8d5efe60107c57b4b8c3d3361b748c3f2823c47a87d0e6003bd6b1d8675e",
+        "conversation_id": "226e9307-1d8b-41f6-b3ed-530fc8a6934b",
+        "dispatch_id": "four-cli-recovery-v2-g1-4fe1e53c-C01-2b8a3bbf",
+        "status": "ready",
+        "reason": "startup_candidate_and_durable_dispatch_verified",
+        "id_source": "durable_startup_transcript",
+        "evidence": [
+          "startup_conversation_id_candidate",
+          "durable_record_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "codex": {
+        "record_id": "pane-3c7ad49c1b053eb56ff330956c711d06a9588c46e54e0fee4f7ca6680c0c67eb",
+        "conversation_id": "01a1b0d0-3b87-70a0-9175-dda0f50761bf",
+        "dispatch_id": "four-cli-recovery-v2-g1-93b8ede4-C01-024911b1",
+        "status": "ready",
+        "reason": "startup_candidate_and_durable_dispatch_verified",
+        "id_source": "durable_startup_transcript",
+        "evidence": [
+          "startup_conversation_id_candidate",
+          "durable_record_id_verified",
+          "session_meta_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      },
+      "cursor": {
+        "record_id": "pane-21e6c7e862b380d8030fecbd53d49379354787978c85459c563e9f2b651a0f0f",
+        "conversation_id": "503c7e56-8f7f-4d18-affe-af5a5a1f40fd",
+        "dispatch_id": "four-cli-recovery-v2-g1-a7a01e85-C01-3511cf2b",
+        "status": "ready",
+        "reason": "startup_candidate_and_durable_dispatch_verified",
+        "id_source": "durable_startup_transcript",
+        "evidence": [
+          "startup_conversation_id_candidate",
+          "durable_record_id_verified",
+          "cursor_store_id_verified",
+          "structured_cwd_verified",
+          "task_dispatch_marker_verified"
+        ]
+      }
+    }
+  }
+}

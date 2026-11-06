@@ -522,6 +522,7 @@ class Registry:
                 "recovery_record_id",
                 "recovery_record_path",
                 "recovery_evidence",
+                "recovery",
                 "cleanup_evidence",
                 "cleanup_reason",
                 "audit_evidence",
@@ -573,6 +574,9 @@ class Registry:
             updated["monitor_status"] = "unknown"
             updated["monitor_mode"] = "unknown"
             if cross_task:
+                for field in ("recovery", "recovery_evidence", "recovery_record_id", "recovery_record_path"):
+                    updated.pop(field, None)
+                updated["recovery_status"] = "unknown"
                 updated["origin"] = "borrowed"
                 updated["cleanup_policy"] = "retain"
                 updated.pop("cleanup_authorization", None)

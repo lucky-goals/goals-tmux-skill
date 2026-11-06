@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 import tempfile
@@ -40,9 +41,10 @@ class ConfigStoreTests(unittest.TestCase):
     def test_set_writes_private_atomic_config_and_preserves_other_values(self) -> None:
         configured = self.store.set("tui.terminal", "iterm2")
         self.assertEqual(configured["tui"]["terminal"], "iterm2")
+        self.assertEqual(self.store.set("tui.mode", "iterm2-native")["tui"]["mode"], "iterm2-native")
         self.assertEqual(self.store.set("tui.enabled", False)["tui"]["terminal"], "iterm2")
         self.assertEqual(self.store.load()["tui"], {
-            "enabled": False, "terminal": "iterm2", "mode": "tmux",
+            "enabled": False, "terminal": "iterm2", "mode": "iterm2-native",
         })
         self.assertEqual(stat.S_IMODE(self.config_path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.config_path.parent.stat().st_mode), 0o700)
@@ -120,12 +122,14 @@ class ViewerTests(unittest.TestCase):
         }
 
     @staticmethod
-    def _client(pid=456, tty="/dev/ttys007"):
+    def _client(pid=456, tty="/dev/ttys007", *, control_mode="0", readonly="1", flags=None):
         return {
             "client_pid": pid,
             "session_id": "$7",
             "client_tty": tty,
-            "client_flags": {"attached", "read-only"},
+            "client_flags": set(flags or {"attached", "read-only"}),
+            "client_control_mode": control_mode,
+            "client_readonly": readonly,
         }
 
     def _open_mocks(self):
@@ -151,6 +155,61 @@ class ViewerTests(unittest.TestCase):
              patch.object(self.viewer, "_app_installed", side_effect=[False, True]):
             result = self.viewer.diagnose(self.config)
         self.assertEqual(result["terminal"], "Terminal.app")
+
+    def test_native_diagnose_requires_iterm_and_does_not_fall_back(self) -> None:
+        native = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "auto", "mode": "iterm2-native"},
+        }
+        with patch("runtime.goals_tmux.viewer.platform.system", return_value="Darwin"), \
+             patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+             patch.object(self.viewer, "_app_installed", return_value=True) as app:
+            available = self.viewer.diagnose(native)
+        self.assertTrue(available["available"])
+        self.assertTrue(available["mode_supported"])
+        self.assertTrue(available["iterm2_native_supported"])
+        self.assertEqual(available["terminal"], "iTerm2")
+        self.assertIn("Native iTerm2 mapped-pane input is read-only for this viewer client.", available["warnings"])
+        self.assertIn("Raw tmux Control Mode commands can still mutate the session.", available["warnings"])
+        app.assert_called_once_with("com.googlecode.iterm2")
+
+        with patch("runtime.goals_tmux.viewer.platform.system", return_value="Darwin"), \
+             patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+             patch.object(self.viewer, "_app_installed", return_value=False) as app:
+            unavailable = self.viewer.diagnose(native)
+        self.assertFalse(unavailable["available"])
+        self.assertEqual(unavailable["reason"], "iTerm2 is not installed")
+        app.assert_called_once_with("com.googlecode.iterm2")
+
+        for terminal in ("terminal-app", "current"):
+            selected = {
+                "schema_version": 1,
+                "tui": {"enabled": True, "terminal": terminal, "mode": "iterm2-native"},
+            }
+            with patch("runtime.goals_tmux.viewer.platform.system", return_value="Darwin"), \
+                 patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+                 patch.object(self.viewer, "_app_installed", return_value=True):
+                result = self.viewer.diagnose(selected)
+            self.assertFalse(result["available"])
+            self.assertEqual(result["reason"], "iterm2-native mode requires the iTerm2 terminal")
+
+    def test_attach_argv_adds_control_mode_only_for_native(self) -> None:
+        ordinary = self.viewer._attach_argv("/tmux", "/tmp/task.sock", "$7", "tmux")
+        native = self.viewer._attach_argv("/tmux", "/tmp/task.sock", "$7", "iterm2-native")
+        self.assertEqual(ordinary, ["/tmux", "-S", "/tmp/task.sock", "attach-session", "-r", "-t", "$7"])
+        self.assertEqual(native, ["/tmux", "-S", "/tmp/task.sock", "-CC", "attach-session", "-r", "-t", "$7"])
+
+        with patch.object(self.viewer, "_ensure_wrapper"), \
+             patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+             patch("runtime.goals_tmux.viewer.subprocess.run") as run:
+            self.viewer._launch_terminal(
+                "iTerm2", marker_path="/state/marker.pid", tmux_binary="/tmux",
+                socket_path="/tmp/task.sock", session_id="$7", mode="iterm2-native",
+            )
+        args = run.call_args.args[0]
+        self.assertEqual(args[3], "com.googlecode.iterm2")
+        command_parts = shlex.split(args[4])
+        self.assertEqual(command_parts[2:], native)
 
     def test_disabled_current_and_native_modes_never_launch(self) -> None:
         with patch.object(self.viewer, "_launch_terminal") as launch:
@@ -188,6 +247,83 @@ class ViewerTests(unittest.TestCase):
         self.assertTrue(result["read_only"])
         self.assertEqual(result["server_pid"], 345)
         launch.assert_called_once()
+
+    def test_native_open_requires_verified_readonly_control_mode_client(self) -> None:
+        config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal") as launch, \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client(control_mode="1")) as wait:
+            result = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="native-server",
+            )
+        self.assertEqual(result["status"], "attached")
+        self.assertEqual(result["mode"], "iterm2-native")
+        self.assertEqual(result["viewer_origin"], "iterm2_native_launcher")
+        self.assertTrue(result["read_only"])
+        self.assertEqual(result["read_only_scope"], "native_gui_input")
+        self.assertEqual(result["viewer_client_id"], "tty:/dev/ttys007")
+        self.assertEqual(launch.call_args.kwargs["mode"], "iterm2-native")
+        self.assertTrue(wait.call_args.kwargs["control_mode"])
+        self.assertIn("native_gui_input_is_read_only", result["warnings"])
+        self.assertIn("raw_control_mode_commands_can_still_mutate_the_session", result["warnings"])
+
+    def test_native_reuse_preserves_readonly_scope_warning(self) -> None:
+        config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"},
+        }
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            first = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="native-server",
+            )
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_client_snapshot", return_value=[self._client(control_mode="1")]), \
+             patch.object(self.viewer, "_launch_terminal") as launch:
+            reused = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="native-server",
+            )
+        self.assertEqual(reused["status"], "attached")
+        self.assertEqual(reused["viewer_token"], first["viewer_token"])
+        self.assertIn("reused_existing_viewer", reused["warnings"])
+        self.assertIn("native_gui_input_is_read_only", reused["warnings"])
+        self.assertIn("raw_control_mode_commands_can_still_mutate_the_session", reused["warnings"])
+        launch.assert_not_called()
+
+    def test_native_open_refuses_to_reuse_registered_ordinary_viewer(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2] as first_launch, patches[3], patches[4]:
+            ordinary = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="same-server",
+            )
+        native = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal") as second_launch:
+            mismatch = self.viewer.open(
+                "/private/tmp/task.sock", "$7", native,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="same-server",
+            )
+        self.assertEqual(mismatch["status"], "unavailable")
+        self.assertEqual(mismatch["requested_mode"], "iterm2-native")
+        self.assertEqual(mismatch["mode"], "tmux")
+        self.assertEqual(mismatch["viewer_token"], ordinary["viewer_token"])
+        self.assertIn("registered_viewer_mode_mismatch_requires_hide_first", mismatch["warnings"])
+        first_launch.assert_called_once()
+        second_launch.assert_not_called()
 
     def test_launch_failure_includes_bounded_sanitized_stderr(self) -> None:
         error = subprocess.CalledProcessError(
@@ -258,6 +394,50 @@ class ViewerTests(unittest.TestCase):
         self.assertEqual(result["status"], "detached")
         run.assert_called_once()
         self.assertEqual(run.call_args.args[2], ["detach-client", "-t", "/dev/ttys007"])
+
+    def test_native_hide_detaches_only_verified_control_mode_client(self) -> None:
+        config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal"), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client(control_mode="1")):
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="native-server",
+            )
+        clients = [[self._client(control_mode="1")], [self._client(control_mode="1")], []]
+        with patch.object(self.viewer, "_server_snapshot", side_effect=[self._snapshot(), self._snapshot()]), \
+             patch.object(self.viewer, "_client_snapshot", side_effect=clients), \
+             patch.object(self.viewer, "_run_tmux", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
+            result = self.viewer.hide(record, tmux_binary="/opt/homebrew/bin/tmux")
+        self.assertEqual(result["status"], "detached")
+        run.assert_called_once_with(
+            "/opt/homebrew/bin/tmux", "/private/tmp/task.sock",
+            ["detach-client", "-t", "/dev/ttys007"],
+        )
+
+    def test_native_client_parser_requires_readonly_and_control_mode_fields(self) -> None:
+        output = "456|$7|/dev/ttys007|attached,read-only,control-mode|1|1\n"
+        with patch.object(self.viewer, "_run_tmux", return_value=subprocess.CompletedProcess([], 0, output, "")):
+            clients = self.viewer._client_snapshot("/tmux", "/tmp/task.sock")
+        self.assertIsNotNone(clients)
+        self.assertEqual(self.viewer._match_client(clients, "$7", 456, readonly=True, control_mode=True), clients[0])
+
+        cases = (
+            self._client(flags={"attached", "control-mode"}),
+            self._client(control_mode="0"),
+            self._client(readonly="0"),
+            {"client_pid": 456, "session_id": "$7", "client_tty": "/dev/ttys007", "client_flags": set()},
+        )
+        for client in cases:
+            with self.subTest(client=client):
+                self.assertIsNone(
+                    self.viewer._match_client([client], "$7", 456, readonly=True, control_mode=True)
+                )
 
     def test_hide_rejects_tampered_identity_and_server_replacement(self) -> None:
         patches = self._open_mocks()

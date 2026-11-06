@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 from runtime.goals_tmux.errors import DomainError
 from runtime.goals_tmux.capture import read_capture
-from runtime.goals_tmux.operation_store import fingerprint_arguments
 from runtime.goals_tmux.service import Service
 from runtime.goals_tmux.storage import atomic_json, private_dir, read_json
 
@@ -244,7 +243,7 @@ class ServiceIntegrationTests(unittest.TestCase):
         request = self.pane_request("send_text", {"text": "UNKNOWN_JOURNAL_SENTINEL"}, pane_id, record)
         request["request_id"] = "reserved-with-unknown-outcome"
         reservation = self.service.store.reserve(
-            request["request_id"], fingerprint_arguments(request), request["operation"]
+            request["request_id"], self.service._request_fingerprint(request), request["operation"]
         )
         self.assertEqual("new", reservation.disposition)
 
@@ -254,6 +253,33 @@ class ServiceIntegrationTests(unittest.TestCase):
         self.assertEqual("OUTCOME_UNKNOWN", result["code"])
         capture = read_capture(self.service.tmux, pane_id)
         self.assertNotIn("UNKNOWN_JOURNAL_SENTINEL", capture["text"])
+
+    def test_request_id_cannot_reuse_cached_creation_on_another_socket(self) -> None:
+        request = self.request("create_session", {
+            "cwd": str(Path.cwd()), "program_argv": ["/bin/cat"],
+            "name": "endpoint-bound", "tui": {"enabled": False}},
+            task_context={"task_id": self.task_id, "coordinator_id": self.coordinator_id})
+        first = self.invoke(request)
+        self.assertEqual("ok", first["status"], first)
+        self.server_started = True
+        other = Service(str(self.root / "other.sock"), state_dir=self.state_dir,
+                        config_path=self.config_path, tmux_binary=TMUX)
+        second = other.invoke(request)
+        self.assertEqual("REQUEST_ID_CONFLICT", second["code"], second)
+        self.assertFalse((self.root / "other.sock").exists())
+
+    def test_restore_preserves_validated_launch_extras_in_registry(self) -> None:
+        extras = ["--add-dir", str(self.root)]
+        request = self.request("restore_cli", {
+            "cli": "codex", "cwd": str(Path.cwd()), "conversation_id": "saved-conversation",
+            "extra_args": extras, "tui": {"enabled": False}},
+            task_context={"task_id": self.task_id, "coordinator_id": self.coordinator_id})
+        with patch("runtime.goals_tmux.cli_adapters.resume_argv", return_value=["/bin/cat"]) as resume:
+            result = self.invoke(request)
+        self.assertEqual("ok", result["status"], result)
+        self.server_started = True
+        resume.assert_called_once_with("codex", "saved-conversation", permission_mode="default", extra_args=extras)
+        self.assertEqual(extras, result["data"]["record"]["cli"]["extra_args"])
 
     def test_create_register_failure_keeps_durable_unsettled_receipt(self) -> None:
         request = self.request(

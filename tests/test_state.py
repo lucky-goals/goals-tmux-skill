@@ -64,6 +64,23 @@ class StorageTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_monitor_grant_is_explicit_and_old_policy_defaults_to_disabled(self):
+        with tempfile.TemporaryDirectory() as root:
+            policy = Policy(Path(root) / "state")
+            socket_path = str(Path(root) / "tmux.sock")
+            policy.configure(socket_path, pane_ids=None)
+            old = policy.load()
+            del old["endpoints"][socket_path]["allow_monitor"]
+            atomic_json(policy.path, old)
+            self.assertFalse(policy.scope(socket_path)["allow_monitor"])
+            with self.assertRaises(DomainError) as caught:
+                policy.authorize("wait_state", socket_path, ["%1"])
+            self.assertEqual("MONITOR_NOT_ALLOWED", caught.exception.code)
+            policy.configure(socket_path, pane_ids=["%1"], allow_monitor=True)
+            policy.authorize("wait_state", socket_path, ["%1"])
+            with self.assertRaises(DomainError):
+                policy.authorize("wait_state", socket_path, ["%2"])
+
     def test_missing_policy_is_read_only_and_configured_owned_panes_are_explicit(self):
         with tempfile.TemporaryDirectory() as root:
             policy = Policy(Path(root) / "state")
@@ -150,6 +167,8 @@ class RegistryTests(unittest.TestCase):
                 "cleanup_status": "unknown",
                 "coordinator_phase": "finalizing",
                 "acceptance_evidence": {"accepted": True},
+                "recovery": {"status": "ready", "conversation_id": "old-conversation"},
+                "recovery_status": "ready",
             })
             with self.assertRaises(DomainError) as caught:
                 registry.guard([record], _context(record))
@@ -162,12 +181,17 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(handed["cleanup_status"], "unknown")
             self.assertEqual(handed["coordinator_phase"], "finalizing")
             self.assertNotIn("acceptance_evidence", handed)
+            self.assertNotIn("recovery", handed)
+            self.assertEqual("unknown", handed["recovery_status"])
 
     def test_rebind_advances_generation_and_never_erases_unknown_cleanup(self):
         with tempfile.TemporaryDirectory() as root:
             registry = Registry(Path(root) / "state")
             record = self._register(registry, pane={"pane_id": "%5", "window_id": "@2", "pid": 111,
                                                      "process_instance_id": "proc-old"})
+            record = registry.update(record["record_id"], _context(record), {
+                "recovery": {"status": "ready", "conversation_id": "old-conversation"},
+                "recovery_status": "ready"})
             rebound = registry.rebind(record["record_id"], _context(record),
                                       {"pane_id": "%5", "window_id": "@2", "pid": 222,
                                        "process_instance_id": "proc-new"},
@@ -177,6 +201,8 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(rebound["process_instance_id"], "proc-new")
             self.assertEqual(rebound["generation"], record["generation"] + 1)
             self.assertNotIn("acceptance_evidence", rebound)
+            self.assertNotIn("recovery", rebound)
+            self.assertEqual("unknown", rebound["recovery_status"])
 
             uncertain = registry.update(rebound["record_id"], _context(rebound), {"cleanup_status": "unknown"})
             with self.assertRaises(DomainError) as caught:
