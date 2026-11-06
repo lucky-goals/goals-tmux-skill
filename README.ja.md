@@ -1,21 +1,29 @@
 # goals-tmux-skill
 
-Skill バージョン：[v0.2.2](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2)
+Skill バージョン：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる Codex skill です。0.2.2 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
+`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.3 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
 
 調整役は目標の理解、進捗の観察、通常の判断、完了条件の確認を担当します。プロジェクトの編集、テスト、ビルドなど、状態を変更する作業は制御対象の Coding CLI が行います。実行境界と手順の詳細は [SKILL.md](SKILL.md) を参照してください。
+
+## ホストの要件と実行側 CLI
+
+**ホスト**は、この skill を読み込んで作業を調整する agent またはクライアントです。skill と参照ファイルの読み取り、調整記録の読み書き、必要な Python/tmux にアクセスできる環境での同梱 runner の実行、進行中のタスクの継続的な観察が必要です。ファイルやコマンドを扱えないチャット環境では、指示を読むだけでこの手順を実行することはできません。
+
+**実行側 CLI**は tmux 内で動作します。`claude`、`cursor`、`codex`、`agy` のアダプターは実行対象を示しており、対応ホストクライアントの一覧ではありません。4 種類の CLI の検証結果は、すべてのホストでの互換性を保証しません。skill の検出方法、インストール先、呼び出し構文、再読み込み方法はホストクライアントに依存します。
+
+`agents/openai.yaml` は任意の Codex 統合メタデータです。ほかのホストは無視できます。runner はこのファイルを読み取らず、パッケージ作成にも必須ではありません。
 
 ## コーディングエージェント経由でインストールする
 
 以下のプロンプトをローカルファイルシステムにアクセスできるコーディングエージェントにコピーし、対象クライアントと使用予定の coding CLI のプレースホルダーを置き換えてください。インストールでは skill を準備するだけで、コーディングタスクは開始しません。
 
 ```text
-[対象クライアント] に goals-tmux-skill v0.2.2 をインストールしてください。
+[対象クライアント] に goals-tmux-skill v0.2.3 をインストールしてください。
 リポジトリ：https://github.com/lucky-goals/goals-tmux-skill
-リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2
+リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3
 使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity]
 
 1. 対象クライアントがサポートする skill の仕組み、実際の検索パス、既存のインストールを確認してくださ
@@ -41,7 +49,7 @@ Skill バージョン：[v0.2.2](https://github.com/lucky-goals/goals-tmux-skill
    別々に報告してください。4 種類すべての CLI をインストールしたり、プロンプトに認証情報を記載したり
    しないでください。iTerm2 は実行に必須ではなく、ネイティブ GUI ビューワーモードでのみ必要です。
 6. メタデータ、相対参照、実行権限を確認してください。クライアントがサポートする再読み込み／検出方法
-   を使い、$goals-tmux-skill を検出できることを確認してください。検出を確認できない場合は、その事実
+   を使い、goals-tmux-skill を検出できることを確認してください。検出を確認できない場合は、その事実
    を正直に報告してください。モデルリクエストを開始したり、tmux セッションを作成したり、既存の端末内
    容を読み取ったり、既定の読み取り専用ポリシーを緩和したりしないでください。
 7. インストール先のパスとバージョン、Python/tmux のパスとバージョン、依存関係の変更、選択した CLI の
@@ -110,11 +118,13 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 2. skill の配置場所を選ぶ
 
-まず、対象クライアントがサポートするインストール方法と既存のコピーを確認してください。現在の Codex ドキュメントでは、ユーザー範囲は `~/.agents/skills/`、プロジェクト範囲はリポジトリ内の `.agents/skills/` とされています。クライアントが実際に認識するパスを使用してください。既存のインストールが `~/.codex/skills/` や別の設定済みパスにある場合は、競合するコピーを追加せず、そのインストールを確認してください。[Codex のローカル skill の配置場所](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)を参照してください。
+すべてのクライアントに共通する skill のインストール先はありません。対象クライアントがサポートする仕組み、選択した範囲、実際の検索パス、既存のコピーを確認し、そのクライアントが認識する場所にインストールしてください。重複したインストールは避けてください。
+
+**Codex の場合の例：**現在のドキュメントでは、ユーザー範囲は `~/.agents/skills/`、プロジェクト範囲はリポジトリ内の `.agents/skills/` です。既存のインストールが `~/.codex/skills/` や別の設定済みパスにある場合は、まずそのコピーを確認してください。これらのパスはほかのホストの要件ではありません。[Codex のローカル skill の配置場所](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)を参照してください。
 
 ### 3. パッケージ一式をダウンロードしてインストールする
 
-[v0.2.2 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
+[v0.2.3 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
 
 新しい Codex ユーザー範囲のインストールで、アセットを `~/Downloads/` に保存した場合は、次のようにします。
 
@@ -132,10 +142,10 @@ fi
 
 ### 4. インストール済みコピーを検証する
 
-新規インストールが成功したら、そのディレクトリから以下を実行します。
+新規インストールが成功したら、手順 3 で `skill_parent` を設定した同じシェルで実行してください。
 
 ```sh
-cd "$HOME/.agents/skills/goals-tmux-skill"
+cd "$skill_parent/goals-tmux-skill"
 scripts/bootstrap.sh --check
 scripts/tmuxctl --version
 scripts/tmuxctl capabilities --json
@@ -143,7 +153,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.2` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
+インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.3` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
 
 `doctor --cli-check` はインストール済み CLI の実行ファイルとバージョンを確認し、モデルリクエストは開始しません。使用する coding CLI をインストールしてサインインしてください。4 種類すべてをそろえる必要はありません。tmux の実行に iTerm2 は任意ですが、`iterm2-native` 表示には必要です。GUI の起動には macOS のオートメーション権限が必要な場合があります。SSH を使う場合は、ローカルの SSH クライアントとリモートホスト上のランタイム依存関係も必要です。[SSH の設定](references/ssh.md)を参照してください。
 
@@ -151,11 +161,13 @@ scripts/tmuxctl doctor --cli-check --json
 
 ### 5. 検出を確認してタスクを開始する
 
-クライアントに `$goals-tmux-skill` が表示されることを確認してください。Codex は skill の変更を自動検出します。表示されない場合は Codex を再起動して、もう一度確認してください。その他のクライアントでは、サポートされる再読み込み方法を使ってください。[公式 skill ガイド](https://learn.chatgpt.com/docs/build-skills)を参照してください。
+対象クライアントが `goals-tmux-skill` という名前の skill を検出できることを確認し、そのクライアントがサポートする方法で呼び出してください。この skill 自体は共通のコマンド接頭辞や再読み込み手順を要求しません。
+
+**Codex の場合の例：**明示的な呼び出しには `$goals-tmux-skill` を使います。Codex は skill の変更を自動検出します。表示されない場合は再起動して再確認してください。[Codex skill ガイド](https://learn.chatgpt.com/docs/build-skills)を参照してください。ほかのクライアントでは、それぞれの検出、呼び出し、再読み込み方法を使用してください。
 
 インストールと CLI のサインインが完了したら、タスクを開始できます。
 
-> `$goals-tmux-skill` を使って、Claude Code に `/absolute/project/path` のログインタイムアウトを修正してもらってください。プロジェクトの `AGENTS.md` に従い、関連するケースを検証した後、受け入れ条件を確認し、このタスクで作成した pane を片付けて、ほかのセッションは保持してください。
+> `goals-tmux-skill` を使って、Claude Code に `/absolute/project/path` のログインタイムアウトを修正してもらってください。適用されるプロジェクトの指示（存在する場合は `AGENTS.md` を含む）に従い、関連するケースを検証した後、受け入れ条件を確認し、このタスクで作成した pane を片付けて、ほかのセッションは保持してください。
 
 初期ポリシーは読み取り専用です。書き込みを伴う作業の前に `scripts/tmuxctl policy show` を実行して、endpoint と既存の権限を確認してください。そのタスクで許可された socket、pane、操作だけを設定してください。ポリシーの読み取り専用スイッチは設定済み endpoint に影響します。便宜上、無関係なリソースを有効にしないでください。[ランタイムリファレンス](references/runtime.md)を参照してください。
 

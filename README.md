@@ -1,21 +1,29 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.2](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2)
+Skill version: [v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a Codex skill for coordinating coding CLIs through tmux. Version 0.2.2 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.3 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
+
+## Host compatibility and execution CLIs
+
+The **host** is the agent or client that loads this skill and coordinates the work. It must be able to read the skill and its references, read and write coordination files, execute the bundled runner in an environment with the required Python/tmux access, and continue observing results during an active task. Reading the instructions in a chat without file and command execution access is not sufficient.
+
+The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, and `agy` adapters describe execution targets, not a list of compatible host clients. The four-CLI acceptance results do not establish compatibility with every host. Skill discovery, installation paths, invocation syntax, and reload behavior depend on the host client.
+
+`agents/openai.yaml` is optional Codex integration metadata. Other hosts may ignore it; the runner does not read it, and the package builder does not require it.
 
 ## Install through a coding agent
 
 Copy this prompt to a coding agent with local filesystem access. Replace the placeholders with your target client and the coding CLI you intend to use. Installation prepares the skill; it does not start a coding task.
 
 ```text
-Please install goals-tmux-skill v0.2.2 for [target client].
+Please install goals-tmux-skill v0.2.3 for [target client].
 Repository: https://github.com/lucky-goals/goals-tmux-skill
-Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2
+Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3
 Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
 
 1. Inspect the target client's supported skill mechanism, actual search paths, and
@@ -40,7 +48,7 @@ Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
    interactive sign-in separately; do not install all four CLIs or put credentials in prompts.
    iTerm2 is optional for execution and required only for its native GUI viewer mode.
 6. Verify metadata, relative references, and executable permissions. Use the client's
-   supported reload/discovery mechanism and confirm it can find $goals-tmux-skill.
+   supported reload/discovery mechanism and confirm it can find goals-tmux-skill.
    Report unverified discovery honestly. Do not start a model request, create a tmux
    session, read existing terminal contents, or widen the default read-only policy.
 7. Report the installed path and version, Python/tmux paths and versions, dependency
@@ -108,11 +116,13 @@ If one dependency already satisfies the requirement, install only the missing on
 
 ### 2. Choose the skill location
 
-Inspect the target client's supported installation mechanism and existing copies first. Current Codex documentation lists `~/.agents/skills/` for user scope and `.agents/skills/` in a repository for project scope. Use the path actually recognized by your client; if an existing installation uses `~/.codex/skills/` or another configured location, inspect that installation instead of adding a competing copy. See [Codex local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
+There is no universal skill installation directory. Inspect the target client's supported mechanism, chosen scope, actual search paths, and existing copies first. Install into the location recognized by that client and avoid duplicate installations.
+
+**Codex example only:** current Codex documentation lists `~/.agents/skills/` for user scope and `.agents/skills/` in a repository for project scope. If an existing installation uses `~/.codex/skills/` or another configured location, inspect that installation first. These paths are not requirements for other hosts. See [Codex local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
 
 ### 3. Download and install the complete package
 
-Download **goals-tmux-skill.zip** from [v0.2.2 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
+Download **goals-tmux-skill.zip** from [v0.2.3 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
 
 For a new user-scoped Codex installation, with the asset saved in `~/Downloads/`:
 
@@ -130,10 +140,10 @@ For another client or scope, change `skill_parent` to its verified skill directo
 
 ### 4. Verify the installed copy
 
-After a successful fresh install, run these commands from its directory:
+After a successful fresh install, use the same shell where you set `skill_parent` in step 3 and run:
 
 ```sh
-cd "$HOME/.agents/skills/goals-tmux-skill"
+cd "$skill_parent/goals-tmux-skill"
 scripts/bootstrap.sh --check
 scripts/tmuxctl --version
 scripts/tmuxctl capabilities --json
@@ -141,7 +151,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-Use your actual installed path if different. `--version` should report `0.2.2`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
+Use your actual installed path if different. `--version` should report `0.2.3`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
 
 `doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; all four are not required. iTerm2 is optional for tmux execution and required for `iterm2-native` display. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
 
@@ -149,11 +159,13 @@ These installation checks do not need a running tmux server. Use `doctor --live`
 
 ### 5. Confirm discovery and start a task
 
-Confirm that the client exposes `$goals-tmux-skill`. Codex detects skill changes automatically; if it does not appear, restart Codex and check again. Other clients should use their supported reload mechanism. See the [official skill guide](https://learn.chatgpt.com/docs/build-skills).
+Confirm that the target client discovers the skill named `goals-tmux-skill`, then invoke it using that client's supported mechanism. No single command prefix or reload procedure is required by this skill.
+
+**Codex example only:** `$goals-tmux-skill` is its explicit invocation form. Codex detects skill changes automatically; if the skill does not appear, restart Codex and check again. See the [Codex skill guide](https://learn.chatgpt.com/docs/build-skills). Other clients should use their own discovery, invocation, and reload procedures.
 
 After installation and CLI sign-in, you can start a task:
 
-> Use `$goals-tmux-skill` to have Claude Code fix the login timeout in `/absolute/project/path`. Follow the project's `AGENTS.md`, verify the relevant cases, then check acceptance and clean up the panes created for this task while preserving other sessions.
+> Use `goals-tmux-skill` to have Claude Code fix the login timeout in `/absolute/project/path`. Follow the applicable project instructions, including `AGENTS.md` when present, verify the relevant cases, then check acceptance and clean up the panes created for this task while preserving other sessions.
 
 The initial policy is read-only. Before work that writes, run `scripts/tmuxctl policy show` to inspect the endpoint and existing permissions. Configure only the socket, pane, and operations authorized for that task. The policy's read-only switch affects configured endpoints; avoid enabling unrelated resources for convenience. See the [runtime reference](references/runtime.md).
 

@@ -1,21 +1,29 @@
 # goals-tmux-skill
 
-Skill 版本：[v0.2.2](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2)
+Skill 版本：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` 是透過 tmux 協調 Coding CLI 的 Codex skill。0.2.2 包含可執行的獨立執行器 `scripts/tmuxctl`、任務與資源登記、私有決策檔案派發、限時內聯 watch、CLI 啟動與恢復介面，以及稽核紀錄。它不依賴 MCP 服務或第三方 Python 執行階段套件。
+`goals-tmux-skill` 是透過 tmux 協調 Coding CLI 的通用 agent skill。0.2.3 包含可執行的獨立執行器 `scripts/tmuxctl`、任務與資源登記、私有決策檔案派發、限時內聯 watch、CLI 啟動與恢復介面，以及稽核紀錄。它不依賴 MCP 服務或第三方 Python 執行階段套件。
 
 協調者負責理解目標、觀察進度、處理一般決策及驗收；專案修改、測試、建置及其他會改變專案狀態的工作，由受控 Coding CLI 執行。請先閱讀 [SKILL.md](SKILL.md)，了解完整執行邊界與流程。
+
+## 宿主相容性與執行端 CLI
+
+**宿主**是載入本 skill 並協調工作的 agent 或用戶端。它必須能讀取 skill 與參照檔案、讀寫協調紀錄、在具備必要 Python/tmux 存取條件的環境中執行內附執行器，並在任務進行期間持續觀察結果。只有文字對話、沒有檔案與命令執行能力的宿主，無法僅靠閱讀指令完成此流程。
+
+**執行端 CLI**在 tmux 中執行。`claude`、`cursor`、`codex` 與 `agy` 介面描述的是執行目標，不是相容宿主用戶端清單。四種 CLI 的驗收結果不代表每種宿主都已驗證。skill 的偵測方式、安裝目錄、呼叫語法及重新載入機制由宿主用戶端決定。
+
+`agents/openai.yaml` 是選用的 Codex 整合中繼資料。其他宿主可忽略它；執行器不讀取此檔案，打包腳本也不要求必須存在。
 
 ## 透過 Coding agent 安裝
 
 將以下提示詞複製給可存取本機檔案系統的 coding agent，並替換目標用戶端與預計使用的 coding CLI 佔位文字。安裝只會準備 skill，不會啟動 coding 任務。
 
 ```text
-請為 [目標用戶端] 安裝 goals-tmux-skill v0.2.2。
+請為 [目標用戶端] 安裝 goals-tmux-skill v0.2.3。
 儲存庫：https://github.com/lucky-goals/goals-tmux-skill
-發行版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2
+發行版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3
 預計使用的執行 CLI：[Claude Code / Codex / Cursor / Antigravity]
 
 1. 檢查目標用戶端支援的 skill 安裝機制、實際搜尋路徑與既有安裝。依指定範圍操作；若支援，預設使用使用
@@ -34,7 +42,7 @@ Skill 版本：[v0.2.2](https://github.com/lucky-goals/goals-tmux-skill/releases
 5. 檢查所選 coding CLI 是否可用。若需要安裝或互動式登入，請分開回報；不要安裝全部四種 CLI，也不要在
    提示詞中放入憑證。iTerm2 對執行而言是選用項目，只有使用原生 GUI 檢視模式時才需要。
 6. 檢查中繼資料、相對參照與可執行權限。使用用戶端支援的重新載入／探索機制，並確認它能找到
-   $goals-tmux-skill。若無法驗證探索結果，請如實回報。不要啟動模型請求、建立 tmux 工作階段、讀取既有
+   goals-tmux-skill。若無法驗證探索結果，請如實回報。不要啟動模型請求、建立 tmux 工作階段、讀取既有
    終端內容，也不要放寬預設唯讀策略。
 7. 回報安裝路徑與版本、Python/tmux 路徑及版本、相依項目變更、所選 CLI 的就緒狀態、檢視器可用性、
    skill 探索狀態與剩餘步驟。
@@ -95,11 +103,13 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 2. 選擇 skill 安裝位置
 
-先檢查目標用戶端支援的安裝機制與既有副本。目前 Codex 文件列出的使用者範圍路徑是 `~/.agents/skills/`，專案範圍路徑則是儲存庫中的 `.agents/skills/`。請使用用戶端實際辨識的路徑；若既有安裝位於 `~/.codex/skills/` 或其他已設定位置，請檢查該安裝，而不要另增一份互相競爭的副本。請參閱 [Codex 本機 skill 安裝位置](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)。
+沒有適用於所有用戶端的統一 skill 安裝目錄。請先檢查目標用戶端支援的機制、選定範圍、實際搜尋路徑與既有副本，再安裝至該用戶端辨識的位置，避免重複安裝。
+
+**僅以 Codex 為例：**目前文件列出的使用者範圍路徑為 `~/.agents/skills/`，專案範圍則為儲存庫中的 `.agents/skills/`。若既有安裝位於 `~/.codex/skills/` 或其他已設定位置，請先檢查該安裝。這些路徑不是其他宿主的要求。請參閱 [Codex 本機 skill 安裝位置](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)。
 
 ### 3. 下載並安裝完整套件
 
-從 [v0.2.2 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.2) 下載 **goals-tmux-skill.zip**。請使用具名的安裝套件，而非 GitHub 自動產生的原始碼封存檔。不需要原始碼 checkout 或本機套件建置。
+從 [v0.2.3 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3) 下載 **goals-tmux-skill.zip**。請使用具名的安裝套件，而非 GitHub 自動產生的原始碼封存檔。不需要原始碼 checkout 或本機套件建置。
 
 在全新的 Codex 使用者範圍安裝中，若套件已儲存於 `~/Downloads/`：
 
@@ -117,10 +127,10 @@ fi
 
 ### 4. 驗證已安裝的副本
 
-全新安裝成功後，從其目錄執行以下命令：
+全新安裝成功後，請在步驟 3 設定了 `skill_parent` 的同一個 shell 中執行：
 
 ```sh
-cd "$HOME/.agents/skills/goals-tmux-skill"
+cd "$skill_parent/goals-tmux-skill"
 scripts/bootstrap.sh --check
 scripts/tmuxctl --version
 scripts/tmuxctl capabilities --json
@@ -128,7 +138,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-若安裝路徑不同，請使用實際路徑。`--version` 應回報 `0.2.2`。Bootstrap 會檢查 Python 與最低 tmux 版本，不會安裝任何內容或啟動伺服器。`--apply` 旗標是為相容舊用法保留的僅檢查別名，並非安裝器。
+若安裝路徑不同，請使用實際路徑。`--version` 應回報 `0.2.3`。Bootstrap 會檢查 Python 與最低 tmux 版本，不會安裝任何內容或啟動伺服器。`--apply` 旗標是為相容舊用法保留的僅檢查別名，並非安裝器。
 
 `doctor --cli-check` 會檢查已安裝的 CLI 執行檔與版本，不會啟動模型請求。請安裝並登入預計使用的 coding CLI；不需要全部四種。執行 tmux 時 iTerm2 是選用項目，只有使用 `iterm2-native` 顯示模式時才需要。啟動 GUI 可能需要 macOS 自動化權限。使用 SSH 另需本機 SSH 用戶端及遠端主機上的執行階段相依項目；請參閱 [SSH 設定](references/ssh.md)。
 
@@ -136,11 +146,13 @@ scripts/tmuxctl doctor --cli-check --json
 
 ### 5. 確認探索結果並開始任務
 
-確認用戶端可顯示 `$goals-tmux-skill`。Codex 會自動偵測 skill 變更；若未顯示，請重新啟動 Codex 再檢查。其他用戶端請使用其支援的重新載入機制。請參閱[官方 skill 指南](https://learn.chatgpt.com/docs/build-skills)。
+確認目標用戶端能找到名為 `goals-tmux-skill` 的 skill，並透過該用戶端支援的方式呼叫。本 skill 不要求統一的命令前綴或重新載入程序。
+
+**僅以 Codex 為例：**它使用 `$goals-tmux-skill` 明確呼叫。Codex 會自動偵測 skill 變更；若未顯示，請重新啟動 Codex 再檢查。請參閱 [Codex skill 指南](https://learn.chatgpt.com/docs/build-skills)。其他用戶端應使用各自的偵測、呼叫及重新載入機制。
 
 安裝完成並登入 CLI 後，即可開始任務：
 
-> 使用 `$goals-tmux-skill`，請 Claude Code 修復 `/absolute/project/path` 中的登入逾時問題。遵循專案的 `AGENTS.md`，驗證相關案例，接著檢查驗收條件，並清理本任務建立的 pane，同時保留其他工作階段。
+> 使用 `goals-tmux-skill`，請 Claude Code 修復 `/absolute/project/path` 中的登入逾時問題。遵循適用的專案指示，包括存在時的 `AGENTS.md`，驗證相關案例，接著檢查驗收條件，並清理本任務建立的 pane，同時保留其他工作階段。
 
 初始策略為唯讀。開始任何會寫入的工作前，請執行 `scripts/tmuxctl policy show` 檢查 endpoint 與現有權限。只針對該任務獲准的 socket、pane 與操作進行設定。策略的唯讀開關會影響已設定的 endpoint；請勿為了方便而啟用無關資源。請參閱[執行階段參考](references/runtime.md)。
 

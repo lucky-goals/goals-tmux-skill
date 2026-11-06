@@ -28,7 +28,6 @@ _ALLOWED_SCRIPT_NAMES = {"tmuxctl"}
 _REQUIRED = {
     "SKILL.md",
     "LICENSE",
-    "agents/openai.yaml",
     "scripts/tmuxctl",
     "runtime/goals_tmux/cli.py",
 }

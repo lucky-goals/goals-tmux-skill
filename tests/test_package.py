@@ -7,6 +7,38 @@ from scripts.package_skill import build_package
 
 
 class PackageSkillTests(unittest.TestCase):
+    def test_archive_builds_without_host_integration_metadata(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp) / "goals-tmux-skill"
+            files = {
+                "SKILL.md": "skill",
+                "LICENSE": "license",
+                "references/runtime.md": "reference",
+                "runtime/goals_tmux/cli.py": "runtime",
+                "scripts/tmuxctl": "runner",
+            }
+            for relative, content in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            output = Path(temp) / "dist" / "skill.zip"
+
+            packaged = build_package(root, output)
+
+            with ZipFile(output) as archive:
+                names = set(archive.namelist())
+            self.assertEqual(
+                names,
+                {
+                    "goals-tmux-skill/SKILL.md",
+                    "goals-tmux-skill/LICENSE",
+                    "goals-tmux-skill/references/runtime.md",
+                    "goals-tmux-skill/runtime/goals_tmux/cli.py",
+                    "goals-tmux-skill/scripts/tmuxctl",
+                },
+            )
+            self.assertEqual(len(packaged), len(names))
+
     def test_archive_contains_only_skill_payload_and_excludes_private_or_project_files(self):
         with TemporaryDirectory() as temp:
             root = Path(temp) / "goals-tmux-skill"

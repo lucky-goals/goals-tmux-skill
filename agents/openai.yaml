@@ -1,3 +1,4 @@
+# Optional Codex client metadata; other hosts and the standalone runner do not require it.
 interface:
   display_name: "Goals tmux"
   short_description: "Coordinate and monitor Coding CLI work in tmux"

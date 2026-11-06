@@ -4,6 +4,8 @@ This protocol applies only to a task the user asks to delegate, take over, or re
 
 ## Host coordinator
 
+The host is whichever agent/client loads this skill, not a particular vendor. It must have access to the instruction files, coordination state, and the bundled runner, and be able to observe results throughout the active task. The CLI inside tmux is a separate execution target; adapter acceptance does not establish compatibility with every host client.
+
 The host may read the necessary project instructions and source context, inspect terminal output and CLI-provided evidence, make routine authorized decisions, monitor, maintain task records, and perform read-only acceptance checks. It may create private task, audit, and decision state required by the skill.
 
 Project implementation and other state-changing project work go through the controlled CLI: edits, tests, builds, dependency changes, generated deliverables, configuration or service changes, and Git mutations. Keep host-side checks narrow and read-only. Follow repository instructions about test scope; prefer targeted checks and avoid an unnecessary full suite. Do not use another execution channel to perform project work if the selected CLI is unavailable.

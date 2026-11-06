@@ -2,10 +2,12 @@
 name: goals-tmux-skill
 description: Delegate, take over, or resume Coding CLI work in managed tmux panes; monitor it inline, verify acceptance, and account for task-owned resources. Use when coordinating Claude Code, Cursor, Codex, or Antigravity CLI through the bundled tmux runner.
 metadata:
-  version: "0.2.2"
+  version: "0.2.3"
 ---
 
 # Goals tmux skill
+
+This general-purpose agent skill is independent of the host client. The host is whichever agent loads and invokes these instructions; it needs access to files, the bundled command runner, and an active observation loop. The coding CLI inside tmux is a separate execution target. Install and invoke this skill using the host client's supported mechanism; no universal installation directory or invocation prefix is assumed. `agents/openai.yaml` is optional Codex integration metadata, not a runtime dependency.
 
 Coordinate a Coding CLI through the bundled `scripts/tmuxctl` runner. The host coordinator sets the goal and boundaries, makes routine decisions within the user's authorization, observes evidence, verifies the result, and records task state. The selected CLI performs project implementation. For a managed task, do not make project edits, run project tests/builds, change dependencies or services, or perform Git mutations on the host; use the controlled CLI for that work. Necessary project instructions, source context, diffs, and acceptance evidence may be read on the host.
 
@@ -19,7 +21,7 @@ This execution boundary applies only to work explicitly delegated, taken over, o
 
 ## Work sequence
 
-1. Identify the goal, working directory, acceptance evidence, existing task/pane, and authorization already present in the conversation. Read the project's `AGENTS.md` and other applicable instructions. Use the existing task and pane when they match; do not duplicate active work.
+1. Identify the goal, working directory, acceptance evidence, existing task/pane, and authorization already present in the conversation. Read the host's instructions and all applicable project instructions, including `AGENTS.md` when present. Use the existing task and pane when they match; do not duplicate active work.
 2. Check `scripts/tmuxctl capabilities --json` and `scripts/tmuxctl doctor --json`. Use `doctor --live` only for the exact selected socket, and `--cli-check` to inspect installed adapters without starting a model request. A missing write grant is a runner boundary: configure only the endpoint and operation scope covered by the user's request. Do not broaden an existing policy to unrelated endpoints or panes.
 3. Create or resume the private task record and ledger before the first dispatch or cleanup action. Bind exact pane, server, process, task, coordinator, generation, and revision identifiers from current observations. Treat reused tmux numeric IDs as new identities after a server restart.
 4. If starting a CLI, use the runner's `launch_cli` or `restore_cli` operation in the requested project directory. The default TUI is enabled: on macOS `terminal=auto` prefers iTerm2 and falls back to Terminal.app; elsewhere the viewer may be unavailable and return a manual read-only attach command. TUI display is separate from task execution. On macOS, `iterm2-native` uses a separately verified iTerm2 `-CC -r` viewer. Hide it by exact client detach; never close native GUI tabs as a cleanup shortcut. Its GUI input is read-only, but the underlying Control Mode command channel is not a security boundary.
