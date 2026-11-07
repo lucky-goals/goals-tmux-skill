@@ -628,9 +628,14 @@ class Service:
             owned["window_id"] = pane["window_id"]
         if op in {"create_session", "launch_cli", "restore_cli"}:
             owned["session_id"] = session_id
+            if session_id:
+                # Mouse handling is a session option, not a global terminal
+                # preference. Enable it only on the session we just created;
+                # each viewer's client input policy still gates its events.
+                self._mutate("set-option", "-t", session_id, "mouse", "on")
         record = self.registry.register(pane, endpoint_id=self.endpoint_id, socket_path=self.socket_path,
                                         server_instance_id=fresh["server"]["instance_id"], task_id=task_id,
-                                        coordinator_id=context["coordinator_id"], owned_container=owned, cli=cli_info)
+                                        coordinator_id=context["coordinator_id"], owned_container=owned or None, cli=cli_info)
         creation.update(status="registered", record_id=record["record_id"])
         atomic_json(creation_path, creation)
         self.tasks.event(task_id, "created", {"pane_id": pane_id, "record_id": record["record_id"],

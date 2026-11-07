@@ -1,4 +1,4 @@
-"""Safe launch and detach support for a read-only tmux viewer client."""
+"""Safe launch and detach support for a human tmux viewer client."""
 
 from __future__ import annotations
 
@@ -229,7 +229,7 @@ def _verify_session_id(value: object) -> str:
 
 
 class Viewer:
-    """Open a read-only observer client in a supported desktop terminal.
+    """Open a human viewer client in a supported desktop terminal.
 
     GUI launch is limited to macOS Terminal.app and iTerm2. Linux and current
     stdio modes return a precise manual attach command instead of consuming
@@ -246,6 +246,7 @@ class Viewer:
         enabled = tui["enabled"]
         mode = tui["mode"]
         requested_terminal = tui["terminal"]
+        allow_input = tui["allow_input"]
         system = platform.system()
         current_tty = self._interactive_tty_available()
         native_mode = mode == "iterm2-native"
@@ -284,13 +285,14 @@ class Viewer:
             "macOS may require terminal automation permission",
         ] if available else []
         if native_mode and available:
-            warnings.extend([
-                "Native iTerm2 mapped-pane input is read-only for this viewer client.",
-                "Raw tmux Control Mode commands can still mutate the session.",
-            ])
+            if not allow_input:
+                warnings.append("Native iTerm2 mapped-pane input is read-only for this viewer client.")
+            warnings.append("Raw tmux Control Mode commands can still mutate the session.")
         return {
             "enabled": enabled,
             "available": available,
+            "allow_input": allow_input,
+            "read_only": not allow_input,
             "platform": system,
             "terminal_requested": requested_terminal,
             "terminal": terminal,
@@ -319,21 +321,26 @@ class Viewer:
         tui = cfg["tui"]
         mode = tui["mode"]
         keep_open = tui["keep_open"]
+        allow_input = tui["allow_input"]
         native_mode = mode == "iterm2-native"
-        manual = self._attach_argv(tmux_binary, socket_path, session_id, mode)
+        manual = self._attach_argv(
+            tmux_binary, socket_path, session_id, mode, allow_input=allow_input
+        )
         manual_launch = self._manual_launch_command(manual, keep_open=keep_open)
 
         if not tui["enabled"]:
             return self._base_result(
                 status="disabled", terminal=None, mode=mode, warnings=["tui_disabled"],
                 attach_command=manual, launch_command=manual_launch,
-                keep_open=keep_open,
+                keep_open=keep_open, allow_input=allow_input,
+                read_only=not allow_input,
             )
         if mode == "tmux" and tui["terminal"] == "current":
             return self._base_result(
                 status="unavailable", terminal="current", mode=mode,
                 warnings=["current_tty_handoff_unavailable"], attach_command=manual,
                 launch_command=manual_launch, keep_open=keep_open,
+                allow_input=allow_input, read_only=not allow_input,
             )
 
         resolution = self.diagnose(cfg)
@@ -344,6 +351,7 @@ class Viewer:
                 status="unavailable", terminal=terminal or tui["terminal"], mode=mode,
                 warnings=[warning], attach_command=manual,
                 launch_command=manual_launch, keep_open=keep_open,
+                allow_input=allow_input, read_only=not allow_input,
             )
 
         snapshot = self._server_snapshot(tmux_binary, socket_path, session_id)
@@ -352,6 +360,7 @@ class Viewer:
                 status="unavailable", terminal=terminal, mode=mode,
                 warnings=["tmux_server_or_exact_session_unavailable"], attach_command=manual,
                 launch_command=manual_launch, keep_open=keep_open,
+                allow_input=allow_input, read_only=not allow_input,
                 socket_path=socket_path, session_id=session_id,
                 server_instance_id=server_instance_id,
             )
@@ -368,6 +377,7 @@ class Viewer:
                         status="unavailable", terminal=terminal, mode=mode,
                         warnings=["registered_viewer_server_replaced"], attach_command=manual,
                         launch_command=manual_launch, keep_open=keep_open,
+                        allow_input=allow_input, read_only=not allow_input,
                         socket_path=socket_path, session_id=session_id,
                         server_instance_id=server_instance_id,
                     )
@@ -379,6 +389,28 @@ class Viewer:
                         mismatch["status"] = "unavailable" if state == "attached" else "unknown"
                         mismatch["requested_mode"] = mode
                         mismatch["warnings"] = ["registered_viewer_mode_mismatch_requires_hide_first"]
+                        mismatch["launch_command"] = manual_launch
+                        return mismatch
+                    # Viewer records created before allow_input existed were
+                    # read-only. Preserve that policy when reusing or
+                    # recovering them, even when the current config allows input.
+                    prior_allow_input = prior.get("allow_input") is True
+                    if prior_allow_input != allow_input:
+                        mismatch = dict(prior)
+                        mismatch["status"] = "unavailable" if state == "attached" else "unknown"
+                        mismatch.setdefault("allow_input", prior_allow_input)
+                        mismatch.setdefault("read_only", not prior_allow_input)
+                        mismatch.setdefault(
+                            "read_only_scope",
+                            self._read_only_scope(
+                                prior_allow_input, prior.get("mode") == "iterm2-native"
+                            ),
+                        )
+                        mismatch["requested_allow_input"] = allow_input
+                        mismatch["requested_read_only"] = not allow_input
+                        mismatch["warnings"] = [
+                            "registered_viewer_input_policy_mismatch_requires_hide_first"
+                        ]
                         mismatch["launch_command"] = manual_launch
                         return mismatch
                     if isinstance(prior, dict) and prior.get("keep_open") is not keep_open:
@@ -393,10 +425,14 @@ class Viewer:
                     if clients is None:
                         uncertain = dict(prior)
                         uncertain["status"] = "unknown"
-                        uncertain["warnings"] = ["existing_viewer_client_check_failed_no_retry"]
+                        uncertain["warnings"] = [
+                            "existing_viewer_client_check_failed_no_retry",
+                            *(self._native_input_warnings(prior_allow_input) if native_mode else ()),
+                        ]
                         return uncertain
                     verified = self._match_client(
-                        clients, session_id, prior.get("viewer_pid"), readonly=True,
+                        clients, session_id, prior.get("viewer_pid"),
+                        readonly=not prior_allow_input,
                         control_mode=(mode == "iterm2-native"),
                     )
                     if verified is not None and verified["client_tty"] == prior.get("_client_tty"):
@@ -405,15 +441,26 @@ class Viewer:
                             "reused_existing_viewer",
                             "launcher_uses_deprecated_applescript",
                             "macos_terminal_automation_permission_may_be_required",
-                            *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
+                            *(self._native_input_warnings(prior_allow_input) if native_mode else ()),
                         ]
+                        reused.setdefault("allow_input", prior_allow_input)
+                        reused.setdefault("read_only", not prior_allow_input)
+                        reused.setdefault(
+                            "read_only_scope",
+                            self._read_only_scope(prior_allow_input, native_mode),
+                        )
                         return reused
-                    if native_mode and self._find_client_identity(
+                    if self._find_client_identity(
                         clients, session_id, prior.get("viewer_pid"), prior.get("_client_tty")
+                    ) is not None or self._find_client_by_pid(
+                        clients, session_id, prior.get("viewer_pid")
                     ) is not None:
                         uncertain = dict(prior)
                         uncertain["status"] = "unknown"
-                        uncertain["warnings"] = ["existing_native_viewer_verification_failed_no_retry"]
+                        uncertain["warnings"] = [
+                            "existing_viewer_verification_failed_no_retry",
+                            *(self._native_input_warnings(prior_allow_input) if native_mode else ()),
+                        ]
                         return uncertain
                     # A prior confirmed viewer has ended. A new explicit open may
                     # create a replacement, after confirming the server is stable.
@@ -429,13 +476,14 @@ class Viewer:
                 "status": "unknown",
                 "terminal": terminal,
                 "mode": mode,
+                "allow_input": allow_input,
                 "keep_open": keep_open,
                 "close_strategy": "iterm_session_close" if terminal == "iTerm2" else "shell_exit",
                 "origin": "goals_tmux.viewer",
                 "viewer_origin": "iterm2_native_launcher" if native_mode else "macos_terminal_launcher",
                 "viewer_client_id": None,
                 "viewer_pid": None,
-                "read_only_scope": None if native_mode else "viewer_client_input",
+                "read_only_scope": self._read_only_scope(allow_input, native_mode),
                 "socket_path": socket_path,
                 "session_id": session_id,
                 "server_instance_id": server_instance_id,
@@ -447,10 +495,11 @@ class Viewer:
                 # iTerm2 session created by our launcher, not a tmux identity.
                 "viewer_gui_session_id": None,
                 "viewer_gui_tty": None,
-                "read_only": None if native_mode else True,
+                "read_only": not allow_input,
                 "warnings": [
                     "launcher_uses_deprecated_applescript",
                     "macos_terminal_automation_permission_may_be_required",
+                    *(self._native_input_warnings(allow_input) if native_mode else ()),
                 ],
                 "attach_command": manual,
                 "launch_command": manual_launch,
@@ -466,13 +515,16 @@ class Viewer:
                 gui_identity = self._launch_terminal(
                     terminal, marker_path=marker_path, tmux_binary=tmux_binary,
                     socket_path=socket_path, session_id=session_id, mode=mode,
-                    viewer_token=token, keep_open=keep_open,
+                    viewer_token=token, keep_open=keep_open, allow_input=allow_input,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 entry["state"] = "unknown"
                 record["status"] = "unknown"
                 record["warnings"] = [f"terminal_launch_uncertain:{type(exc).__name__}"]
                 record["warnings"].append("macos_terminal_automation_permission_may_be_required")
+                record["warnings"].extend(
+                    self._native_input_warnings(allow_input) if native_mode else ()
+                )
                 detail = self._exception_detail(exc)
                 if detail:
                     record["warnings"].append(f"launcher_error:{detail}")
@@ -504,10 +556,14 @@ class Viewer:
                 entry["state"] = "unknown"
                 record["status"] = "unknown"
                 record["warnings"] = ["launcher_started_but_viewer_pid_unconfirmed"]
+                record["warnings"].extend(
+                    self._native_input_warnings(allow_input) if native_mode else ()
+                )
                 self._write_entry(registry_path, entry)
                 return record
             client = self._wait_for_client(
-                tmux_binary, socket_path, session_id, pid, timeout=4.0, readonly=True,
+                tmux_binary, socket_path, session_id, pid, timeout=4.0,
+                readonly=not allow_input,
                 control_mode=native_mode,
             )
             if client is None:
@@ -515,6 +571,9 @@ class Viewer:
                 record["status"] = "unknown"
                 record["viewer_pid"] = pid
                 record["warnings"] = ["viewer_client_not_verified"]
+                record["warnings"].extend(
+                    self._native_input_warnings(allow_input) if native_mode else ()
+                )
                 self._write_entry(registry_path, entry)
                 return record
 
@@ -525,6 +584,9 @@ class Viewer:
                 record["viewer_client_id"] = f"tty:{client['client_tty']}"
                 record["_client_tty"] = client["client_tty"]
                 record["warnings"] = ["iterm_launcher_tty_does_not_match_viewer_client"]
+                record["warnings"].extend(
+                    self._native_input_warnings(allow_input) if native_mode else ()
+                )
                 entry["record"] = record
                 self._write_entry(registry_path, entry)
                 return record
@@ -534,12 +596,12 @@ class Viewer:
                 "viewer_client_id": f"tty:{client['client_tty']}",
                 "viewer_pid": pid,
                 "_client_tty": client["client_tty"],
-                "read_only": True,
-                "read_only_scope": "native_gui_input" if native_mode else "viewer_client_input",
+                "read_only": not allow_input,
+                "read_only_scope": self._read_only_scope(allow_input, native_mode),
                 "warnings": [
                     "launcher_uses_deprecated_applescript",
                     "macos_terminal_automation_permission_may_be_required",
-                    *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
+                    *(self._native_input_warnings(allow_input) if native_mode else ()),
                 ],
             })
             entry["state"] = "attached"
@@ -577,12 +639,20 @@ class Viewer:
             registered = entry["record"]
             if not self._record_matches(record, registered) or token != registered.get("viewer_token"):
                 raise _fail("VIEWER_IDENTITY_MISMATCH", "record is not the registered viewer for this task target")
+            allow_input = self._recorded_allow_input(registered)
+            native_mode = registered.get("mode") == "iterm2-native"
+            policy_metadata = {
+                "allow_input": allow_input,
+                "read_only": not allow_input,
+                "read_only_scope": self._read_only_scope(allow_input, native_mode),
+            }
             if entry.get("state") == "detached":
                 return self._base_result(
                     status="not_attached", terminal=registered.get("terminal"), mode=registered.get("mode"),
                     warnings=["registered_viewer_already_detached"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             if entry.get("state") != "attached":
                 raise _fail("VIEWER_IDENTITY_MISMATCH", "registered viewer is not in an attached state")
@@ -594,6 +664,7 @@ class Viewer:
                     warnings=["tmux_server_replaced_or_session_missing"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
 
             clients = self._client_snapshot(tmux_binary, socket_path)
@@ -603,22 +674,26 @@ class Viewer:
                     warnings=["viewer_client_check_failed_no_detach"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             expected_tty = registered.get("_client_tty")
-            native_mode = registered.get("mode") == "iterm2-native"
             client = self._match_client(
-                clients, session_id, viewer_pid, readonly=True, control_mode=native_mode
+                clients, session_id, viewer_pid, readonly=not allow_input,
+                control_mode=native_mode,
             )
             if client is None:
-                live_identity = self._find_client_identity(
+                live_identity = self._find_client_by_pid(
+                    clients, session_id, viewer_pid
+                ) or self._find_client_identity(
                     clients, session_id, viewer_pid, expected_tty
                 )
-                if native_mode and live_identity is not None:
+                if live_identity is not None:
                     return self._base_result(
                         status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
-                        warnings=["native_viewer_read_only_identity_changed_no_detach"],
+                        warnings=["viewer_input_policy_or_identity_changed_no_detach"],
                         socket_path=socket_path, session_id=session_id,
                         server_instance_id=server_instance_id,
+                        **policy_metadata,
                     )
                 entry["state"] = "detached"
                 self._write_entry(registry_path, entry)
@@ -627,22 +702,15 @@ class Viewer:
                     warnings=["registered_viewer_client_is_no_longer_attached"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             if client["client_tty"] != expected_tty or viewer_client_id != f"tty:{expected_tty}":
-                if native_mode:
-                    return self._base_result(
-                        status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
-                        warnings=["native_viewer_tty_changed_no_detach"],
-                        socket_path=socket_path, session_id=session_id,
-                        server_instance_id=server_instance_id,
-                    )
-                entry["state"] = "detached"
-                self._write_entry(registry_path, entry)
                 return self._base_result(
-                    status="not_attached", terminal=registered.get("terminal"), mode=registered.get("mode"),
-                    warnings=["registered_viewer_client_is_no_longer_attached"],
+                    status="unknown", terminal=registered.get("terminal"), mode=registered.get("mode"),
+                    warnings=["viewer_client_tty_changed_no_detach"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
 
             # Verify the server and full client identity again immediately before
@@ -651,7 +719,7 @@ class Viewer:
             fresh_clients = self._client_snapshot(tmux_binary, socket_path)
             fresh_client = (
                 self._match_client(
-                    fresh_clients, session_id, viewer_pid, readonly=True,
+                    fresh_clients, session_id, viewer_pid, readonly=not allow_input,
                     control_mode=native_mode,
                 )
                 if fresh_clients is not None else None
@@ -665,6 +733,7 @@ class Viewer:
                     warnings=["viewer_identity_changed_before_detach"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             detached = self._run_tmux(
                 tmux_binary, socket_path, ["detach-client", "-t", expected_tty]
@@ -675,6 +744,7 @@ class Viewer:
                     warnings=["detach_client_failed", self._short_error(detached.stderr)],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             after_clients = self._client_snapshot(tmux_binary, socket_path)
             if after_clients is None:
@@ -683,6 +753,7 @@ class Viewer:
                     warnings=["detach_sent_but_client_state_unavailable"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             after = self._find_client_identity(after_clients, session_id, viewer_pid, expected_tty)
             if after is not None:
@@ -691,6 +762,7 @@ class Viewer:
                     warnings=["viewer_client_still_present_after_detach"],
                     socket_path=socket_path, session_id=session_id,
                     server_instance_id=server_instance_id,
+                    **policy_metadata,
                 )
             entry["state"] = "detached"
             self._write_entry(registry_path, entry)
@@ -699,6 +771,7 @@ class Viewer:
                 warnings=[], socket_path=socket_path, session_id=session_id,
                 server_instance_id=server_instance_id,
                 viewer_client_id=viewer_client_id, viewer_pid=viewer_pid,
+                **policy_metadata,
             )
 
     def close(self, record: dict, *, tmux_binary: str) -> dict:
@@ -956,6 +1029,11 @@ class Viewer:
             viewer_gui_tty=record.get("viewer_gui_tty"),
             viewer_client_id=record.get("viewer_client_id"),
             viewer_pid=record.get("viewer_pid"),
+            allow_input=Viewer._recorded_allow_input(record),
+            read_only=not Viewer._recorded_allow_input(record),
+            read_only_scope=Viewer._read_only_scope(
+                Viewer._recorded_allow_input(record), record.get("mode") == "iterm2-native"
+            ),
             **extra,
         )
 
@@ -981,6 +1059,23 @@ class Viewer:
             result["launch_command"] = launch_command
         result.update(extra)
         return result
+
+    @staticmethod
+    def _recorded_allow_input(record: dict) -> bool:
+        """Treat policy fields absent from legacy viewer records as read-only."""
+        return record.get("allow_input") is True
+
+    @staticmethod
+    def _read_only_scope(allow_input: bool, native_mode: bool) -> str | None:
+        if allow_input:
+            return None
+        return "native_gui_input" if native_mode else "viewer_client_input"
+
+    @staticmethod
+    def _native_input_warnings(allow_input: bool) -> tuple[str, ...]:
+        if allow_input:
+            return ("raw_control_mode_commands_can_still_mutate_the_session",)
+        return _NATIVE_READONLY_SCOPE_WARNINGS
 
     @staticmethod
     def _supervised_command(
@@ -1282,11 +1377,17 @@ class Viewer:
             return subprocess.CompletedProcess(argv, 127, "", str(exc))
 
     @staticmethod
-    def _attach_argv(tmux_binary: str, socket_path: str, session_id: str, mode: str) -> list[str]:
+    def _attach_argv(
+        tmux_binary: str, socket_path: str, session_id: str, mode: str,
+        *, allow_input: bool = False,
+    ) -> list[str]:
         argv = [tmux_binary, "-S", socket_path]
         if mode == "iterm2-native":
             argv.append("-CC")
-        argv.extend(["attach-session", "-r", "-t", session_id])
+        argv.append("attach-session")
+        if not allow_input:
+            argv.append("-r")
+        argv.extend(["-t", session_id])
         return argv
 
     def _client_snapshot(self, tmux_binary: str, socket_path: str) -> list[dict[str, object]] | None:
@@ -1342,12 +1443,11 @@ class Viewer:
             if not isinstance(client["client_tty"], str) or not client["client_tty"]:
                 continue
             flags = client["client_flags"]
-            if readonly and (not isinstance(flags, set) or "read-only" not in flags):
+            if not isinstance(flags, set) or (("read-only" in flags) != readonly):
                 continue
-            if control_mode and (
-                client.get("client_control_mode") != "1"
-                or client.get("client_readonly") != "1"
-            ):
+            if client.get("client_readonly") != ("1" if readonly else "0"):
+                continue
+            if client.get("client_control_mode") != ("1" if control_mode else "0"):
                 continue
             return client
         return None
@@ -1367,6 +1467,17 @@ class Viewer:
                 and client.get("session_id") == session_id
                 and client.get("client_tty") == client_tty
             ):
+                return client
+        return None
+
+    @staticmethod
+    def _find_client_by_pid(
+        clients: list[dict[str, object]], session_id: str, viewer_pid: object,
+    ) -> dict[str, object] | None:
+        if type(viewer_pid) is not int or viewer_pid <= 0:
+            return None
+        for client in clients:
+            if client.get("client_pid") == viewer_pid and client.get("session_id") == session_id:
                 return client
         return None
 
@@ -1406,10 +1517,13 @@ class Viewer:
         self, terminal: str, *, marker_path: str, tmux_binary: str,
         socket_path: str, session_id: str, mode: str = "tmux",
         viewer_token: str | None = None, keep_open: bool = False,
+        allow_input: bool = False,
     ) -> tuple[str, str] | None:
         self._ensure_wrapper()
         wrapper = str(self._state_root / "attach-wrapper.sh")
-        attach_argv = self._attach_argv(tmux_binary, socket_path, session_id, mode)
+        attach_argv = self._attach_argv(
+            tmux_binary, socket_path, session_id, mode, allow_input=allow_input
+        )
         child_command = " ".join(shlex.quote(part) for part in [wrapper, marker_path, *attach_argv])
         if terminal == "iTerm2" and not keep_open:
             # iTerm closes this exact owned session through close() after the
@@ -1494,13 +1608,23 @@ class Viewer:
                 warnings=["prior_viewer_launch_state_incomplete"],
                 socket_path=socket_path, session_id=session_id,
             )
+        allow_input = self._recorded_allow_input(record)
+        record.setdefault("allow_input", allow_input)
+        if record.get("read_only") is None:
+            record["read_only"] = not allow_input
+        record.setdefault(
+            "read_only_scope",
+            self._read_only_scope(allow_input, record.get("mode") == "iterm2-native"),
+        )
         marker = entry.get("marker_path")
         pid = self._wait_for_pidfile(Path(marker), timeout=0.35) if isinstance(marker, str) else None
         if pid is not None:
-            native_mode = mode == "iterm2-native"
+            # This record owns the launched process, so recovery must verify
+            # the original policy even if configuration changed meanwhile.
+            native_mode = record.get("mode") == "iterm2-native"
             client = self._wait_for_client(
                 tmux_binary, socket_path, session_id, pid, timeout=0.6,
-                readonly=True, control_mode=native_mode,
+                readonly=not allow_input, control_mode=native_mode,
             )
             if client is not None:
                 if terminal == "iTerm2" and record.get("viewer_gui_tty") != client["client_tty"]:
@@ -1520,11 +1644,11 @@ class Viewer:
                     "viewer_client_id": f"tty:{client['client_tty']}",
                     "viewer_pid": pid,
                     "_client_tty": client["client_tty"],
-                    "read_only": True,
-                    "read_only_scope": "native_gui_input" if native_mode else "viewer_client_input",
+                    "read_only": not allow_input,
+                    "read_only_scope": self._read_only_scope(allow_input, native_mode),
                     "warnings": [
                         "recovered_existing_viewer_launch",
-                        *(_NATIVE_READONLY_SCOPE_WARNINGS if native_mode else ()),
+                        *(self._native_input_warnings(allow_input) if native_mode else ()),
                     ],
                 })
                 entry["state"] = "attached"
@@ -1532,7 +1656,11 @@ class Viewer:
                 self._write_entry(registry_path, entry)
                 return dict(record)
         record["status"] = "unknown"
-        record["warnings"] = ["prior_viewer_launch_outcome_uncertain_no_retry"]
+        record["warnings"] = [
+            "prior_viewer_launch_outcome_uncertain_no_retry",
+            *(self._native_input_warnings(allow_input)
+              if record.get("mode") == "iterm2-native" else ()),
+        ]
         return dict(record)
 
     @staticmethod
@@ -1544,7 +1672,10 @@ class Viewer:
             "viewer_gui_session_id", "viewer_gui_tty",
             "keep_open", "close_strategy",
         )
-        return all(provided.get(field) == registered.get(field) for field in fields)
+        return (
+            all(provided.get(field) == registered.get(field) for field in fields)
+            and Viewer._recorded_allow_input(provided) == Viewer._recorded_allow_input(registered)
+        )
 
     @staticmethod
     def _close_record_matches(provided: dict, registered: dict) -> bool:
@@ -1554,6 +1685,8 @@ class Viewer:
             "keep_open", "close_strategy",
         )
         if not all(provided.get(field) == registered.get(field) for field in immutable_fields):
+            return False
+        if Viewer._recorded_allow_input(provided) != Viewer._recorded_allow_input(registered):
             return False
         # Launch-uncertain receipts may predate verified tmux client metadata.
         # Accept those missing fields while rejecting any conflicting identity.

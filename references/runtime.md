@@ -72,9 +72,23 @@ After an unknown mutation result, query `operation-status --request-id ID` and i
 
 ## User display
 
-`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, and `tui.mode=tmux`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `iterm2-native` is available on macOS with iTerm2 and uses `-CC -r`, verified Control Mode/read-only flags, exact PID/session/TTY binding, and detach. An attached record reports `read_only=true` with `read_only_scope=native_gui_input`: mapped iTerm pane keystrokes do not reach the pane. This is not a Control Mode permission boundary; a `send-keys` command on the same `-C -r` channel can still mutate the session. Keep that command path under the trusted runtime, which issues only its fixed operations. Switching display modes requires hiding the existing viewer first. `current` TTY handoff remains unavailable through this runner. In headless or unsupported environments the viewer reports `unavailable` with a manual read-only attach command. Report that state honestly; the task can still run through tmux if the user did not require a GUI.
+`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, `tui.mode=tmux`, `tui.keep_open=false`, and `tui.allow_input=true`. Old schema-1 files missing `allow_input` use `true`; missing `keep_open` uses `false`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `current` TTY handoff remains unavailable. Headless/unsupported environments return `unavailable` with a manual attach command honoring the input setting; task execution can still continue without a GUI.
 
-The viewer is a separate read-only tmux client. Task input and capture stay on the runner path. Hiding/detaching the viewer must not be reported as stopping task monitoring or closing a pane.
+Allow or block human keyboard/mouse input through newly opened viewers:
+
+```sh
+scripts/tmuxctl config set tui.allow_input true
+scripts/tmuxctl config set tui.allow_input false
+scripts/tmuxctl config show --json
+```
+
+Use one of the first two commands. `true` (the default) attaches a writable client; `false` adds `-r` and verifies a read-only client. Native iTerm2 uses `-CC`, with `-r` only when input is disabled. Attached records report `allow_input` and `read_only`; read-only scope is `viewer_client_input` for ordinary tmux, `native_gui_input` for native mapped panes, and null when input is allowed. A read-only native Control Mode channel can still accept raw mutating commands; it is not a command authorization boundary. See the [tmux manual](https://man.openbsd.org/tmux.1) for client flags and mouse handling.
+
+Native mode has two different terminal identities: the outer gateway session carries the `tmux -CC` protocol, while mapped iTerm panes display the actual task. Never send task text, Enter, or `exit` directly to the gateway. Automated task input must use the runner's exact pane operations; human input belongs in the mapped task pane. An integration error such as `%begin with empty command queue` indicates protocol state is inconsistent, not a denied input setting. Do not retry input into that gateway. Use the runner to inspect/detach the exact viewer; ordinary `tui.mode=tmux` avoids the native gateway path. A screenshot alone cannot identify the trigger or establish whether the task process exited.
+
+New managed sessions enable `mouse on` at session scope only. Existing/borrowed sessions and global settings are preserved. Ordinary tmux PTY checks verified that read-only clients block mouse selection and keyboard delivery even when the session supports mouse events. The new native GUI probe verified allowed keyboard input only; native mouse and the new disable-toggle GUI path remain unverified. Actual application mouse behavior depends on the terminal/application; local text selection and copying may still work. This setting does not grant runner write permissions or disable its policy checks. Human input goes directly to the pane, so coordinate with the agent and observe fresh state before resuming automated input.
+
+Input and retention settings are captured per launch. Hide/detach and reopen to change them; an incompatible existing viewer is not silently reused. Old viewer records without `allow_input` retain their original read-only behavior. Per-operation `arguments.tui` overrides support both settings without changing the saved file. Hiding a viewer does not stop task monitoring or close its pane.
 
 `tui.keep_open=false` is the default: do not keep the viewer open after its tmux client exits. Set retention for newly opened viewers with:
 
@@ -93,9 +107,9 @@ Each launch records its effective setting. Changes do not retroactively change e
 
 Cleanup follows the **resolved terminal**, including the result of `terminal=auto`. For iTerm2, new launches record the exact desktop launcher session; after task cleanup removes its tmux session, the runner closes that launcher and verifies the result. Other launched terminals use an outer shell command ending in `exit`, replacing the original login shell so it does not remain at a prompt. This does not send `exit` to the coding CLI or a tmux pane. For Terminal.app, an `exited` outcome confirms the viewer process ended; `gui_close_verified=false` means whether the tab disappears still depends on the terminal's own close-on-exit preferences. The runner does not modify shared terminal profiles. Unsupported/headless launchers still require manual attachment.
 
-When a desktop launcher is unavailable, the returned `launch_command` applies the same outer-shell exit/retention behavior if run manually in the intended terminal; `attach_command` remains the raw read-only tmux argument list for existing integrations.
+When a desktop launcher is unavailable, the returned `launch_command` applies the same outer-shell exit/retention behavior if run manually in the intended terminal; `attach_command` remains the raw tmux argument list with the selected input mode for existing integrations.
 
-`task settle` retries outstanding viewer cleanup (with writable `allow_close` and `allow_view` grants); failures remain visible in the resource report. `keep_open=true` and surviving/shared tmux sessions are explicitly retained. This does not change `hide_tui`, which remains detach-only, or the read-only input mode. Existing viewers created before GUI ownership was recorded cannot be safely auto-closed by title or window position.
+`task settle` retries outstanding viewer cleanup (with writable `allow_close` and `allow_view` grants); failures remain visible in the resource report. `keep_open=true` and surviving/shared tmux sessions are explicitly retained. This does not change `hide_tui`, which remains detach-only, or the recorded input mode. Existing viewers created before GUI ownership was recorded cannot be safely auto-closed by title or window position.
 
 
 ## 0.2 journal compatibility

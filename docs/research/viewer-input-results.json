@@ -1,0 +1,85 @@
+{
+  "verified_date": "2026-11-07",
+  "scope": "Configurable tmux viewer keyboard and mouse input on disposable fixtures",
+  "ordinary_tmux_pty": {
+    "status": "passed",
+    "command": "python -m unittest tests.test_viewer_input_pty -v",
+    "tmux_version": "tmux 3.6a",
+    "cases": [
+      {
+        "allow_input": true,
+        "client_readonly": "0",
+        "input": "SGR mouse click on pane 2, then typed unique marker and Enter",
+        "mouse_selected_pane_2": true,
+        "typed_marker_reached_pane_2": true,
+        "typed_marker_reached_pane_1": false
+      },
+      {
+        "allow_input": false,
+        "client_readonly": "1",
+        "input": "Same SGR mouse click and typed unique marker",
+        "mouse_selection_blocked": true,
+        "keyboard_input_blocked": true
+      }
+    ],
+    "isolation": "Each policy used a fresh private tmux server, socket, two-pane session and reader processes; mouse was enabled only on that disposable session."
+  },
+  "iterm2_native": {
+    "status": "partially_verified",
+    "tmux_version": "tmux 3.6a",
+    "mode": "iterm2-native",
+    "first_bounded_sdk_attempt": {
+      "viewer_open": "attached",
+      "allow_input": true,
+      "client_readonly": "0",
+      "attach_flags": ["-CC", "attach-session", "-t", "$0"],
+      "tmux_window_id": "@0",
+      "mapped_pane_resolution": "failed within 8 seconds using the initial raw window-ID comparison",
+      "input_sent": false,
+      "hide": "detached",
+      "close": "not_open",
+      "private_server_stopped": true,
+      "temporary_directory_removed": true
+    },
+    "corrected_sdk_attempt": {
+      "source": "root corrected harness, run once",
+      "viewer_open": "attached",
+      "allow_input": true,
+      "client_readonly": "0",
+      "mapped_pane": {
+        "gateway_session_id": "123E57F6-FC3D-448E-A130-89072292B282",
+        "mapped_session_id": "845B5DA6-7DFF-4A04-B758-6D0B84C759FE",
+        "startup_marker_visible": true,
+        "input_method": "iTerm2 SDK async_send_text on the exact mapped pane",
+        "writable_marker_reached_pane": true
+      },
+      "hide": "detached",
+      "close": "unknown: iterm_session_check_failed",
+      "allow_input_false_case": "not reached",
+      "cleanup": {
+        "gateway_session_absent": true,
+        "mapped_session_absent": true,
+        "private_server_stopped": true,
+        "temporary_directory_preserved": "/tmp/goals-viewer-input-live-otir7y9a"
+      }
+    },
+    "earlier_gateway_probe": {
+      "status": "invalid_target_not_counted_as_evidence",
+      "detail": "The iTerm connector marker was sent to Viewer.open's outer Control Mode gateway session. The pane sink did not record it; the target was not confirmed as an iTerm mapped pane."
+    },
+    "hide_reopen_policy_change": "hide was verified; reopening with the opposite policy was not reached after close returned unknown",
+    "mapped_mouse_input": "not verified"
+  },
+  "cleanup": {
+    "global_user_config_changed": false,
+    "preexisting_iterm_sessions_before_and_after": 13,
+    "tracked_gateway_session_from_interrupted_probe": "confirmed absent",
+    "residual_shell_note": "An idle -zsh session 32F3AC8D-EF70-4E85-A6DD-35A7DD3170C5 appeared in a new iTerm window after the interrupted probe. Its screen showed only a fresh login line and empty prompt, but its window/tab was not directly bound to the original viewer receipt. It was closed by sending exit based on the before/after session inventory; this cleanup was not receipt-bound. The iTerm inventory returned to its original 13 sessions."
+  },
+  "limitations": [
+    "The corrected native run verified mapped GUI input with allow_input=true only. The allow_input=false mapped-pane case remains unverified because the harness stopped after exact-session close returned unknown.",
+    "The initial SDK run used an unnormalized window ID and did not identify the mapped pane; it sent no input. The earlier outer-gateway probe is not valid mapped-input evidence.",
+    "Native mapped mouse input was not verified.",
+    "The PTY acceptance verifies tmux client behavior on one macOS host and tmux 3.6a; it does not verify Terminal.app or other tmux releases."
+  ]
+}

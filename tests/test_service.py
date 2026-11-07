@@ -196,6 +196,23 @@ class ServiceIntegrationTests(unittest.TestCase):
                 },
             )
 
+    def test_mouse_is_enabled_only_for_new_managed_sessions(self) -> None:
+        first = self.managed_session(["/bin/cat"], name="mouse-first")
+        tmux = self.service.tmux
+        session_id = first["session_id"]
+        self.assertEqual("on", tmux.run("show-options", "-v", "-t", session_id, "mouse").strip())
+        self.assertEqual("off", tmux.run("show-options", "-gv", "mouse").strip())
+        tmux.run("set-option", "-t", session_id, "mouse", "off", mutating=True)
+        second = self.managed_session(["/bin/cat"], name="mouse-second")
+        self.assertEqual("on", tmux.run("show-options", "-v", "-t", second["session_id"], "mouse").strip())
+        split = self.invoke(self.pane_request(
+            "split_pane", {"cwd": str(Path.cwd()), "program_argv": ["/bin/cat"]},
+            first["pane"]["pane_id"], first["record"],
+        ))
+        self.assertEqual("ok", split["status"], split)
+        self.assertEqual("off", tmux.run("show-options", "-v", "-t", session_id, "mouse").strip())
+        self.assertEqual("off", tmux.run("show-options", "-gv", "mouse").strip())
+
     def test_create_snapshot_send_replay_and_stale_observation(self) -> None:
         created = self.managed_session(["/bin/cat"], name="cat-session")
         pane_id = created["target"]["pane_id"]

@@ -68,8 +68,8 @@ def main() -> None:
     ).strip()
     session_id, pane_id = created.split("|", 1)
     viewer = Viewer(state_dir)
-    native = {"schema_version": 1, "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"}}
-    ordinary = {"schema_version": 1, "tui": {"enabled": True, "terminal": "iterm2", "mode": "tmux"}}
+    native = {"schema_version": 1, "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native", "allow_input": False}}
+    ordinary = {"schema_version": 1, "tui": {"enabled": True, "terminal": "iterm2", "mode": "tmux", "allow_input": False}}
     server_instance_id = str(uuid.uuid4())
     record: dict | None = None
     hidden = False

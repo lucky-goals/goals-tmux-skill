@@ -102,6 +102,7 @@ def run_case(root, mode, *, sibling=False, keep_ended=False):
     service = Service(str(case / "tmux.sock"), state_dir=case / "state", config_path=case / "config.json")
     service.config.set("tui.terminal", "iterm2")
     service.config.set("tui.mode", mode)
+    service.config.set("tui.allow_input", False)
     service.policy.configure(service.socket_path, read_only=False, pane_ids=None,
                              allow_create=True, allow_close=True, allow_view=True)
     task_id = "gui-cleanup-" + uuid.uuid4().hex[:8]

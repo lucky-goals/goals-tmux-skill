@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.4](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4)
+Skill version: [v0.2.5](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.4 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.5 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
 
@@ -21,9 +21,9 @@ The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, and `ag
 Copy this prompt to a coding agent with local filesystem access. Replace the placeholders with your target client and the coding CLI you intend to use. Installation prepares the skill; it does not start a coding task.
 
 ```text
-Please install goals-tmux-skill v0.2.4 for [target client].
+Please install goals-tmux-skill v0.2.5 for [target client].
 Repository: https://github.com/lucky-goals/goals-tmux-skill
-Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4
+Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5
 Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
 
 1. Inspect the target client's supported skill mechanism, actual search paths, and
@@ -122,7 +122,7 @@ There is no universal skill installation directory. Inspect the target client's 
 
 ### 3. Download and install the complete package
 
-Download **goals-tmux-skill.zip** from [v0.2.4 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
+Download **goals-tmux-skill.zip** from [v0.2.5 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
 
 For a new user-scoped Codex installation, with the asset saved in `~/Downloads/`:
 
@@ -151,7 +151,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-Use your actual installed path if different. `--version` should report `0.2.4`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
+Use your actual installed path if different. `--version` should report `0.2.5`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
 
 `doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; all four are not required. iTerm2 is optional for tmux execution and required for `iterm2-native` display. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
 
@@ -169,44 +169,120 @@ After installation and CLI sign-in, you can start a task:
 
 The initial policy is read-only. Before work that writes, run `scripts/tmuxctl policy show` to inspect the endpoint and existing permissions. Configure only the socket, pane, and operations authorized for that task. The policy's read-only switch affects configured endpoints; avoid enabling unrelated resources for convenience. See the [runtime reference](references/runtime.md).
 
-## Terminal display and window retention
+## Configuration and diagnostics
 
-Run the following commands from the installed skill directory. They inspect or change display configuration without starting a coding CLI:
+Run commands from the installed skill directory, or use the absolute path to `scripts/tmuxctl`. To enable ordinary tmux viewing in iTerm2 and inspect readiness:
 
 ```sh
+scripts/tmuxctl config set tui.enabled true
+scripts/tmuxctl config set tui.terminal iterm2
+scripts/tmuxctl config set tui.mode tmux
 scripts/tmuxctl config show --json
+scripts/tmuxctl doctor --json
 ```
 
-By default, `tui.keep_open=false`: finish the task and clean up its tmux resources, then release its viewer. To retain the output in newly opened viewers after the process exits:
+These commands save display preferences or inspect readiness; they do not open a viewer or start a coding CLI. `config show` reports stored and effective settings. The following five keys are the complete persistent configuration supported by `config set`:
+
+| Key | Default | Accepted values and effect |
+|---|---|---|
+| `tui.enabled` | `true` | `true` enables viewer launch; `false` disables it without disabling tmux task execution. |
+| `tui.terminal` | `auto` | `auto`, `iterm2`, `terminal-app`, `current`. On macOS, `auto` prefers iTerm2, then Terminal.app. `current` is accepted but current-TTY handoff is not implemented; it reports unavailable. |
+| `tui.mode` | `tmux` | `tmux` for ordinary attachment; `iterm2-native` for native iTerm2 tabs/panes on macOS, with terminal `iterm2` or `auto`. |
+| `tui.keep_open` | `false` | `true` retains newly opened viewers after their tmux client exits; `false` enables automatic exit/cleanup. |
+| `tui.allow_input` | `true` | `true` allows keyboard and mouse input through the viewer; `false` attaches a read-only viewer. |
+
+`tui.allow_input=true` is the default. To block keyboard/mouse input through the viewer, run `scripts/tmuxctl config set tui.allow_input false`; use `true` to allow it again. This applies to ordinary tmux and native iTerm2 mapped-pane input. New managed sessions enable tmux mouse handling locally; existing/borrowed sessions retain their mouse settings. Actual mouse actions also depend on the terminal and pane application. Text selection or copying in the desktop terminal may remain available in read-only mode. Ordinary tmux mouse/keyboard allow and block behavior passed live PTY checks. This round verified native mapped keyboard input with input allowed; native mouse and the new disable-toggle GUI path remain unverified.
+
+The setting is captured per viewer. Hide/detach and reopen after changing it; an existing read-only viewer is not silently made writable. Human input goes directly to the pane, so coordinate with the agent to avoid simultaneous input. This does not change the runner's task permissions. In native mode, read-only GUI input is not a security boundary for raw Control Mode commands.
+
+Choose the individual commands you need; the alternatives below are not a sequence to run together:
 
 ```sh
+scripts/tmuxctl config set tui.enabled false
+scripts/tmuxctl config set tui.enabled true
+scripts/tmuxctl config set tui.terminal auto
+scripts/tmuxctl config set tui.terminal iterm2
+scripts/tmuxctl config set tui.terminal terminal-app
+scripts/tmuxctl config set tui.mode tmux
+scripts/tmuxctl config set tui.mode iterm2-native
 scripts/tmuxctl config set tui.keep_open true
+scripts/tmuxctl config set tui.keep_open false
+scripts/tmuxctl config set tui.allow_input true
+scripts/tmuxctl config set tui.allow_input false
 ```
 
-To restore automatic exit:
+There is no `config reset` command. To restore all five defaults:
 
 ```sh
+scripts/tmuxctl config set tui.enabled true
+scripts/tmuxctl config set tui.terminal auto
+scripts/tmuxctl config set tui.mode tmux
 scripts/tmuxctl config set tui.keep_open false
+scripts/tmuxctl config set tui.allow_input true
 ```
 
-Choose one terminal setting as needed:
+### Configuration location and scope
 
-| Selection | Command |
+The default file is `${XDG_CONFIG_HOME:-~/.config}/goals-tmux-skill/config.json`. `XDG_CONFIG_HOME`, when set, must be absolute. `config set` creates/updates the private file; a missing file uses defaults. To select a separate configuration file, put `--config` before the command and use the same selection for subsequent task commands:
+
+```sh
+scripts/tmuxctl --config /absolute/private/config.json config set tui.enabled true
+scripts/tmuxctl --config /absolute/private/config.json config show --json
+scripts/tmuxctl --config /absolute/private/config.json doctor --json
+```
+
+`--config` selects a file; it does not merge that file with the default file. For viewer-capable requests (`create_session`, `launch_cli`, `restore_cli`, `show_tui`), `arguments.tui` can override these settings for that operation, for example `{"enabled": true, "keep_open": false}`. Overrides do not rewrite the saved configuration. Precedence is request override, selected configuration, then defaults when the file is absent; legacy configuration without `keep_open` uses `false`.
+
+Settings are captured when a viewer opens. Hide/detach and reopen an existing viewer to apply changes. With retention enabled, the finished viewer waits for Enter; retaining the display does not keep the coding CLI or task panes running.
+
+With retention disabled, the resolved terminal determines cleanup. iTerm2 closes only the owned session after verifying its ID, ownership token, and TTY. Terminal.app uses an outer shell `exit`; its `exited` result confirms the viewer process ended, while tab closure depends on terminal preferences. Shared/live tmux sessions retain their viewers, and legacy windows without ownership records are not automatically closed. `tui.allow_input` controls viewer input independently of retention. See [display behavior and cleanup](references/runtime.md#user-display).
+
+### Diagnostics and runtime options
+
+```sh
+scripts/tmuxctl --version
+scripts/tmuxctl capabilities --json
+scripts/tmuxctl doctor --json
+scripts/tmuxctl doctor --cli-check --json
+scripts/tmuxctl --help
+scripts/tmuxctl config --help
+```
+
+`capabilities` lists supported operations. `doctor` checks readiness; `--cli-check` also checks installed CLI versions without sending a model request. These checks do not prove CLI sign-in or task acceptance. Use `--live` only for an explicitly selected existing endpoint:
+
+```sh
+scripts/tmuxctl --state-dir /absolute/private/state --socket /absolute/private/task.sock doctor --live --json
+```
+
+Other settings are environment variables or global command options, not `config set` keys. Global options go before the subcommand:
+
+| Setting | Purpose / default |
 |---|---|
-| Automatic (iTerm2 first, then Terminal.app on macOS) | `scripts/tmuxctl config set tui.terminal auto` |
-| iTerm2 | `scripts/tmuxctl config set tui.terminal iterm2` |
-| Terminal.app | `scripts/tmuxctl config set tui.terminal terminal-app` |
+| `GOALS_TMUX_PYTHON` | Interpreter executable for both `scripts/bootstrap.sh` and `scripts/tmuxctl`; default `python3`, requires Python 3.12+. Ensure the actual agent host receives it. |
+| `--tmux-binary /absolute/path/to/tmux` | Select the runtime tmux executable instead of the one found on `PATH`; requires tmux 3.6a+, or 3.8+ for Events/Monitors. |
+| `XDG_STATE_HOME`, `--state-dir /absolute/private/state` | Default state root is `${XDG_STATE_HOME:-~/.local/state}/goals-tmux-skill/`; `--state-dir` overrides it. This holds policy, task records and audit state, separately from display configuration. |
+| `--socket /absolute/private/task.sock` | Select an exact endpoint; default is `<state-dir>/sockets/default.sock`. Keep it consistent throughout the task. |
+| `--config /absolute/private/config.json` | Select the display configuration described above. |
+| `--ssh-host`, `--ssh-port`, `--ssh-config`, `--ssh-timeout`, `--remote-runner` | Select remote execution; timeout defaults to 30 seconds and runner to `tmuxctl`. `--ssh-config` is local; endpoint paths refer to the remote host. See [SSH setup and namespace rules](references/ssh.md). |
 
-The ordinary display mode is `scripts/tmuxctl config set tui.mode tmux`. For native iTerm2 tabs and panes, use `scripts/tmuxctl config set tui.mode iterm2-native` with terminal `iterm2` or `auto`. To run without opening a viewer, use `scripts/tmuxctl config set tui.enabled false`; use `true` to enable it again.
+CLI model/effort presets, `permission_mode` and `extra_args` are covered in [CLI adapters](references/cli-adapters.md). They are not persistent `config set` keys; launch/restore request parameters have their own validation.
 
-Settings are captured when a viewer opens. To apply changed settings to an existing viewer, hide/detach it and open a new one. With retention enabled, the finished viewer waits for Enter; retaining the display does not keep the coding CLI or tmux task running.
+### Task permissions
 
-With retention disabled, the **resolved terminal** determines cleanup: iTerm2 closes only the owned session after checking its ID, ownership token, and TTY; other tabs and splits are preserved. Terminal.app uses an outer shell `exit` path, not input sent to the CLI. Its `exited` result confirms the viewer process ended, while tab closure still depends on Terminal.app preferences. Shared/live tmux sessions retain their viewers. Legacy windows without recorded ownership are not guessed or automatically closed. These settings do not change the viewer's read-only input behavior. See [display configuration](references/runtime.md#user-display) for manual launch commands, cleanup results, and retry behavior.
+Display preferences do not grant write access. Inspect the policy and available grant flags separately:
+
+```sh
+scripts/tmuxctl policy show
+scripts/tmuxctl policy configure --help
+```
+
+Policy starts read-only. For an authorized task, select the exact `--socket`/`--state-dir`, use `--allow-writes`, and grant only the needed operations: `--allow-create`, `--allow-close`, `--allow-layout`, `--allow-view`, `--allow-capture`, `--allow-monitor`, or `--allow-interrupt`. Repeated `--pane-id %N` limits existing-pane access; `--all-panes` covers the entire endpoint. `--allow-monitor` applies to managed tmux 3.8 state monitors.
+
+`policy configure` replaces the selected endpoint's grant, including its pane scope: omitted grants become false, and omitted pane selection becomes empty. Preserve every permission the task still needs in each call. The `read_only` switch is shared by endpoints in the same state directory; omitting `--allow-writes` makes that policy read-only. See the [runtime policy reference](references/runtime.md#readiness-and-policy).
 
 ## Current support
 
 - Coding CLI adapter names are `claude`, `cursor`, `codex`, and `agy` (Antigravity). See the [CLI adapter reference](references/cli-adapters.md) for model/effort presets and permission modes. All four CLIs passed real dispatch, collaboration, review, normal exit, and resource settlement checks, including a review finding followed by a fix and a 19-test rerun. See the [acceptance report](docs/acceptance-2026-11-06.md).
-- Display retention defaults to `tui.keep_open=false`. To keep newly opened viewers after the process exits, run `scripts/tmuxctl config set tui.keep_open true`; use `false` to restore automatic exit. iTerm2 uses exact session cleanup; other launched terminals use an outer shell `exit`, with final tab closure dependent on terminal preferences. See the [display configuration](references/runtime.md#user-display).
 - TUI display is enabled by default. On macOS, `terminal=auto` tries iTerm2 before Terminal.app; availability is determined by `doctor` and the launch result. Read-only iTerm2 attachment, exact client verification, and detach passed live checks. The `iterm2-native` mapped GUI input restriction was tested against a writable control. `read_only_scope=native_gui_input` does not restrict raw `send-keys` on the same Control Mode channel. The `current` TTY handoff is not yet available.
 - `watch` observes inline for a bounded duration. The runner does not wake an idle host or create a background schedule. The GUI viewer is separate from coding CLI input and monitoring.
 - All four CLIs passed real conversation recovery and context checks. At close time, durable recovery evidence was `ready` for three CLIs and `degraded` for Antigravity. Startup or a screen hint alone is not verification. See the [0.2 acceptance report](docs/acceptance-0.2-2026-11-06.md).
@@ -217,7 +293,7 @@ With retention disabled, the **resolved terminal** determines cleanup: iTerm2 cl
 ## Not yet verified or implemented
 
 - Terminal.app live acceptance remains incomplete (launch timed out on the test machine). Its shell exit and retention behavior is covered by PTY tests; desktop tab closure is not verified.
-- Linux process identity, terminal display, and the complete task lifecycle lack sufficient acceptance evidence. Desktop viewer launch paths currently cover macOS iTerm2 and Terminal.app. Without a desktop, use the read-only manual attach command returned by the runner.
+- Linux process identity, terminal display, and the complete task lifecycle lack sufficient acceptance evidence. Desktop viewer launch paths currently cover macOS iTerm2 and Terminal.app. Without a desktop, use the manual attach command returned by the runner, honoring `tui.allow_input`.
 - A separate remote host has not been verified. Local loopback SSH results do not establish support for other operating systems or host combinations.
 - Automatic orchestration across multiple endpoints remains outside this release's scope.
 - The runner does not provide a full terminal emulator, idle-host wakeup, or recovery of live processes after a tmux server crash. It does not expose arbitrary shell/raw commands or `kill-server`.

@@ -17,11 +17,17 @@ from .errors import DomainError
 
 DEFAULT_CONFIG: dict[str, object] = {
     "schema_version": 1,
-    "tui": {"enabled": True, "terminal": "auto", "mode": "tmux", "keep_open": False},
+    "tui": {
+        "enabled": True,
+        "terminal": "auto",
+        "mode": "tmux",
+        "keep_open": False,
+        "allow_input": True,
+    },
 }
 _TERMINALS = frozenset({"auto", "iterm2", "terminal-app", "current"})
 _MODES = frozenset({"tmux", "iterm2-native"})
-_TUI_FIELDS = frozenset({"enabled", "terminal", "mode", "keep_open"})
+_TUI_FIELDS = frozenset({"enabled", "terminal", "mode", "keep_open", "allow_input"})
 _MAX_CONFIG_BYTES = 64 * 1024
 
 
@@ -47,10 +53,15 @@ def validate_config(value: object) -> dict[str, object]:
     if type(value["schema_version"]) is not int or value["schema_version"] != 1:
         raise _invalid("schema_version must be the integer 1")
     tui = value["tui"]
-    if not isinstance(tui, dict) or set(tui) - _TUI_FIELDS or set(tui) - {"keep_open"} != {
-        "enabled", "terminal", "mode"
-    }:
-        raise _invalid("tui must contain enabled, terminal, and mode, with optional keep_open")
+    required_tui_fields = {"enabled", "terminal", "mode"}
+    if (
+        not isinstance(tui, dict)
+        or set(tui) - _TUI_FIELDS
+        or not required_tui_fields <= set(tui)
+    ):
+        raise _invalid(
+            "tui must contain enabled, terminal, and mode, with optional keep_open and allow_input"
+        )
     if type(tui["enabled"]) is not bool:
         raise _invalid("tui.enabled must be a boolean")
     if not isinstance(tui["terminal"], str) or tui["terminal"] not in _TERMINALS:
@@ -60,6 +71,9 @@ def validate_config(value: object) -> dict[str, object]:
     keep_open = tui.get("keep_open", False)
     if type(keep_open) is not bool:
         raise _invalid("tui.keep_open must be a boolean")
+    allow_input = tui.get("allow_input", True)
+    if type(allow_input) is not bool:
+        raise _invalid("tui.allow_input must be a boolean")
     return {
         "schema_version": 1,
         "tui": {
@@ -67,6 +81,7 @@ def validate_config(value: object) -> dict[str, object]:
             "terminal": tui["terminal"],
             "mode": tui["mode"],
             "keep_open": keep_open,
+            "allow_input": allow_input,
         },
     }
 
