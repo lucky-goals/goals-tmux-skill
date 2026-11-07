@@ -1,6 +1,6 @@
 # goals-tmux-skill 实现方案与能力规划
 
-调研日期：2026-11-06，Asia/Shanghai。本文件保留当日的架构研究与分阶段方案，后续内容中的“拟议接口”“尚未开发”及阶段判断是历史记录，不代表当前进度；旧命令示例以当前运行器为准。当前代码为 0.2.3，新增恢复证据、SSH、tmux 3.8 等待与原生显示路径；当前验收见 [0.2 报告](acceptance-0.2-2026-11-06.md)。此前已发布的 0.1.0 代码含标准库 `scripts/tmuxctl`、任务与 pane registry、私有 dispatch/audit、有限 Control Mode watch、四个 CLI adapter 和可选 TUI launcher。实际命令以 `scripts/tmuxctl --help` 与 `capabilities --json` 为准，当前发布范围和限制见 [README](../README.md) 与 [SKILL](../SKILL.md)。
+调研日期：2026-11-06，Asia/Shanghai。本文件保留当日的架构研究与分阶段方案，后续内容中的“拟议接口”“尚未开发”及阶段判断是历史记录，不代表当前进度；旧命令示例以当前运行器为准。当前代码为 0.2.4，新增恢复证据、SSH、tmux 3.8 等待与原生显示路径；当前验收见 [0.2 报告](acceptance-0.2-2026-11-06.md)。此前已发布的 0.1.0 代码含标准库 `scripts/tmuxctl`、任务与 pane registry、私有 dispatch/audit、有限 Control Mode watch、四个 CLI adapter 和可选 TUI launcher。实际命令以 `scripts/tmuxctl --help` 与 `capabilities --json` 为准，当前发布范围和限制见 [README](../README.md) 与 [SKILL](../SKILL.md)。
 
 历史阶段边界：本文原始方案中的阶段标签不代表 0.2 当前状态。四 CLI 原始协作闭环及其真实会话恢复、macOS iTerm2 原生显示与隔离 SSH 已有实测证据；版本和平台限制以当前 README 与验收报告为准。Linux/独立远端主机仍未验收。MCP 不是安装和使用的前提。
 

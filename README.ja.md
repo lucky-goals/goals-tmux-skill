@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill バージョン：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3)
+Skill バージョン：[v0.2.4](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.3 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
+`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.4 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
 
 調整役は目標の理解、進捗の観察、通常の判断、完了条件の確認を担当します。プロジェクトの編集、テスト、ビルドなど、状態を変更する作業は制御対象の Coding CLI が行います。実行境界と手順の詳細は [SKILL.md](SKILL.md) を参照してください。
 
@@ -21,9 +21,9 @@ Skill バージョン：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill
 以下のプロンプトをローカルファイルシステムにアクセスできるコーディングエージェントにコピーし、対象クライアントと使用予定の coding CLI のプレースホルダーを置き換えてください。インストールでは skill を準備するだけで、コーディングタスクは開始しません。
 
 ```text
-[対象クライアント] に goals-tmux-skill v0.2.3 をインストールしてください。
+[対象クライアント] に goals-tmux-skill v0.2.4 をインストールしてください。
 リポジトリ：https://github.com/lucky-goals/goals-tmux-skill
-リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3
+リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4
 使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity]
 
 1. 対象クライアントがサポートする skill の仕組み、実際の検索パス、既存のインストールを確認してくださ
@@ -124,7 +124,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. パッケージ一式をダウンロードしてインストールする
 
-[v0.2.3 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
+[v0.2.4 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
 
 新しい Codex ユーザー範囲のインストールで、アセットを `~/Downloads/` に保存した場合は、次のようにします。
 
@@ -153,7 +153,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.3` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
+インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.4` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
 
 `doctor --cli-check` はインストール済み CLI の実行ファイルとバージョンを確認し、モデルリクエストは開始しません。使用する coding CLI をインストールしてサインインしてください。4 種類すべてをそろえる必要はありません。tmux の実行に iTerm2 は任意ですが、`iterm2-native` 表示には必要です。GUI の起動には macOS のオートメーション権限が必要な場合があります。SSH を使う場合は、ローカルの SSH クライアントとリモートホスト上のランタイム依存関係も必要です。[SSH の設定](references/ssh.md)を参照してください。
 
@@ -171,9 +171,44 @@ scripts/tmuxctl doctor --cli-check --json
 
 初期ポリシーは読み取り専用です。書き込みを伴う作業の前に `scripts/tmuxctl policy show` を実行して、endpoint と既存の権限を確認してください。そのタスクで許可された socket、pane、操作だけを設定してください。ポリシーの読み取り専用スイッチは設定済み endpoint に影響します。便宜上、無関係なリソースを有効にしないでください。[ランタイムリファレンス](references/runtime.md)を参照してください。
 
+## ターミナル表示とウィンドウの保持
+
+インストール済み skill ディレクトリで以下のコマンドを実行します。表示設定を確認または変更しますが、コーディング CLI は起動しません。
+
+```sh
+scripts/tmuxctl config show --json
+```
+
+既定値は `tui.keep_open=false` です。タスクを完了して tmux リソースをクリーンアップした後、viewer は終了します。プロセス終了後も新しく開く viewer に出力を保持するには、次のコマンドを実行します。
+
+```sh
+scripts/tmuxctl config set tui.keep_open true
+```
+
+自動終了に戻すには、次のコマンドを実行します。
+
+```sh
+scripts/tmuxctl config set tui.keep_open false
+```
+
+必要に応じて、ターミナルを一つ選択します。
+
+| 選択 | コマンド |
+|---|---|
+| 自動（macOS では iTerm2 を優先し、次に Terminal.app） | `scripts/tmuxctl config set tui.terminal auto` |
+| iTerm2 | `scripts/tmuxctl config set tui.terminal iterm2` |
+| Terminal.app | `scripts/tmuxctl config set tui.terminal terminal-app` |
+
+通常の表示モードは `scripts/tmuxctl config set tui.mode tmux` です。iTerm2 のネイティブなタブとペインを使うには、ターミナルを `iterm2` または `auto` にして、`scripts/tmuxctl config set tui.mode iterm2-native` を実行します。viewer を開かずに実行するには `scripts/tmuxctl config set tui.enabled false` を使います。再度有効にするには `true` を指定します。
+
+設定は viewer を開くときに読み込まれます。変更後の設定を既存の viewer に反映するには、その viewer を隠すか detach してから新しく開きます。保持を有効にすると、終了した viewer は Enter キーの入力を待ちます。表示を保持しても、コーディング CLI や tmux タスクの実行は継続しません。
+
+保持が無効の場合、実際に選択されたターミナルによってクリーンアップ方法が決まります。iTerm2 はセッション ID、所有権トークン、TTY を照合してから、このタスクが所有するセッションだけを閉じます。他のタブやペインは維持されます。Terminal.app は CLI に入力を送信せず、外側の shell の `exit` 経路で終了します。その `exited` 結果は viewer プロセスの終了を確認しますが、タブが閉じるかどうかは Terminal.app の環境設定に依存します。共有中または稼働中の tmux セッションでは viewer が保持されます。所有権の記録がない旧形式のウィンドウについては、所有者を推測したり自動で閉じたりしません。これらの設定は viewer の読み取り専用入力動作を変更しません。手動起動コマンド、クリーンアップ結果、再試行については[表示設定](references/runtime.md#user-display)を参照してください。
+
 ## 現在の対応範囲
 
 - Coding CLI アダプター名は `claude`、`cursor`、`codex`、`agy`（Antigravity）です。モデル・effort の既定値と権限モードは [CLI アダプターのリファレンス](references/cli-adapters.md)を参照してください。4 種類すべてで実際の指示送信、共同作業、レビュー、正常終了、リソース処理の完了を確認しました。「レビューで問題を発見 → 修正 → 19 件のテストを再実行」という一連の検証も含みます。[受け入れ検証レポート](docs/acceptance-2026-11-06.md)を参照してください。
+- 表示の保持は既定で `tui.keep_open=false` です。プロセス終了後も新しく開く viewer を保持するには `scripts/tmuxctl config set tui.keep_open true` を実行し、自動終了に戻すには `false` を指定します。iTerm2 は正確なセッション識別で閉じ、その他の対応端末は外側の shell の `exit` で終了します。タブが閉じるかどうかは端末自身の設定に依存します。[表示設定](references/runtime.md#user-display)を参照してください。
 - TUI 表示は既定で有効です。macOS の `terminal=auto` は iTerm2、Terminal.app の順に選択します。利用可否は `doctor` と起動結果で確認してください。iTerm2 の読み取り専用接続、正確な client の照合、detach は実機検証済みです。`iterm2-native` のマッピング先 GUI での入力制限は、書き込み可能な対照条件と比較して確認しました。`read_only_scope=native_gui_input` は、同じ Control Mode チャネル上の raw `send-keys` を制限しません。`current` TTY への引き継ぎは未対応です。
 - `watch` は時間制限付きのインライン観察です。実行ツールは待機中のホストを起こしたり、バックグラウンドの実行予定を作成したりしません。GUI viewer は Coding CLI の入力・監視とは別に動作します。
 - 4 種類の CLI で実際の会話復元と文脈の確認に成功しました。終了時点の永続化された復元証拠は 3 件が `ready`、Antigravity の 1 件が `degraded` でした。起動成功や画面のヒントだけを検証済みの根拠にはできません。[0.2 受け入れ検証レポート](docs/acceptance-0.2-2026-11-06.md)を参照してください。
@@ -183,7 +218,7 @@ scripts/tmuxctl doctor --cli-check --json
 
 ## 未検証または未実装の範囲
 
-- Terminal.app へのフォールバックは実機未検証です。
+- Terminal.app の実機検証は未完了です（テスト機で起動がタイムアウト）。外側の shell の終了・保持は疑似端末テストで確認しましたが、GUI タブの閉鎖は未検証です。
 - Linux のプロセス識別、端末表示、タスク全体のライフサイクルには十分な検証証拠がありません。現在のデスクトップ viewer 起動経路は macOS の iTerm2 と Terminal.app に対応します。デスクトップがない場合は、実行ツールが返す読み取り専用の手動 attach コマンドを利用できます。
 - 別のリモートホストでは未検証です。ローカルのループバック SSH の結果は、ほかの OS やホスト構成での動作保証にはなりません。
 - 複数 endpoint にまたがる自動連携は本リリースの対象外です。

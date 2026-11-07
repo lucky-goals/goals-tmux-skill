@@ -1,0 +1,61 @@
+{
+  "verified_at": "2026-11-07T08:28:16.478029+00:00",
+  "default": "tui.keep_open=false",
+  "config_scope": "Per-launch policy; existing schema v1 config without key defaults false; no global runner or shared terminal profile changes in this followup",
+  "focused_tests": {
+    "command": "python3 -m unittest tests.test_config_viewer tests.test_viewer_exit_config tests.test_viewer_cleanup tests.test_service tests.test_native_control",
+    "passed": 69
+  },
+  "gui_cases": [
+    {
+      "terminal": "iTerm2",
+      "mode": "iterm2-native",
+      "keep_open": true,
+      "outcome": "retained",
+      "task_settled": true
+    },
+    {
+      "terminal": "iTerm2",
+      "mode": "tmux",
+      "keep_open": true,
+      "outcome": "retained",
+      "task_settled": true
+    },
+    {
+      "terminal": "iTerm2",
+      "mode": "iterm2-native",
+      "keep_open": false,
+      "outcome": "closed",
+      "task_settled": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "terminal": "iTerm2",
+      "mode": "tmux",
+      "keep_open": false,
+      "outcome": "closed",
+      "task_settled": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "terminal": "iTerm2",
+      "mode": "tmux",
+      "keep_open": false,
+      "outcome": "closed",
+      "task_settled": true,
+      "extra_tab_preserved": true
+    }
+  ],
+  "preexisting_iterm_sessions_preserved": true,
+  "terminal_app": {
+    "live_status": "not_verified",
+    "reason": "First launch timed out before a viewer PID marker appeared; no uncertain launch replayed.",
+    "shell_tests": "PTY test verifies child PID marker equals exec-replaced process, default exit, and keep-open wait until Enter",
+    "gui_close_verified": false
+  },
+  "sdk_warning": "The optional iTerm2 test SDK logged an asynchronous connection-close warning after profile configuration; all GUI assertions passed and fixtures were cleaned.",
+  "test_scripts": [
+    "tests/acceptance/viewer_cleanup_live.py --keep-ended",
+    "tests/acceptance/viewer_exit_live.py --terminal iterm2"
+  ]
+}

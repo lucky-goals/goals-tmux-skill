@@ -17,10 +17,11 @@ from .errors import DomainError
 
 DEFAULT_CONFIG: dict[str, object] = {
     "schema_version": 1,
-    "tui": {"enabled": True, "terminal": "auto", "mode": "tmux"},
+    "tui": {"enabled": True, "terminal": "auto", "mode": "tmux", "keep_open": False},
 }
 _TERMINALS = frozenset({"auto", "iterm2", "terminal-app", "current"})
 _MODES = frozenset({"tmux", "iterm2-native"})
+_TUI_FIELDS = frozenset({"enabled", "terminal", "mode", "keep_open"})
 _MAX_CONFIG_BYTES = 64 * 1024
 
 
@@ -46,20 +47,26 @@ def validate_config(value: object) -> dict[str, object]:
     if type(value["schema_version"]) is not int or value["schema_version"] != 1:
         raise _invalid("schema_version must be the integer 1")
     tui = value["tui"]
-    if not isinstance(tui, dict) or set(tui) != {"enabled", "terminal", "mode"}:
-        raise _invalid("tui must contain only enabled, terminal, and mode")
+    if not isinstance(tui, dict) or set(tui) - _TUI_FIELDS or set(tui) - {"keep_open"} != {
+        "enabled", "terminal", "mode"
+    }:
+        raise _invalid("tui must contain enabled, terminal, and mode, with optional keep_open")
     if type(tui["enabled"]) is not bool:
         raise _invalid("tui.enabled must be a boolean")
     if not isinstance(tui["terminal"], str) or tui["terminal"] not in _TERMINALS:
         raise _invalid("tui.terminal must be auto, iterm2, terminal-app, or current")
     if not isinstance(tui["mode"], str) or tui["mode"] not in _MODES:
         raise _invalid("tui.mode must be tmux or iterm2-native")
+    keep_open = tui.get("keep_open", False)
+    if type(keep_open) is not bool:
+        raise _invalid("tui.keep_open must be a boolean")
     return {
         "schema_version": 1,
         "tui": {
             "enabled": tui["enabled"],
             "terminal": tui["terminal"],
             "mode": tui["mode"],
+            "keep_open": keep_open,
         },
     }
 
@@ -69,7 +76,7 @@ def _validate_partial_overrides(overrides: object) -> dict[str, object]:
         return {"tui": {}}
     if not isinstance(overrides, dict):
         raise _invalid("overrides must be an object")
-    allowed_top = {"schema_version", "tui", "tui.enabled", "tui.terminal", "tui.mode"}
+    allowed_top = {"schema_version", "tui", *(f"tui.{name}" for name in _TUI_FIELDS)}
     if set(overrides) - allowed_top:
         raise _invalid("overrides contain unknown keys")
     if "schema_version" in overrides and (
@@ -79,9 +86,9 @@ def _validate_partial_overrides(overrides: object) -> dict[str, object]:
 
     result: dict[str, object] = {"tui": {}}
     nested = overrides.get("tui", {})
-    if not isinstance(nested, dict) or set(nested) - {"enabled", "terminal", "mode"}:
+    if not isinstance(nested, dict) or set(nested) - _TUI_FIELDS:
         raise _invalid("tui overrides contain unknown keys")
-    for name in ("enabled", "terminal", "mode"):
+    for name in _TUI_FIELDS:
         dotted = f"tui.{name}"
         if name in nested and dotted in overrides:
             raise _invalid(f"override {dotted} was supplied twice")
@@ -189,7 +196,7 @@ class ConfigStore:
         return validate_config(merged)
 
     def set(self, key: str, value: object) -> dict[str, object]:
-        if not isinstance(key, str) or key not in {"tui.enabled", "tui.terminal", "tui.mode"}:
+        if not isinstance(key, str) or key not in {f"tui.{name}" for name in _TUI_FIELDS}:
             raise _invalid("unknown config key")
         candidate = self.load()
         candidate["tui"][key.split(".", 1)[1]] = value  # type: ignore[index]

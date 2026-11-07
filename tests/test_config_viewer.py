@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import pty
+import select
 import shlex
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -29,14 +32,18 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(self.store.load(), DEFAULT_CONFIG)
         self.assertEqual(self.store.effective(), DEFAULT_CONFIG)
         effective = self.store.effective({"tui": {"enabled": False, "terminal": "current"}})
-        self.assertEqual(effective["tui"], {"enabled": False, "terminal": "current", "mode": "tmux"})
+        self.assertEqual(effective["tui"], {
+            "enabled": False, "terminal": "current", "mode": "tmux", "keep_open": False,
+        })
         self.assertFalse(self.config_path.exists())
         self.assertEqual(self.store.effective({"tui.enabled": False})["tui"]["enabled"], False)
 
     def test_effective_preserves_persisted_values_not_explicitly_overridden(self) -> None:
         self.store.set("tui.terminal", "iterm2")
         effective = self.store.effective({"tui.enabled": False})
-        self.assertEqual(effective["tui"], {"enabled": False, "terminal": "iterm2", "mode": "tmux"})
+        self.assertEqual(effective["tui"], {
+            "enabled": False, "terminal": "iterm2", "mode": "tmux", "keep_open": False,
+        })
 
     def test_set_writes_private_atomic_config_and_preserves_other_values(self) -> None:
         configured = self.store.set("tui.terminal", "iterm2")
@@ -44,7 +51,7 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(self.store.set("tui.mode", "iterm2-native")["tui"]["mode"], "iterm2-native")
         self.assertEqual(self.store.set("tui.enabled", False)["tui"]["terminal"], "iterm2")
         self.assertEqual(self.store.load()["tui"], {
-            "enabled": False, "terminal": "iterm2", "mode": "iterm2-native",
+            "enabled": False, "terminal": "iterm2", "mode": "iterm2-native", "keep_open": False,
         })
         self.assertEqual(stat.S_IMODE(self.config_path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.config_path.parent.stat().st_mode), 0o700)
@@ -104,7 +111,7 @@ class ViewerTests(unittest.TestCase):
         self.viewer = Viewer(self.state_dir)
         self.config = {
             "schema_version": 1,
-            "tui": {"enabled": True, "terminal": "auto", "mode": "tmux"},
+            "tui": {"enabled": True, "terminal": "auto", "mode": "tmux", "keep_open": False},
         }
 
     def tearDown(self) -> None:
@@ -136,7 +143,7 @@ class ViewerTests(unittest.TestCase):
         return (
             patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}),
             patch.object(self.viewer, "_server_snapshot", side_effect=[self._snapshot()]),
-            patch.object(self.viewer, "_launch_terminal"),
+            patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-1", "/dev/ttys007")),
             patch.object(self.viewer, "_wait_for_pidfile", return_value=456),
             patch.object(self.viewer, "_wait_for_client", return_value=self._client()),
         )
@@ -202,14 +209,48 @@ class ViewerTests(unittest.TestCase):
         with patch.object(self.viewer, "_ensure_wrapper"), \
              patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
              patch("runtime.goals_tmux.viewer.subprocess.run") as run:
-            self.viewer._launch_terminal(
+            run.return_value = subprocess.CompletedProcess(
+                [], 0, "iterm-session-1\n/dev/ttys007\n", ""
+            )
+            identity = self.viewer._launch_terminal(
                 "iTerm2", marker_path="/state/marker.pid", tmux_binary="/tmux",
                 socket_path="/tmp/task.sock", session_id="$7", mode="iterm2-native",
+                viewer_token="38e6c7e8-fb5b-4124-8f72-99f170cf6275",
             )
         args = run.call_args.args[0]
         self.assertEqual(args[3], "com.googlecode.iterm2")
+        self.assertEqual(args[5], "38e6c7e8-fb5b-4124-8f72-99f170cf6275")
+        self.assertEqual(identity, ("iterm-session-1", "/dev/ttys007"))
+        self.assertIn("create window with default profile command commandText", args[2])
+        self.assertNotIn("write text commandText", args[2])
         command_parts = shlex.split(args[4])
         self.assertEqual(command_parts[2:], native)
+
+        with patch.object(self.viewer, "_ensure_wrapper"), \
+             patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+             patch("runtime.goals_tmux.viewer.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "kept-session\n/dev/ttys008\n", "")
+            self.viewer._launch_terminal(
+                "iTerm2", marker_path="/state/marker.pid", tmux_binary="/tmux",
+                socket_path="/tmp/task.sock", session_id="$7", viewer_token="token",
+                keep_open=True,
+            )
+        keep_command = run.call_args.args[0][4]
+        self.assertTrue(keep_command.startswith("/bin/sh -c "))
+        self.assertNotIn("exec /bin/sh", keep_command)
+        self.assertIn("Press Enter to exit viewer.", keep_command)
+
+        with patch.object(self.viewer, "_ensure_wrapper"), \
+             patch("runtime.goals_tmux.viewer.shutil.which", return_value="/usr/bin/osascript"), \
+             patch("runtime.goals_tmux.viewer.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.viewer._launch_terminal(
+                "Terminal.app", marker_path="/state/marker.pid", tmux_binary="/tmux",
+                socket_path="/tmp/task.sock", session_id="$7", keep_open=True,
+            )
+        terminal_command = run.call_args.args[0][4]
+        self.assertTrue(terminal_command.startswith("exec /bin/sh -c "))
+        self.assertIn("Press Enter to exit viewer.", terminal_command)
 
     def test_disabled_current_and_native_modes_never_launch(self) -> None:
         with patch.object(self.viewer, "_launch_terminal") as launch:
@@ -231,6 +272,15 @@ class ViewerTests(unittest.TestCase):
         self.assertEqual(disabled["status"], "disabled")
         self.assertEqual(current["status"], "unavailable")
         self.assertEqual(current["attach_command"][-3:], ["-r", "-t", "$7"])
+        self.assertTrue(current["launch_command"].startswith("exec /bin/sh -c "))
+        self.assertNotIn("Press Enter to exit viewer.", current["launch_command"])
+        retained_manual = self.viewer.open(
+            "/private/tmp/task.sock", "$7",
+            {"schema_version": 1, "tui": {"enabled": True, "terminal": "current", "mode": "tmux", "keep_open": True}},
+            tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="server-a",
+        )
+        self.assertTrue(retained_manual["launch_command"].startswith("exec /bin/sh -c "))
+        self.assertIn("Press Enter to exit viewer.", retained_manual["launch_command"])
         self.assertEqual(native["status"], "unavailable")
         launch.assert_not_called()
 
@@ -255,7 +305,7 @@ class ViewerTests(unittest.TestCase):
         }
         with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
              patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
-             patch.object(self.viewer, "_launch_terminal") as launch, \
+             patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-1", "/dev/ttys007")) as launch, \
              patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
              patch.object(self.viewer, "_wait_for_client", return_value=self._client(control_mode="1")) as wait:
             result = self.viewer.open(
@@ -402,7 +452,7 @@ class ViewerTests(unittest.TestCase):
         }
         with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
              patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
-             patch.object(self.viewer, "_launch_terminal"), \
+             patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-1", "/dev/ttys007")), \
              patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
              patch.object(self.viewer, "_wait_for_client", return_value=self._client(control_mode="1")):
             record = self.viewer.open(
@@ -419,6 +469,326 @@ class ViewerTests(unittest.TestCase):
             "/opt/homebrew/bin/tmux", "/private/tmp/task.sock",
             ["detach-client", "-t", "/dev/ttys007"],
         )
+
+    def test_close_closes_only_registered_iterm_session_and_retry_is_idempotent(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="server-close",
+            )
+        self.assertEqual(record["viewer_gui_session_id"], "iterm-session-1")
+        self.assertEqual(record["viewer_gui_tty"], "/dev/ttys007")
+
+        with patch.object(self.viewer, "_run_iterm_script", side_effect=[
+            "present", "close-requested", "absent",
+        ]) as iterm, patch.object(self.viewer, "_run_tmux") as tmux:
+            closed = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(closed["status"], "closed")
+        self.assertEqual([call.args[1:] for call in iterm.call_args_list], [
+            ("iterm-session-1", record["viewer_token"], "/dev/ttys007"),
+            ("iterm-session-1", record["viewer_token"], "/dev/ttys007"),
+            ("iterm-session-1", record["viewer_token"], "/dev/ttys007"),
+        ])
+        tmux.assert_not_called()
+
+        with patch.object(self.viewer, "_run_iterm_script", return_value="absent") as iterm:
+            retry = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(retry["status"], "not_open")
+        iterm.assert_called_once()
+
+    def test_close_recovers_launch_uncertain_session_from_durable_token(self) -> None:
+        launch_error = subprocess.CalledProcessError(1, ["osascript"], stderr="late AppleScript error")
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal", side_effect=launch_error), \
+             patch.object(self.viewer, "_wait_for_pidfile") as pidfile:
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="uncertain-server",
+            )
+        self.assertEqual(record["status"], "unknown")
+        pidfile.assert_not_called()
+
+        with patch.object(self.viewer, "_run_iterm_script", side_effect=[
+            "iterm-session-recovered\n/dev/ttys007", "present", "close-requested", "absent",
+        ]) as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "closed")
+        self.assertEqual(result["viewer_gui_session_id"], "iterm-session-recovered")
+        self.assertEqual([call.args[1:] for call in iterm.call_args_list], [
+            (record["viewer_token"],),
+            ("iterm-session-recovered", record["viewer_token"], "/dev/ttys007"),
+            ("iterm-session-recovered", record["viewer_token"], "/dev/ttys007"),
+            ("iterm-session-recovered", record["viewer_token"], "/dev/ttys007"),
+        ])
+
+    def test_close_accepts_early_unknown_receipt_after_inflight_client_recovery(self) -> None:
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-recovered", "/dev/ttys007")), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=None):
+            early = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="recover-client",
+            )
+        self.assertEqual(early["status"], "unknown")
+
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client()) as wait:
+            recovered = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="recover-client",
+            )
+        self.assertEqual(recovered["status"], "attached")
+        wait.assert_called_once()
+
+        with patch.object(self.viewer, "_run_iterm_script", side_effect=[
+            "present", "close-requested", "absent",
+        ]) as iterm:
+            result = self.viewer.close(early, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "closed")
+        self.assertEqual(iterm.call_args_list[0].args[1:], (
+            "iterm-session-recovered", early["viewer_token"], "/dev/ttys007",
+        ))
+
+    def test_close_identity_check_error_stays_unknown(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="script-error",
+            )
+        with patch.object(self.viewer, "_run_iterm_script", return_value="unknown") as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("iterm_session_identity_check_failed", result["warnings"])
+        iterm.assert_called_once()
+
+    def test_keep_open_is_persisted_and_changed_reuse_policy_requires_hide_first(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            original = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="keep-open-reuse",
+            )
+        self.assertFalse(original["keep_open"])
+        self.assertEqual(original["close_strategy"], "iterm_session_close")
+
+        keep_open_config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "tmux", "keep_open": True},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_client_snapshot", return_value=[self._client()]), \
+             patch.object(self.viewer, "_launch_terminal") as launch:
+            mismatch = self.viewer.open(
+                "/private/tmp/task.sock", "$7", keep_open_config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="keep-open-reuse",
+            )
+        self.assertEqual(mismatch["status"], "unavailable")
+        self.assertTrue(mismatch["requested_keep_open"])
+        self.assertIn("registered_viewer_keep_open_mismatch_requires_hide_first", mismatch["warnings"])
+        self.assertEqual(mismatch["viewer_token"], original["viewer_token"])
+        launch.assert_not_called()
+
+    def test_keep_open_close_returns_retained_without_touching_terminal(self) -> None:
+        config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "tmux", "keep_open": True},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-kept", "/dev/ttys007")), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client()):
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="kept-viewer",
+            )
+        with patch.object(self.viewer, "_run_iterm_script") as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "retained")
+        self.assertEqual(result["reason"], "keep_open")
+        iterm.assert_not_called()
+
+    def test_terminal_app_shell_exit_close_checks_pid_without_gui_close(self) -> None:
+        config = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "terminal-app", "mode": "tmux", "keep_open": False},
+        }
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "Terminal.app", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal", return_value=None), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client()):
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="terminal-exit",
+            )
+        self.assertEqual(record["status"], "attached")
+        self.assertEqual(record["close_strategy"], "shell_exit")
+        with patch("runtime.goals_tmux.viewer.os.kill", side_effect=ProcessLookupError), \
+             patch.object(self.viewer, "_run_iterm_script") as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "exited")
+        self.assertEqual(result["close_strategy"], "shell_exit")
+        self.assertFalse(result["gui_close_verified"])
+        iterm.assert_not_called()
+
+    def test_shell_exit_and_keep_open_supervisor_track_wrapper_exec_pid(self) -> None:
+        self.viewer._ensure_state_root()
+        self.viewer._ensure_wrapper()
+        fake_tmux = self.state_dir / "fake-tmux"
+        fake_tmux_pid = self.state_dir / "fake-tmux.pid"
+        marker = self.state_dir / "viewer.pid"
+        fake_tmux.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$$\" > \"$FAKE_TMUX_PID_FILE\"\nexit 0\n",
+            encoding="utf-8",
+        )
+        os.chmod(fake_tmux, 0o700)
+        child = " ".join(shlex.quote(part) for part in [
+            str(self.viewer._state_root / "attach-wrapper.sh"), str(marker), str(fake_tmux),
+        ])
+        env = os.environ.copy()
+        env["FAKE_TMUX_PID_FILE"] = str(fake_tmux_pid)
+
+        exiting = self.viewer._supervised_command(child, keep_open=False)
+        master, slave = pty.openpty()
+        proc = subprocess.Popen(
+            ["/bin/sh", "-c", exiting], stdin=slave, stdout=slave, stderr=slave,
+            env=env, close_fds=True,
+        )
+        os.close(slave)
+        self.assertEqual(proc.wait(timeout=5), 0)
+        self.assertEqual(marker.read_text(encoding="ascii").strip(), fake_tmux_pid.read_text(encoding="ascii").strip())
+        os.close(master)
+
+        marker.unlink()
+        fake_tmux_pid.unlink()
+        retaining = self.viewer._supervised_command(child, keep_open=True)
+        master, slave = pty.openpty()
+        proc = subprocess.Popen(
+            ["/bin/sh", "-c", retaining], stdin=slave, stdout=slave, stderr=slave,
+            env=env, close_fds=True,
+        )
+        os.close(slave)
+        output = bytearray()
+        deadline = time.monotonic() + 5
+        prompt = b"Press Enter to exit viewer."
+        while prompt not in output and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], max(0.0, deadline - time.monotonic()))
+            if not ready:
+                break
+            try:
+                output.extend(os.read(master, 4096))
+            except OSError:
+                break
+        self.assertIn(prompt, output)
+        self.assertIsNone(proc.poll())
+        self.assertEqual(marker.read_text(encoding="ascii").strip(), fake_tmux_pid.read_text(encoding="ascii").strip())
+        os.write(master, b"\n")
+        self.assertEqual(proc.wait(timeout=5), 0)
+        os.close(master)
+
+    def test_close_old_token_receipt_after_reopen_does_not_target_replacement(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            old = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="server-reopen",
+            )
+        registry_path = self.viewer._registry_path(self.viewer._registry_key(
+            "/private/tmp/task.sock", "$7", "server-reopen"
+        ))
+        active = self.viewer._read_registry(registry_path)
+        active["state"] = "detached"
+        self.viewer._write_registry(registry_path, active)
+
+        with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+             patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+             patch.object(self.viewer, "_launch_terminal", return_value=("iterm-session-2", "/dev/ttys008")), \
+             patch.object(self.viewer, "_wait_for_pidfile", return_value=789), \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client(pid=789, tty="/dev/ttys008")):
+            replacement = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="server-reopen",
+            )
+        self.assertNotEqual(old["viewer_token"], replacement["viewer_token"])
+
+        with patch.object(self.viewer, "_run_iterm_script", side_effect=[
+            "present", "close-requested", "absent",
+        ]) as iterm:
+            result = self.viewer.close(old, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "closed")
+        self.assertEqual(iterm.call_args_list[0].args[1:], (
+            "iterm-session-1", old["viewer_token"], "/dev/ttys007",
+        ))
+        self.assertNotIn(replacement["viewer_token"], str(iterm.call_args_list))
+
+    def test_close_refuses_legacy_receipt_without_gui_session_identity(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="legacy-server",
+            )
+        receipt_path = self.viewer._viewer_receipt_path(record["viewer_token"])
+        receipt = self.viewer._read_registry(receipt_path)
+        receipt["record"].pop("viewer_gui_session_id")
+        receipt["record"].pop("viewer_gui_tty")
+        self.viewer._write_registry(receipt_path, receipt)
+
+        with patch.object(self.viewer, "_run_iterm_script") as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "unavailable")
+        iterm.assert_not_called()
+
+    def test_close_refuses_iterm_tty_that_does_not_match_verified_tmux_client(self) -> None:
+        patches = self._open_mocks()
+        with patches[0], patches[1], patches[2], patches[3], \
+             patch.object(self.viewer, "_wait_for_client", return_value=self._client(tty="/dev/ttys009")):
+            record = self.viewer.open(
+                "/private/tmp/task.sock", "$7", self.config,
+                tmux_binary="/opt/homebrew/bin/tmux", server_instance_id="tty-mismatch",
+            )
+        self.assertEqual(record["status"], "unknown")
+        with patch.object(self.viewer, "_run_iterm_script") as iterm:
+            result = self.viewer.close(record, tmux_binary="/tmux")
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("iterm_gui_tty_does_not_match_verified_tmux_client", result["warnings"])
+        iterm.assert_not_called()
+
+    def test_native_close_requires_a_verified_matching_client_tty(self) -> None:
+        native = {
+            "schema_version": 1,
+            "tui": {"enabled": True, "terminal": "iterm2", "mode": "iterm2-native"},
+        }
+        cases = (
+            (None, "native_launcher_has_no_verified_tmux_client_tty"),
+            (self._client(tty="/dev/ttys009", control_mode="1"), "iterm_gui_tty_does_not_match_verified_tmux_client"),
+        )
+        for index, (client, warning) in enumerate(cases):
+            with self.subTest(client=client):
+                with patch.object(self.viewer, "diagnose", return_value={"available": True, "terminal": "iTerm2", "reason": None}), \
+                     patch.object(self.viewer, "_server_snapshot", return_value=self._snapshot()), \
+                     patch.object(self.viewer, "_launch_terminal", return_value=(f"native-session-{index}", "/dev/ttys007")), \
+                     patch.object(self.viewer, "_wait_for_pidfile", return_value=456), \
+                     patch.object(self.viewer, "_wait_for_client", return_value=client):
+                    record = self.viewer.open(
+                        "/private/tmp/task.sock", "$7", native,
+                        tmux_binary="/opt/homebrew/bin/tmux", server_instance_id=f"native-guard-{index}",
+                    )
+                self.assertEqual(record["status"], "unknown")
+                with patch.object(self.viewer, "_run_iterm_script") as iterm:
+                    result = self.viewer.close(record, tmux_binary="/tmux")
+                self.assertEqual(result["status"], "unknown")
+                self.assertIn(warning, result["warnings"])
+                iterm.assert_not_called()
 
     def test_native_client_parser_requires_readonly_and_control_mode_fields(self) -> None:
         output = "456|$7|/dev/ttys007|attached,read-only,control-mode|1|1\n"

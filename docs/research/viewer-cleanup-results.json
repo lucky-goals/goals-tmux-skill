@@ -1,0 +1,81 @@
+{
+  "verified_at": "2026-11-07T08:00:05.812685+00:00",
+  "scope": "Owned iTerm2 launcher cleanup after task tmux resource removal; read-only input unchanged",
+  "tmux": "tmux 3.6a",
+  "iterm2": "3.7.7",
+  "commands": [
+    "python3 tests/acceptance/viewer_cleanup_live.py",
+    "uv run --no-project --with iterm2 python tests/acceptance/viewer_cleanup_live.py --keep-ended"
+  ],
+  "profile_scope": "Only each newly created fixture session profile; no shared iTerm2 profiles changed",
+  "cases": [
+    {
+      "mode": "iterm2-native",
+      "extra_tab": false,
+      "keep_ended_session_profile": false,
+      "gui_cleanup": "not_open",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "mode": "tmux",
+      "extra_tab": false,
+      "keep_ended_session_profile": false,
+      "gui_cleanup": "not_open",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "mode": "tmux",
+      "extra_tab": true,
+      "keep_ended_session_profile": false,
+      "gui_cleanup": "not_open",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": true
+    },
+    {
+      "mode": "iterm2-native",
+      "extra_tab": false,
+      "keep_ended_session_profile": true,
+      "gui_cleanup": "closed",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "mode": "tmux",
+      "extra_tab": false,
+      "keep_ended_session_profile": true,
+      "gui_cleanup": "closed",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": null
+    },
+    {
+      "mode": "tmux",
+      "extra_tab": true,
+      "keep_ended_session_profile": true,
+      "gui_cleanup": "closed",
+      "task_settled": true,
+      "preexisting_sessions_preserved": true,
+      "extra_tab_preserved": true
+    }
+  ],
+  "cleanup": "All fixture tmux panes and GUI sessions removed, including two failed-run fixture launchers; preexisting GUI session IDs preserved",
+  "limitations": [
+    "Historical viewers without recorded GUI ownership are not inferred or auto-closed",
+    "Shared/live tmux sessions retain their viewer"
+  ],
+  "test_isolation_incident": {
+    "description": "Initial unit fixture omitted config_path and wrote global tui.enabled=false. Fixed to private temporary config.",
+    "current_enabled": true,
+    "prior_enabled": "not recorded; original value cannot be confirmed",
+    "unchanged_values": {
+      "mode": "tmux",
+      "terminal": "auto"
+    }
+  }
+}

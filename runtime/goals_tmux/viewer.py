@@ -27,10 +27,20 @@ _APPLE_SCRIPT = r'''on run argv
     set appId to item 1 of argv
     set commandText to item 2 of argv
     if appId is "com.googlecode.iterm2" then
+        set ownerToken to item 3 of argv
         tell application id "com.googlecode.iterm2"
             activate
-            set newWindow to (create window with default profile)
-            tell current session of newWindow to write text commandText
+            -- Run the attach wrapper as this session's command.  Do not type
+            -- into a reusable login shell: after tmux exits, no shell prompt
+            -- should remain available for unrelated commands.
+            set newWindow to (create window with default profile command commandText)
+            set newSession to current session of newWindow
+            tell newSession
+                set variable named "user.goals_tmux_viewer_token" to ownerToken
+                set sessionId to unique id
+                set sessionTty to tty
+            end tell
+            return sessionId & linefeed & sessionTty
         end tell
     else if appId is "com.apple.Terminal" then
         tell application id "com.apple.Terminal"
@@ -39,6 +49,124 @@ _APPLE_SCRIPT = r'''on run argv
         end tell
     else
         error "Unsupported terminal application"
+    end if
+end run'''
+
+_ITERM_SESSION_QUERY_SCRIPT = r'''on run argv
+    set targetSessionId to item 1 of argv
+    set targetToken to item 2 of argv
+    set targetTty to item 3 of argv
+    if application id "com.googlecode.iterm2" is not running then return "absent"
+    tell application id "com.googlecode.iterm2"
+        repeat with aWindow in windows
+            repeat with aTab in tabs of aWindow
+                repeat with aSession in sessions of aTab
+                        set candidateId to ""
+                    try
+                            set candidateId to unique id of aSession as text
+                        on error
+                            return "unknown"
+                        end try
+                        if candidateId is targetSessionId then
+                            try
+                                tell aSession to set savedToken to variable named "user.goals_tmux_viewer_token"
+                            on error
+                                return "unknown"
+                            end try
+                            if (savedToken as text) is targetToken then
+                                try
+                                    tell aSession to set savedTty to tty
+                                on error
+                                    return "unknown"
+                                end try
+                                if (savedTty as text) is targetTty then
+                                    return "present"
+                                else
+                                    return "tty-mismatch"
+                                end if
+                            else
+                                return "mismatch"
+                            end if
+                        end if
+                end repeat
+            end repeat
+        end repeat
+        return "absent"
+    end tell
+end run'''
+
+_ITERM_SESSION_CLOSE_SCRIPT = r'''on run argv
+    set targetSessionId to item 1 of argv
+    set targetToken to item 2 of argv
+    set targetTty to item 3 of argv
+    if application id "com.googlecode.iterm2" is not running then return "absent"
+    tell application id "com.googlecode.iterm2"
+        repeat with aWindow in windows
+            repeat with aTab in tabs of aWindow
+                repeat with aSession in sessions of aTab
+                        set candidateId to ""
+                    try
+                            set candidateId to unique id of aSession as text
+                        on error
+                            return "unknown"
+                        end try
+                        if candidateId is targetSessionId then
+                            try
+                                tell aSession to set savedToken to variable named "user.goals_tmux_viewer_token"
+                            on error
+                                return "unknown"
+                            end try
+                            if (savedToken as text) is targetToken then
+                                try
+                                    tell aSession to set savedTty to tty
+                                on error
+                                    return "unknown"
+                                end try
+                                if (savedTty as text) is not targetTty then
+                                    return "tty-mismatch"
+                                end if
+                                try
+                                    close aSession
+                                on error
+                                    return "close-failed"
+                                end try
+                                return "close-requested"
+                            end if
+                            return "mismatch"
+                        end if
+                end repeat
+            end repeat
+        end repeat
+        return "absent"
+    end tell
+end run'''
+
+_ITERM_SESSION_FIND_SCRIPT = r'''on run argv
+    set targetToken to item 1 of argv
+    set foundIds to {}
+    if application id "com.googlecode.iterm2" is not running then return "absent"
+    tell application id "com.googlecode.iterm2"
+        repeat with aWindow in windows
+            repeat with aTab in tabs of aWindow
+                repeat with aSession in sessions of aTab
+                    try
+                        tell aSession to set savedToken to variable named "user.goals_tmux_viewer_token"
+                        if (savedToken as text) is targetToken then
+                            tell aSession to set savedId to unique id
+                            tell aSession to set savedTty to tty
+                            set end of foundIds to ((savedId as text) & linefeed & (savedTty as text))
+                        end if
+                    end try
+                end repeat
+            end repeat
+        end repeat
+    end tell
+    if (count of foundIds) is 1 then
+        return item 1 of foundIds
+    else if (count of foundIds) is 0 then
+        return "absent"
+    else
+        return "ambiguous"
     end if
 end run'''
 
@@ -190,18 +318,22 @@ class Viewer:
         cfg = validate_config(config)
         tui = cfg["tui"]
         mode = tui["mode"]
+        keep_open = tui["keep_open"]
         native_mode = mode == "iterm2-native"
         manual = self._attach_argv(tmux_binary, socket_path, session_id, mode)
+        manual_launch = self._manual_launch_command(manual, keep_open=keep_open)
 
         if not tui["enabled"]:
             return self._base_result(
                 status="disabled", terminal=None, mode=mode, warnings=["tui_disabled"],
-                attach_command=manual,
+                attach_command=manual, launch_command=manual_launch,
+                keep_open=keep_open,
             )
         if mode == "tmux" and tui["terminal"] == "current":
             return self._base_result(
                 status="unavailable", terminal="current", mode=mode,
                 warnings=["current_tty_handoff_unavailable"], attach_command=manual,
+                launch_command=manual_launch, keep_open=keep_open,
             )
 
         resolution = self.diagnose(cfg)
@@ -211,6 +343,7 @@ class Viewer:
             return self._base_result(
                 status="unavailable", terminal=terminal or tui["terminal"], mode=mode,
                 warnings=[warning], attach_command=manual,
+                launch_command=manual_launch, keep_open=keep_open,
             )
 
         snapshot = self._server_snapshot(tmux_binary, socket_path, session_id)
@@ -218,6 +351,7 @@ class Viewer:
             return self._base_result(
                 status="unavailable", terminal=terminal, mode=mode,
                 warnings=["tmux_server_or_exact_session_unavailable"], attach_command=manual,
+                launch_command=manual_launch, keep_open=keep_open,
                 socket_path=socket_path, session_id=session_id,
                 server_instance_id=server_instance_id,
             )
@@ -233,6 +367,7 @@ class Viewer:
                     return self._base_result(
                         status="unavailable", terminal=terminal, mode=mode,
                         warnings=["registered_viewer_server_replaced"], attach_command=manual,
+                        launch_command=manual_launch, keep_open=keep_open,
                         socket_path=socket_path, session_id=session_id,
                         server_instance_id=server_instance_id,
                     )
@@ -244,6 +379,14 @@ class Viewer:
                         mismatch["status"] = "unavailable" if state == "attached" else "unknown"
                         mismatch["requested_mode"] = mode
                         mismatch["warnings"] = ["registered_viewer_mode_mismatch_requires_hide_first"]
+                        mismatch["launch_command"] = manual_launch
+                        return mismatch
+                    if isinstance(prior, dict) and prior.get("keep_open") is not keep_open:
+                        mismatch = dict(prior)
+                        mismatch["status"] = "unavailable" if state == "attached" else "unknown"
+                        mismatch["requested_keep_open"] = keep_open
+                        mismatch["warnings"] = ["registered_viewer_keep_open_mismatch_requires_hide_first"]
+                        mismatch["launch_command"] = manual_launch
                         return mismatch
                 if isinstance(prior, dict) and state == "attached":
                     clients = self._client_snapshot(tmux_binary, socket_path)
@@ -286,6 +429,8 @@ class Viewer:
                 "status": "unknown",
                 "terminal": terminal,
                 "mode": mode,
+                "keep_open": keep_open,
+                "close_strategy": "iterm_session_close" if terminal == "iTerm2" else "shell_exit",
                 "origin": "goals_tmux.viewer",
                 "viewer_origin": "iterm2_native_launcher" if native_mode else "macos_terminal_launcher",
                 "viewer_client_id": None,
@@ -298,12 +443,17 @@ class Viewer:
                 "server_start_time": snapshot["start_time"],
                 "server_process_start": snapshot["process_start"],
                 "viewer_token": token,
+                # Kept separate from viewer_client_id: this is the unique
+                # iTerm2 session created by our launcher, not a tmux identity.
+                "viewer_gui_session_id": None,
+                "viewer_gui_tty": None,
                 "read_only": None if native_mode else True,
                 "warnings": [
                     "launcher_uses_deprecated_applescript",
                     "macos_terminal_automation_permission_may_be_required",
                 ],
                 "attach_command": manual,
+                "launch_command": manual_launch,
             }
             entry = {
                 "state": "launching",
@@ -311,11 +461,12 @@ class Viewer:
                 "server": snapshot,
                 "marker_path": marker_path,
             }
-            self._write_registry(registry_path, entry)
+            self._write_entry(registry_path, entry)
             try:
-                self._launch_terminal(
+                gui_identity = self._launch_terminal(
                     terminal, marker_path=marker_path, tmux_binary=tmux_binary,
                     socket_path=socket_path, session_id=session_id, mode=mode,
+                    viewer_token=token, keep_open=keep_open,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 entry["state"] = "unknown"
@@ -325,15 +476,35 @@ class Viewer:
                 detail = self._exception_detail(exc)
                 if detail:
                     record["warnings"].append(f"launcher_error:{detail}")
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
                 return record
+
+            if terminal == "iTerm2" and isinstance(gui_identity, tuple) and len(gui_identity) == 2:
+                try:
+                    record["viewer_gui_session_id"] = _safe_string(
+                        gui_identity[0], "viewer_gui_session_id", max_bytes=256
+                    ).strip()
+                    gui_tty = _safe_string(
+                        gui_identity[1], "viewer_gui_tty", max_bytes=256
+                    ).strip()
+                    if not gui_tty.startswith("/dev/"):
+                        raise _fail("INVALID_REQUEST", "viewer_gui_tty must be a /dev path")
+                    record["viewer_gui_tty"] = gui_tty
+                except DomainError:
+                    # The durable token lets close() recover the exact session
+                    # from iTerm2 if AppleScript launched it but returned an
+                    # unusable ID.
+                    record["viewer_gui_session_id"] = None
+                    record["viewer_gui_tty"] = None
+                entry["record"] = record
+                self._write_entry(registry_path, entry)
 
             pid = self._wait_for_pidfile(Path(marker_path), timeout=3.0)
             if pid is None:
                 entry["state"] = "unknown"
                 record["status"] = "unknown"
                 record["warnings"] = ["launcher_started_but_viewer_pid_unconfirmed"]
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
                 return record
             client = self._wait_for_client(
                 tmux_binary, socket_path, session_id, pid, timeout=4.0, readonly=True,
@@ -344,7 +515,18 @@ class Viewer:
                 record["status"] = "unknown"
                 record["viewer_pid"] = pid
                 record["warnings"] = ["viewer_client_not_verified"]
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
+                return record
+
+            if terminal == "iTerm2" and record.get("viewer_gui_tty") != client["client_tty"]:
+                entry["state"] = "unknown"
+                record["status"] = "unknown"
+                record["viewer_pid"] = pid
+                record["viewer_client_id"] = f"tty:{client['client_tty']}"
+                record["_client_tty"] = client["client_tty"]
+                record["warnings"] = ["iterm_launcher_tty_does_not_match_viewer_client"]
+                entry["record"] = record
+                self._write_entry(registry_path, entry)
                 return record
 
             record.update({
@@ -362,7 +544,7 @@ class Viewer:
             })
             entry["state"] = "attached"
             entry["record"] = record
-            self._write_registry(registry_path, entry)
+            self._write_entry(registry_path, entry)
             return dict(record)
 
     def hide(self, record: dict, *, tmux_binary: str) -> dict:
@@ -439,7 +621,7 @@ class Viewer:
                         server_instance_id=server_instance_id,
                     )
                 entry["state"] = "detached"
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
                 return self._base_result(
                     status="not_attached", terminal=registered.get("terminal"), mode=registered.get("mode"),
                     warnings=["registered_viewer_client_is_no_longer_attached"],
@@ -455,7 +637,7 @@ class Viewer:
                         server_instance_id=server_instance_id,
                     )
                 entry["state"] = "detached"
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
                 return self._base_result(
                     status="not_attached", terminal=registered.get("terminal"), mode=registered.get("mode"),
                     warnings=["registered_viewer_client_is_no_longer_attached"],
@@ -511,7 +693,7 @@ class Viewer:
                     server_instance_id=server_instance_id,
                 )
             entry["state"] = "detached"
-            self._write_registry(registry_path, entry)
+            self._write_entry(registry_path, entry)
             return self._base_result(
                 status="detached", terminal=registered.get("terminal"), mode=registered.get("mode"),
                 warnings=[], socket_path=socket_path, session_id=session_id,
@@ -519,10 +701,269 @@ class Viewer:
                 viewer_client_id=viewer_client_id, viewer_pid=viewer_pid,
             )
 
+    def close(self, record: dict, *, tmux_binary: str) -> dict:
+        """Apply the recorded terminal exit policy for this viewer receipt.
+
+        This deliberately does not query tmux. The caller is responsible for
+        invoking it only after the original task session is gone. iTerm2 closes
+        only its exact owned session; Terminal.app confirms the launched shell
+        process exited without claiming that the GUI window was closed. The
+        durable per-token receipt survives a later open replacing the registry.
+        """
+        if not isinstance(record, dict):
+            raise _fail("INVALID_REQUEST", "viewer record must be an object")
+        socket_path = _safe_string(record.get("socket_path"), "record.socket_path")
+        session_id = _verify_session_id(record.get("session_id"))
+        server_instance_id = _safe_string(record.get("server_instance_id"), "record.server_instance_id")
+        token = _safe_string(record.get("viewer_token"), "record.viewer_token", max_bytes=64)
+        tmux_binary = _safe_string(tmux_binary, "tmux_binary", max_bytes=1024)
+        # Validate the token as a canonical UUID before using it to choose a
+        # receipt path. tmux_binary is intentionally not executed here.
+        receipt_path = self._viewer_receipt_path(token)
+        self._ensure_state_root()
+
+        with self._lock(receipt_path.with_suffix(".lock")):
+            entry = self._read_registry(receipt_path)
+            if not isinstance(entry, dict) or not isinstance(entry.get("record"), dict):
+                return self._close_result(
+                    record, status="unavailable", warning="viewer_owner_receipt_missing",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            registered = entry["record"]
+            if not self._close_record_matches(record, registered):
+                return self._close_result(
+                    registered, status="unavailable", warning="viewer_owner_receipt_identity_mismatch",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if type(registered.get("keep_open")) is not bool or not isinstance(registered.get("close_strategy"), str):
+                return self._close_result(
+                    registered, status="unknown", warning="legacy_viewer_close_strategy_unavailable",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            close_strategy = registered["close_strategy"]
+            if registered["keep_open"]:
+                return self._close_result(
+                    registered, status="retained", warning="viewer_retained_by_configuration",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                    reason="keep_open", close_strategy=close_strategy,
+                )
+            if entry.get("state") not in {"launching", "unknown", "attached", "detached", "closed"}:
+                return self._close_result(
+                    registered, status="unavailable", warning="viewer_owner_receipt_state_invalid",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+
+            if close_strategy == "shell_exit":
+                if registered.get("terminal") != "Terminal.app":
+                    return self._close_result(
+                        registered, status="unavailable", warning="shell_exit_strategy_terminal_mismatch",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+                viewer_pid = registered.get("viewer_pid")
+                if type(viewer_pid) is not int or viewer_pid <= 0:
+                    return self._close_result(
+                        registered, status="unknown", warning="terminal_viewer_pid_unconfirmed",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+                try:
+                    os.kill(viewer_pid, 0)
+                except ProcessLookupError:
+                    entry["state"] = "closed"
+                    self._write_registry(receipt_path, entry)
+                    return self._close_result(
+                        registered, status="exited", warning="terminal_viewer_process_confirmed_absent",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                        close_strategy="shell_exit", gui_close_verified=False,
+                    )
+                except (PermissionError, OSError):
+                    return self._close_result(
+                        registered, status="unknown", warning="terminal_viewer_process_check_failed",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                        close_strategy="shell_exit", gui_close_verified=False,
+                    )
+                return self._close_result(
+                    registered, status="unknown", warning="terminal_viewer_process_still_present",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                    close_strategy="shell_exit", gui_close_verified=False,
+                )
+
+            if close_strategy != "iterm_session_close" or registered.get("terminal") != "iTerm2":
+                return self._close_result(
+                    registered, status="unavailable", warning="registered_launcher_close_strategy_unsupported",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if "viewer_gui_session_id" not in registered or "viewer_gui_tty" not in registered:
+                return self._close_result(
+                    registered, status="unavailable", warning="legacy_viewer_has_no_gui_session_identity",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+
+            gui_session_id = registered.get("viewer_gui_session_id")
+            if gui_session_id is None:
+                # AppleScript can create the session and then fail before its
+                # returned ID reaches Python. Recover only via the durable,
+                # unique session token set by the launch script.
+                recovered = self._run_iterm_script(_ITERM_SESSION_FIND_SCRIPT, token)
+                if recovered in {None, "", "absent", "ambiguous", "unknown"}:
+                    return self._close_result(
+                        registered, status="unknown",
+                        warning="uncertain_iterm_launch_identity_not_recovered",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+                try:
+                    recovered_parts = recovered.splitlines()
+                    if len(recovered_parts) != 2:
+                        raise _fail("INVALID_REQUEST", "recovered iTerm identity is incomplete")
+                    gui_session_id = _safe_string(
+                        recovered_parts[0], "viewer_gui_session_id", max_bytes=256
+                    )
+                    gui_tty = _safe_string(
+                        recovered_parts[1], "viewer_gui_tty", max_bytes=256
+                    )
+                    if not gui_tty.startswith("/dev/"):
+                        raise _fail("INVALID_REQUEST", "recovered iTerm TTY is invalid")
+                except DomainError:
+                    return self._close_result(
+                        registered, status="unknown", warning="uncertain_iterm_launch_identity_invalid",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+                registered["viewer_gui_session_id"] = gui_session_id
+                registered["viewer_gui_tty"] = gui_tty
+                entry["record"] = registered
+                self._write_registry(receipt_path, entry)
+            else:
+                try:
+                    gui_session_id = _safe_string(
+                        gui_session_id, "record.viewer_gui_session_id", max_bytes=256
+                    )
+                    gui_tty = _safe_string(
+                        registered.get("viewer_gui_tty"), "record.viewer_gui_tty", max_bytes=256
+                    )
+                    if not gui_tty.startswith("/dev/"):
+                        raise _fail("INVALID_REQUEST", "registered iTerm TTY is invalid")
+                except DomainError:
+                    return self._close_result(
+                        registered, status="unavailable", warning="registered_iterm_identity_invalid",
+                        socket_path=socket_path, session_id=session_id,
+                        server_instance_id=server_instance_id,
+                    )
+
+            expected_client_tty = registered.get("_client_tty")
+            if not isinstance(expected_client_tty, str):
+                client_id = registered.get("viewer_client_id")
+                if isinstance(client_id, str) and client_id.startswith("tty:"):
+                    expected_client_tty = client_id[4:]
+            if registered.get("mode") == "iterm2-native" and not isinstance(expected_client_tty, str):
+                return self._close_result(
+                    registered, status="unknown", warning="native_launcher_has_no_verified_tmux_client_tty",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if isinstance(expected_client_tty, str) and expected_client_tty != gui_tty:
+                return self._close_result(
+                    registered, status="unknown", warning="iterm_gui_tty_does_not_match_verified_tmux_client",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+
+            before = self._run_iterm_script(
+                _ITERM_SESSION_QUERY_SCRIPT, gui_session_id, token, gui_tty
+            )
+            if before is None:
+                return self._close_result(
+                    registered, status="unknown", warning="iterm_session_check_failed",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if before == "absent":
+                entry["state"] = "closed"
+                self._write_registry(receipt_path, entry)
+                return self._close_result(
+                    registered, status="not_open", warning="owned_iterm_session_confirmed_absent",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if before == "unknown":
+                return self._close_result(
+                    registered, status="unknown", warning="iterm_session_identity_check_failed",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            if before != "present":
+                return self._close_result(
+                    registered, status="unavailable",
+                    warning=("iterm_session_tty_mismatch" if before == "tty-mismatch"
+                             else "iterm_session_owner_token_mismatch"),
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+
+            close_status = self._run_iterm_script(
+                _ITERM_SESSION_CLOSE_SCRIPT, gui_session_id, token, gui_tty
+            )
+            if close_status in {"mismatch", "tty-mismatch"}:
+                return self._close_result(
+                    registered, status="unavailable",
+                    warning=("iterm_session_tty_mismatch" if close_status == "tty-mismatch"
+                             else "iterm_session_owner_token_mismatch"),
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            after = self._run_iterm_script(
+                _ITERM_SESSION_QUERY_SCRIPT, gui_session_id, token, gui_tty
+            )
+            if after == "absent":
+                entry["state"] = "closed"
+                self._write_registry(receipt_path, entry)
+                return self._close_result(
+                    registered, status="closed", warning="owned_iterm_session_confirmed_closed",
+                    socket_path=socket_path, session_id=session_id,
+                    server_instance_id=server_instance_id,
+                )
+            return self._close_result(
+                registered, status="unknown",
+                warning=("iterm_session_close_check_failed" if after is None else "owned_iterm_session_still_open"),
+                socket_path=socket_path, session_id=session_id,
+                server_instance_id=server_instance_id,
+            )
+
+    @staticmethod
+    def _close_result(
+        record: dict, *, status: str, warning: str,
+        socket_path: str, session_id: str, server_instance_id: str,
+        **extra: object,
+    ) -> dict:
+        return Viewer._base_result(
+            status=status, terminal=record.get("terminal"), mode=record.get("mode"),
+            warnings=[warning], socket_path=socket_path, session_id=session_id,
+            server_instance_id=server_instance_id,
+            viewer_token=record.get("viewer_token"),
+            viewer_gui_session_id=record.get("viewer_gui_session_id"),
+            viewer_gui_tty=record.get("viewer_gui_tty"),
+            viewer_client_id=record.get("viewer_client_id"),
+            viewer_pid=record.get("viewer_pid"),
+            **extra,
+        )
+
     @staticmethod
     def _base_result(
         *, status: str, terminal: object, mode: object, warnings: list[str],
-        attach_command: list[str] | None = None, **extra: object,
+        attach_command: list[str] | None = None, launch_command: str | None = None,
+        **extra: object,
     ) -> dict:
         result = {
             "status": status,
@@ -536,8 +977,31 @@ class Viewer:
         }
         if attach_command is not None:
             result["attach_command"] = attach_command
+        if launch_command is not None:
+            result["launch_command"] = launch_command
         result.update(extra)
         return result
+
+    @staticmethod
+    def _supervised_command(
+        child_command: str, *, keep_open: bool, exec_shell: bool = True,
+    ) -> str:
+        """Run a child command in its own shell, optionally wait for Enter."""
+        script = f'{child_command}\nviewer_exit_status=$?\n'
+        if keep_open:
+            script += (
+                'printf "\\nViewer finished (exit %s). Press Enter to exit viewer. " '
+                '"$viewer_exit_status"\n'
+                'IFS= read -r _ || true\n'
+            )
+        script += 'exit "$viewer_exit_status"\n'
+        prefix = "exec " if exec_shell else ""
+        return f"{prefix}/bin/sh -c {shlex.quote(script)}"
+
+    @classmethod
+    def _manual_launch_command(cls, argv: list[str], *, keep_open: bool) -> str:
+        child_command = " ".join(shlex.quote(part) for part in argv)
+        return cls._supervised_command(child_command, keep_open=keep_open)
 
     @staticmethod
     def _interactive_tty_available() -> bool:
@@ -611,6 +1075,31 @@ class Viewer:
 
     def _registry_path(self, key: str) -> Path:
         return self._state_root / f"{key}.json"
+
+    def _viewer_receipt_path(self, token: str) -> Path:
+        try:
+            parsed = uuid.UUID(token)
+        except (AttributeError, ValueError, TypeError) as exc:
+            raise _fail("VIEWER_IDENTITY_INVALID", "viewer token is not a UUID") from exc
+        if str(parsed) != token:
+            raise _fail("VIEWER_IDENTITY_INVALID", "viewer token is not a canonical UUID")
+        return self._state_root / f"owner-{token}.json"
+
+    def _write_entry(self, registry_path: Path, entry: dict) -> None:
+        """Persist the active registry and a durable receipt scoped to its token.
+
+        The active registry is keyed by a task/session and can be replaced on a
+        later open. The owner receipt remains available so an earlier launcher
+        can still be closed without ever confusing it with a replacement.
+        """
+        record = entry.get("record")
+        if isinstance(record, dict) and "viewer_gui_session_id" in record:
+            token = record.get("viewer_token")
+            if isinstance(token, str):
+                receipt_path = self._viewer_receipt_path(token)
+                with self._lock(receipt_path.with_suffix(".lock")):
+                    self._write_registry(receipt_path, entry)
+        self._write_registry(registry_path, entry)
 
     @contextmanager
     def _lock(self, path: Path) -> Iterator[None]:
@@ -916,21 +1405,61 @@ class Viewer:
     def _launch_terminal(
         self, terminal: str, *, marker_path: str, tmux_binary: str,
         socket_path: str, session_id: str, mode: str = "tmux",
-    ) -> None:
+        viewer_token: str | None = None, keep_open: bool = False,
+    ) -> tuple[str, str] | None:
         self._ensure_wrapper()
         wrapper = str(self._state_root / "attach-wrapper.sh")
         attach_argv = self._attach_argv(tmux_binary, socket_path, session_id, mode)
-        command = " ".join(shlex.quote(part) for part in [wrapper, marker_path, *attach_argv])
+        child_command = " ".join(shlex.quote(part) for part in [wrapper, marker_path, *attach_argv])
+        if terminal == "iTerm2" and not keep_open:
+            # iTerm closes this exact owned session through close() after the
+            # tmux task session is gone.
+            command = child_command
+        else:
+            # Terminal.app has no safe exact-session close API here. Replacing
+            # its login shell ensures the shell process exits with tmux, while
+            # keep_open adds a deliberate Enter pause after the child exits.
+            command = self._supervised_command(
+                child_command, keep_open=keep_open, exec_shell=(terminal != "iTerm2")
+            )
         app_id = "com.googlecode.iterm2" if terminal == "iTerm2" else "com.apple.Terminal"
         osascript = shutil.which("osascript")
         if not osascript:
             raise FileNotFoundError("osascript is unavailable")
-        subprocess.run(
-            [osascript, "-e", _APPLE_SCRIPT, app_id, command],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        args = [osascript, "-e", _APPLE_SCRIPT, app_id, command]
+        if terminal == "iTerm2":
+            args.append(viewer_token or str(uuid.uuid4()))
+        result = subprocess.run(
+            args,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, timeout=12, check=True,
             shell=False,
         )
+        if terminal != "iTerm2":
+            return None
+        if not isinstance(result.stdout, str):
+            return None
+        identity = result.stdout.strip().splitlines()
+        return (identity[0], identity[1]) if len(identity) == 2 else None
+
+    @staticmethod
+    def _run_iterm_script(script: str, *args: str) -> str | None:
+        """Run an iTerm query without launching the app or shelling through it."""
+        osascript = shutil.which("osascript")
+        if not osascript:
+            return None
+        try:
+            result = subprocess.run(
+                [osascript, "-e", script, *args],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, timeout=8,
+                check=False, shell=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0 or not isinstance(result.stdout, str):
+            return None
+        return result.stdout.strip()
 
     def _ensure_wrapper(self) -> None:
         path = self._state_root / "attach-wrapper.sh"
@@ -974,6 +1503,18 @@ class Viewer:
                 readonly=True, control_mode=native_mode,
             )
             if client is not None:
+                if terminal == "iTerm2" and record.get("viewer_gui_tty") != client["client_tty"]:
+                    record.update({
+                        "status": "unknown",
+                        "viewer_pid": pid,
+                        "viewer_client_id": f"tty:{client['client_tty']}",
+                        "_client_tty": client["client_tty"],
+                        "warnings": ["iterm_launcher_tty_does_not_match_viewer_client"],
+                    })
+                    entry["state"] = "unknown"
+                    entry["record"] = record
+                    self._write_entry(registry_path, entry)
+                    return dict(record)
                 record.update({
                     "status": "attached",
                     "viewer_client_id": f"tty:{client['client_tty']}",
@@ -988,7 +1529,7 @@ class Viewer:
                 })
                 entry["state"] = "attached"
                 entry["record"] = record
-                self._write_registry(registry_path, entry)
+                self._write_entry(registry_path, entry)
                 return dict(record)
         record["status"] = "unknown"
         record["warnings"] = ["prior_viewer_launch_outcome_uncertain_no_retry"]
@@ -1000,8 +1541,37 @@ class Viewer:
             "socket_path", "session_id", "server_instance_id", "viewer_token",
             "viewer_pid", "viewer_client_id", "server_pid", "server_start_time",
             "server_process_start", "terminal", "mode", "read_only", "read_only_scope",
+            "viewer_gui_session_id", "viewer_gui_tty",
+            "keep_open", "close_strategy",
         )
         return all(provided.get(field) == registered.get(field) for field in fields)
+
+    @staticmethod
+    def _close_record_matches(provided: dict, registered: dict) -> bool:
+        immutable_fields = (
+            "socket_path", "session_id", "server_instance_id", "viewer_token",
+            "server_pid", "server_start_time", "server_process_start", "terminal", "mode",
+            "keep_open", "close_strategy",
+        )
+        if not all(provided.get(field) == registered.get(field) for field in immutable_fields):
+            return False
+        # Launch-uncertain receipts may predate verified tmux client metadata.
+        # Accept those missing fields while rejecting any conflicting identity.
+        mutable_fields = ("viewer_pid", "viewer_client_id", "read_only", "read_only_scope", "_client_tty")
+        if any(provided.get(field) is not None and provided.get(field) != registered.get(field)
+               for field in mutable_fields):
+            return False
+        provided_id = provided.get("viewer_gui_session_id")
+        registered_id = registered.get("viewer_gui_session_id")
+        provided_tty = provided.get("viewer_gui_tty")
+        registered_tty = registered.get("viewer_gui_tty")
+        # A launch-uncertain receipt can omit both fields. Once close() recovers
+        # them from the token, accept that same receipt on retry, but never a
+        # different nonempty ID or TTY.
+        return (
+            (provided_id == registered_id or provided_id is None)
+            and (provided_tty == registered_tty or provided_tty is None)
+        )
 
     @staticmethod
     def _short_error(value: str) -> str:

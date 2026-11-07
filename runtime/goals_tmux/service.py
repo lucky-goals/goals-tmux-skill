@@ -305,22 +305,115 @@ class Service:
             from .events38 import report_state_receipts
             monitors = report_state_receipts(self.state_dir, task_id=task_id)["pending"]
         report["pending_state_monitors"] = monitors
+        viewers = [
+            {"viewer_record_id": path.stem, "task_ids": receipt.get("task_ids", []),
+             "session_id": receipt["session_id"], "socket_path": receipt["socket_path"],
+             "terminal": receipt["viewer"].get("terminal"),
+             "keep_open": receipt["viewer"].get("keep_open", False),
+             "cleanup": receipt.get("gui_cleanup", {"status": "pending"})}
+            for path, receipt in self._task_viewer_receipts(task_id)
+        ]
+        report["viewers"] = viewers
+        pending_viewers = [item for item in viewers
+                           if item["cleanup"].get("status") not in {"closed", "not_open", "retained", "exited"}]
+        report["pending_viewers"] = pending_viewers
         registered_count = report["counts"]["total"]
         outstanding = list(report.get("outstanding", []))
         outstanding.extend({"kind": "pending_creation", **item} for item in pending)
         outstanding.extend({"kind": "pending_state_monitor", **item} for item in monitors)
-        count = registered_count + len(pending) + len(monitors)
+        outstanding.extend({"kind": "pending_viewer", **item} for item in pending_viewers)
+        count = registered_count + len(pending) + len(monitors) + len(viewers)
         unsettled_count = len(outstanding)
         report["count"] = count
         report["unsettled_count"] = unsettled_count
         report["unsettled"] = outstanding
+        report["outstanding"] = outstanding
         report["counts"]["total"] = count
         report["counts"]["outstanding"] = unsettled_count
         report["counts"]["settled"] = count - unsettled_count
         report["counts"]["pending_creations"] = len(pending)
         report["counts"]["pending_state_monitors"] = len(monitors)
+        report["counts"]["viewers"] = len(viewers)
         report["settled"] = bool(count) and unsettled_count == 0
         return report
+
+    def _task_viewer_receipts(self, task_id=None):
+        """One resource per owned viewer, even when show_tui reused it."""
+        grouped = {}
+        for path in sorted((self.state_dir / "viewer-receipts").glob("*.json")):
+            receipt = read_json(path)
+            if not isinstance(receipt, dict):
+                continue
+            viewer = receipt.get("viewer", {})
+            if ((viewer.get("terminal") != "iTerm2" and viewer.get("close_strategy") != "shell_exit")
+                    or not viewer.get("viewer_token") or not receipt.get("task_ids")):
+                continue
+            if task_id is not None and task_id not in receipt["task_ids"]:
+                continue
+            key = (receipt["socket_path"], receipt["server_instance_id"], viewer["viewer_token"])
+            grouped.setdefault(key, (path, receipt))
+        return list(grouped.values())
+
+    def cleanup_task_viewers(self, task_id):
+        """Close owned launcher sessions only after their tmux session is gone.
+
+        Called under the operation lock by pane cleanup and task settlement.
+        A surviving/shared session is explicitly retained. GUI failures remain
+        outstanding independently of an already successful tmux pane close.
+        """
+        task = self.tasks.get(task_id)
+        if not task or task.get("phase") not in {"finalizing", "settled"}:
+            raise DomainError("FINALIZATION_REQUIRED", "accept work before viewer cleanup")
+        outcomes = []
+        for path, receipt in self._task_viewer_receipts(task_id):
+            previous = receipt.get("gui_cleanup", {})
+            if previous.get("status") in {"closed", "not_open", "exited"}:
+                outcomes.append(previous)
+                continue
+            viewer = receipt["viewer"]
+            try:
+                if receipt["socket_path"] != self.socket_path or self.endpoint_namespace:
+                    raise DomainError("VIEWER_ENDPOINT_MISMATCH", "retry settlement on the viewer's local endpoint")
+                if viewer.get("keep_open") is True:
+                    result = {"status": "retained", "reason": "keep_open", "keep_open": True}
+                else:
+                    scope = self.policy.scope(self.socket_path) or {}
+                    if scope.get("read_only", True) or not scope.get("allow_close") or not scope.get("allow_view"):
+                        raise DomainError("VIEWER_CLOSE_NOT_ALLOWED", "viewer cleanup requires writable allow_close and allow_view grants")
+                    snap = self._snapshot()
+                    server = snap.get("server")
+                    if server and not server.get("instance_id"):
+                        raise DomainError("SERVER_IDENTITY_UNKNOWN", "cannot verify viewer server identity")
+                    if server and server["instance_id"] == receipt["server_instance_id"]:
+                        if any(s["session_id"] == receipt["session_id"] for s in snap["sessions"]):
+                            result = {"status": "retained", "reason": "tmux_session_still_present"}
+                        else:
+                            result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
+                    else:
+                        # An inaccessible socket alone is not evidence that the
+                        # original server stopped. Confirm its PID is absent before
+                        # closing its (possibly native) launcher. A differing ps
+                        # start-time string may only reflect locale/timezone changes.
+                        table = process_table()
+                        original = next((p for p in table["records"] if p["pid"] == viewer.get("server_pid")), None)
+                        if not table["complete"] or not viewer.get("server_pid") or original:
+                            raise DomainError("VIEWER_SERVER_UNRESOLVED", "original viewer server exit is not confirmed")
+                        result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
+            except DomainError as exc:
+                result = {"status": "unknown", "reason": exc.code, "message": str(exc)}
+            except (OSError, ValueError) as exc:
+                result = {"status": "unknown", "reason": "VIEWER_CLEANUP_FAILED", "message": str(exc)}
+            # Update every receipt for this exact viewer; multiple tasks may
+            # share it, and a repeated show_tui must not duplicate cleanup.
+            for candidate in (self.state_dir / "viewer-receipts").glob("*.json"):
+                item = read_json(candidate)
+                if (isinstance(item, dict) and item.get("socket_path") == receipt["socket_path"]
+                        and item.get("server_instance_id") == receipt["server_instance_id"]
+                        and item.get("viewer", {}).get("viewer_token") == viewer["viewer_token"]):
+                    item["gui_cleanup"] = result
+                    atomic_json(candidate, item)
+            outcomes.append(result)
+        return outcomes
 
     def _read(self, request, snap, affected):
         op, args = request["operation"], request["arguments"]
@@ -384,7 +477,8 @@ class Service:
         if op in {"dispatch", "submit_dispatch"}:
             return self._dispatch(request, pane, records)
         if op == "show_tui":
-            return self._show_viewer(target["session_id"], args.get("tui"), snap)
+            return self._show_viewer(target["session_id"], args.get("tui"), snap,
+                                     task_ids=sorted({r["task_id"] for r in records}))
         if op == "hide_tui":
             key = contract.string(args["viewer_record_id"], "viewer_record_id", max_bytes=128)
             if not re.fullmatch(r"[a-f0-9]{32}", key):
@@ -546,7 +640,7 @@ class Service:
             try:
                 scope = self.policy.scope(self.socket_path) or {}
                 if scope.get("allow_view"):
-                    viewer = self._show_viewer(session_id, args.get("tui"), fresh)
+                    viewer = self._show_viewer(session_id, args.get("tui"), fresh, task_ids=[task_id])
                 else:
                     viewer = {"status": "unavailable", "reason": "viewer_not_authorized"}
             except DomainError as exc:
@@ -557,7 +651,7 @@ class Service:
                 "creation_receipt": str(creation_path),
                 "recovery_verification": "pending" if op == "restore_cli" else None}
 
-    def _show_viewer(self, session_id, overrides, snap):
+    def _show_viewer(self, session_id, overrides, snap, *, task_ids=None):
         if self.endpoint_namespace:
             return {"status": "unavailable", "reason": "ssh_viewer_requires_manual_attach",
                     "socket_path": self.socket_path, "session_id": session_id}
@@ -569,7 +663,8 @@ class Service:
         key = uuid.uuid4().hex
         atomic_json(self.state_dir / "viewer-receipts" / (key + ".json"),
                     {"socket_path": self.socket_path, "session_id": session_id,
-                     "server_instance_id": snap["server"]["instance_id"], "viewer": data})
+                     "server_instance_id": snap["server"]["instance_id"], "viewer": data,
+                     "task_ids": task_ids or []})
         return {**data, "viewer_record_id": key}
 
     def _dispatch(self, request, pane, records):
@@ -741,7 +836,16 @@ class Service:
                               status="unknown", side_effects="unknown", data={"recovery_record_path": str(receipt_path)})
         if any(item["status"] != "closed" for item in receipt["outcomes"]):
             raise DomainError("CLOSE_UNVERIFIED", "one or more original panes remain", status="partial", side_effects="unknown", data=receipt)
-        return {"recovery_record_id": receipt_id, "recovery_record_path": str(receipt_path), "outcomes": receipt["outcomes"]}
+        viewers = []
+        for task_id in sorted({record["task_id"] for record in closing_records}):
+            if self.tasks.get(task_id).get("phase") in {"finalizing", "settled"}:
+                viewers.extend(self.cleanup_task_viewers(task_id))
+            elif self._task_viewer_receipts(task_id):
+                # An explicitly authorized force-close can precede business
+                # acceptance. Do not turn a confirmed pane close into failure.
+                viewers.append({"status": "pending", "reason": "task_not_accepted", "task_id": task_id})
+        return {"recovery_record_id": receipt_id, "recovery_record_path": str(receipt_path),
+                "outcomes": receipt["outcomes"], "viewer_cleanup": viewers}
 
     def _capture_stream(self, request, pane):
         scope = self.policy.scope(self.socket_path) or {}

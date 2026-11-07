@@ -76,6 +76,27 @@ After an unknown mutation result, query `operation-status --request-id ID` and i
 
 The viewer is a separate read-only tmux client. Task input and capture stay on the runner path. Hiding/detaching the viewer must not be reported as stopping task monitoring or closing a pane.
 
+`tui.keep_open=false` is the default: do not keep the viewer open after its tmux client exits. Set retention for newly opened viewers with:
+
+```sh
+scripts/tmuxctl config set tui.keep_open true
+scripts/tmuxctl config show --json
+```
+
+Restore automatic exit with:
+
+```sh
+scripts/tmuxctl config set tui.keep_open false
+```
+
+Each launch records its effective setting. Changes do not retroactively change existing viewers; hide and reopen a viewer to apply a different setting. With `keep_open=true`, the launcher waits after tmux exits so the output remains visible, even when the terminal normally closes ended sessions. Press Enter to exit that viewer, or close its tab manually. Retaining the display does not retain task panes or keep a coding CLI running. Per-operation `tui.keep_open` overrides are supported alongside the other display settings. Legacy config files that omit the key use `false`.
+
+Cleanup follows the **resolved terminal**, including the result of `terminal=auto`. For iTerm2, new launches record the exact desktop launcher session; after task cleanup removes its tmux session, the runner closes that launcher and verifies the result. Other launched terminals use an outer shell command ending in `exit`, replacing the original login shell so it does not remain at a prompt. This does not send `exit` to the coding CLI or a tmux pane. For Terminal.app, an `exited` outcome confirms the viewer process ended; `gui_close_verified=false` means whether the tab disappears still depends on the terminal's own close-on-exit preferences. The runner does not modify shared terminal profiles. Unsupported/headless launchers still require manual attachment.
+
+When a desktop launcher is unavailable, the returned `launch_command` applies the same outer-shell exit/retention behavior if run manually in the intended terminal; `attach_command` remains the raw read-only tmux argument list for existing integrations.
+
+`task settle` retries outstanding viewer cleanup (with writable `allow_close` and `allow_view` grants); failures remain visible in the resource report. `keep_open=true` and surviving/shared tmux sessions are explicitly retained. This does not change `hide_tui`, which remains detach-only, or the read-only input mode. Existing viewers created before GUI ownership was recorded cannot be safely auto-closed by title or window position.
+
 
 ## 0.2 journal compatibility
 

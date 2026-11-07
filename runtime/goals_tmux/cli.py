@@ -197,9 +197,16 @@ def run(args):
                     registry.update(record["record_id"], _context(record), patch)
                 data = {"task": data, "resources": registry.report(args.task_id)}
             elif args.action == "settle":
-                endpoint = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
-                                   endpoint_namespace=namespace)
-                data = tasks.settle(args.task_id, resource_report=endpoint.resource_report(args.task_id))
+                task = tasks.get(args.task_id)
+                if task.get("settled"):
+                    # The settlement report is historical. A shared viewer may
+                    # have been closed by another task since it was retained.
+                    data = task
+                else:
+                    endpoint = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
+                                       endpoint_namespace=namespace)
+                    endpoint.cleanup_task_viewers(args.task_id)
+                    data = tasks.settle(args.task_id, resource_report=endpoint.resource_report(args.task_id))
             elif args.action == "observe-dispatch":
                 data = tasks.mark_dispatch(args.task_id, args.dispatch_id, status="observed", evidence=args.evidence)
             else:

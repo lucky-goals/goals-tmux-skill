@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill 版本：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3)
+Skill 版本：[v0.2.4](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的通用 agent skill。0.2.3 包含可执行的独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、有限时长的内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
+`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的通用 agent skill。0.2.4 包含可执行的独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、有限时长的内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
 
 协调者负责理解目标、观察、常规决策和验收；项目修改、测试、构建及其他改变项目状态的工作由受控 Coding CLI 完成。先读 [SKILL.md](SKILL.md) 了解完整执行边界和流程。
 
@@ -21,9 +21,9 @@ Skill 版本：[v0.2.3](https://github.com/lucky-goals/goals-tmux-skill/releases
 将下面的提示词复制给可以访问本机文件系统的 coding agent。替换目标客户端和准备使用的 Coding CLI。安装只准备 skill，不会启动编程任务。
 
 ```text
-请将 goals-tmux-skill v0.2.3 安装到 [目标客户端]。
+请将 goals-tmux-skill v0.2.4 安装到 [目标客户端]。
 仓库：https://github.com/lucky-goals/goals-tmux-skill
-发布版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3
+发布版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4
 计划使用的执行 CLI：[Claude Code / Codex / Cursor / Antigravity]
 
 1. 检查目标客户端支持的 skill 机制、实际搜索路径和已有安装。按指定范围安装；
@@ -116,7 +116,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. 下载并安装完整包
 
-从 [v0.2.3 Release](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.3) 下载 **goals-tmux-skill.zip**。选择这个具名安装附件，而非 GitHub 自动生成的源码压缩包；无需先克隆仓库或本地打包。
+从 [v0.2.4 Release](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.4) 下载 **goals-tmux-skill.zip**。选择这个具名安装附件，而非 GitHub 自动生成的源码压缩包；无需先克隆仓库或本地打包。
 
 以下以新建 Codex 用户级安装为例，假设附件保存在 `~/Downloads/`：
 
@@ -145,7 +145,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-目录不同时使用实际安装路径。`--version` 应返回 `0.2.3`。Bootstrap 会检查 Python 和 tmux 最低版本，不安装软件、不启动 server。旧的 `--apply` 参数明确作为仅检查的兼容别名，不是安装器。
+目录不同时使用实际安装路径。`--version` 应返回 `0.2.4`。Bootstrap 会检查 Python 和 tmux 最低版本，不安装软件、不启动 server。旧的 `--apply` 参数明确作为仅检查的兼容别名，不是安装器。
 
 `doctor --cli-check` 只检查已安装 CLI 的执行文件和版本，不会发起模型请求。安装并登录准备使用的 Coding CLI 即可，无需全部四种。tmux 执行不强制安装 iTerm2；`iterm2-native` 显示模式需要它，GUI 启动可能需要 macOS 自动化权限。SSH 还要求本机 SSH 客户端和远端运行依赖，详见 [SSH 配置](references/ssh.md)。
 
@@ -163,9 +163,44 @@ scripts/tmuxctl doctor --cli-check --json
 
 初始策略默认为只读。写任务前先运行 `scripts/tmuxctl policy show` 检查 endpoint 与已有权限，仅配置本任务已获授权的 socket、pane 和操作范围。策略的只读开关会影响已配置 endpoint，不要为方便而开放无关资源。参阅[运行器参考](references/runtime.md)。
 
+## 终端显示与窗口保留
+
+在已安装的 skill 目录运行以下命令。它们用于查看或修改显示配置，不启动 Coding CLI：
+
+```sh
+scripts/tmuxctl config show --json
+```
+
+默认 `tui.keep_open=false`：任务完成并清理所属 tmux 资源后，释放对应的查看窗口。若希望进程退出后保留之后新开的窗口与输出：
+
+```sh
+scripts/tmuxctl config set tui.keep_open true
+```
+
+恢复自动退出：
+
+```sh
+scripts/tmuxctl config set tui.keep_open false
+```
+
+根据需要选择一种终端设置：
+
+| 选择 | 命令 |
+|---|---|
+| 自动选择（macOS 优先 iTerm2，其次 Terminal.app） | `scripts/tmuxctl config set tui.terminal auto` |
+| iTerm2 | `scripts/tmuxctl config set tui.terminal iterm2` |
+| Terminal.app | `scripts/tmuxctl config set tui.terminal terminal-app` |
+
+普通显示模式使用 `scripts/tmuxctl config set tui.mode tmux`。需要 iTerm2 原生 tab 和分屏时，使用 `scripts/tmuxctl config set tui.mode iterm2-native`，并将终端设为 `iterm2` 或 `auto`。不需要打开查看窗口时，运行 `scripts/tmuxctl config set tui.enabled false`；设为 `true` 可重新开启。
+
+配置在 viewer 打开时记录。若要让已有 viewer 应用新配置，先隐藏／detach，再重新打开。启用保留后，结束的 viewer 会等待 Enter；保留显示不会让 Coding CLI 或 tmux 任务继续运行。
+
+关闭保留时，按**实际选中的终端**处理：iTerm2 核对会话 ID、归属标记和 TTY 后，只关闭所属会话，保留其他 tab 和分屏；Terminal.app 通过外层 shell 的 `exit` 退出，不向 CLI 发送输入。其 `exited` 结果表示 viewer 进程已退出，tab 是否消失仍取决于 Terminal.app 自身设置。共享／仍在使用的 tmux session 会保留 viewer。缺少归属记录的旧窗口不会被猜测或自动关闭。这些配置不改变 viewer 的只读输入行为。手动启动命令、清理结果和重试方式见[显示配置](references/runtime.md#user-display)。
+
 ## 当前支持范围
 
 - Coding CLI adapter 名称为 `claude`、`cursor`、`codex` 和 `agy`（Antigravity）。adapter 的模型/effort 预设与权限模式见 [CLI adapter 参考](references/cli-adapters.md)。四种 CLI 已完成真实派发、协作、复核、正常退出及资源结算验收；包含一轮“复核发现问题 → 修复 → 19 项测试复测”的闭环，见 [验收报告](docs/acceptance-2026-11-06.md)。
+- 默认 `tui.keep_open=false`，进程退出后不主动保留显示窗口。运行 `scripts/tmuxctl config set tui.keep_open true` 可保留之后新开的 viewer；设为 `false` 恢复自动退出。iTerm2 按精确会话身份关闭，其他已支持的终端通过外层 shell 的 `exit` 退出，最终是否关闭 tab 取决于终端自身设置。详见[显示配置](references/runtime.md#user-display)。
 - TUI 配置默认开启。macOS `terminal=auto` 的选择顺序为 iTerm2、Terminal.app；具体展示是否可用以 `doctor`/启动结果为准。本机 iTerm2 只读附着、精确 client 核验和 detach 已通过真实验收。`iterm2-native` 的 mapped GUI 输入阻断与可写对照已实测；`read_only_scope=native_gui_input` 不限制同一 Control Mode channel 的 raw `send-keys`。`current` TTY handoff 尚不可用。
 - `watch` 是有限时长的内联观察；运行器不会唤醒空闲宿主或创建后台调度。GUI viewer 与 Coding CLI 的输入/监控分离。
 - 四种 CLI 的真实会话恢复及上下文检查已通过；关闭时持久化恢复证据为三项 `ready`、Antigravity 一项 `degraded`，不能把启动或屏幕提示单独当成验证。详见 [0.2 验收报告](docs/acceptance-0.2-2026-11-06.md)。
@@ -175,7 +210,7 @@ scripts/tmuxctl doctor --cli-check --json
 
 ## 尚未验收或未实现
 
-- Terminal.app fallback 尚未实测。
+- Terminal.app 实机验收尚未完成（测试机启动超时）。外层 shell 的退出与保留行为已通过伪终端测试，桌面 tab 关闭尚未验证。
 - Linux 的进程身份、终端展示和任务闭环尚无足够验收证据。当前桌面 viewer 仅有 macOS iTerm2/Terminal.app 启动路径；无桌面环境可按运行器结果使用只读手动 attach 命令。
 - 独立远端主机尚未验收；本机回环 SSH 的结果不代表其他操作系统或主机组合已验证。
 - 多端点自动编排仍不在本轮范围。
