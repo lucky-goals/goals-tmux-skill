@@ -1,0 +1,106 @@
+{
+  "mode": "tmux",
+  "model_requests": 0,
+  "status": "passed",
+  "creation_status": "ok",
+  "creation_code": "OK",
+  "tui_evidence": {
+    "status": "verified",
+    "reason": "verified_visible",
+    "viewer_gui_session_id": "<redacted-local-identifier>",
+    "evidence": {
+      "receipt": "matched",
+      "server": {
+        "pid": "<redacted-local-identifier>",
+        "start_time": "<redacted-local-identifier>"
+      },
+      "tmux_client": {
+        "pid": "<redacted-local-identifier>",
+        "tty": "<redacted-local-identifier>",
+        "session_id": "<redacted-local-identifier>",
+        "read_only": false,
+        "control_mode": false,
+        "flags": [
+          "UTF-8",
+          "attached",
+          "focused"
+        ]
+      },
+      "target": {
+        "pane_id": "<redacted-local-identifier>",
+        "window_id": "<redacted-local-identifier>",
+        "session_id": "<redacted-local-identifier>",
+        "window_visible": true,
+        "window_zoomed": false,
+        "pane_zoomed": false,
+        "pane_hidden_by_zoom": false,
+        "pane_active": true
+      },
+      "gui_session": {
+        "id": "<redacted-gui-identifier>",
+        "tty": "<redacted-local-identifier>",
+        "token_match": true,
+        "present": true,
+        "window_id": "<redacted-local-identifier>",
+        "tab_session_count": 1,
+        "window_visible": true,
+        "window_minimized": false,
+        "tab_selected": true,
+        "tab_visible": true,
+        "session_visible": true
+      },
+      "freshness": {
+        "server": "matched",
+        "tmux_client": "matched",
+        "tmux_view": "unchanged"
+      }
+    }
+  },
+  "startup_marker_captured": true,
+  "visible_input_delivered": true,
+  "minimized_operations_blocked": [
+    {
+      "operation": "dispatch",
+      "status": "partial",
+      "code": "TUI_REQUIRED"
+    },
+    {
+      "operation": "send_text",
+      "status": "partial",
+      "code": "TUI_REQUIRED"
+    },
+    {
+      "operation": "send_keys",
+      "status": "partial",
+      "code": "TUI_REQUIRED"
+    }
+  ],
+  "no_hidden_input_or_dispatch_created": true,
+  "restored_window_input_allowed": true,
+  "cleanup": {
+    "status": "not_open",
+    "terminal": "iTerm2",
+    "mode": "tmux",
+    "origin": "goals_tmux.viewer",
+    "viewer_origin": null,
+    "viewer_client_id": "<redacted-local-identifier>",
+    "viewer_pid": "<redacted-local-identifier>",
+    "warnings": [
+      "owned_iterm_session_confirmed_absent"
+    ],
+    "socket_path": "<redacted-local-identifier>",
+    "session_id": "<redacted-local-identifier>",
+    "server_instance_id": "<redacted-local-identifier>",
+    "viewer_token": "<redacted-local-identifier>",
+    "viewer_gui_session_id": "<redacted-local-identifier>",
+    "viewer_gui_tty": "<redacted-local-identifier>",
+    "allow_input": true,
+    "read_only": false,
+    "read_only_scope": null
+  },
+  "preexisting_sessions_preserved": true,
+  "fixture_gui_absent": true,
+  "private_socket_absent": true,
+  "fixture_dir": "<redacted-local-identifier>",
+  "public_evidence_note": "Volatile local process, GUI, session and temporary-path identifiers are redacted; outcomes and counts are unchanged."
+}

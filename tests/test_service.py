@@ -512,7 +512,30 @@ class ServiceIntegrationTests(unittest.TestCase):
         created = self.managed_session(["/bin/sh"], name="settled-viewer")
         pane_id = created["target"]["pane_id"]
         session_id = created["session_id"]
-        viewer_record_id = created["tui"]["viewer_record_id"]
+        resources = self.resources()
+        show_request = self.request(
+            "show_tui",
+            {"tui": {"enabled": True}},
+            target={
+                "endpoint_id": self.service.endpoint_id,
+                "server_instance_id": resources["observation"]["server_instance_id"],
+                "session_id": session_id,
+                "pane_id": pane_id,
+            },
+            task_context=self.context(created["record"]),
+            observation=resources["observation"],
+        )
+        with patch.object(self.service.viewer, "open", return_value={
+            "status": "unavailable", "reason": "test_terminal_unavailable",
+            "session_id": session_id,
+        }), patch.object(self.service.viewer, "verify_visible", return_value={
+            "status": "unavailable", "reason": "test_terminal_unavailable",
+            "viewer_gui_session_id": None, "evidence": {},
+        }):
+            shown = self.invoke(show_request)
+        self.assertEqual("partial", shown["status"], shown)
+        self.assertEqual("TUI_REQUIRED", shown["code"], shown)
+        viewer_record_id = shown["data"]["viewer_record_id"]
         viewer_receipt = read_json(
             self.state_dir / "viewer-receipts" / (viewer_record_id + ".json")
         )

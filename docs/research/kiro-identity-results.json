@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-09",
+  "cli": "kiro",
+  "version": "3.1.0",
+  "program_argv": [
+    "kiro-cli",
+    "chat"
+  ],
+  "permission_mode": "default",
+  "model_requests": 0,
+  "creation_status": "ok",
+  "tui_status": "attached",
+  "visibility_status": "verified",
+  "gui_session_id_present": true,
+  "idle_prompt_observed": true,
+  "session_id_command": "/session-id",
+  "session_id_candidate": "<redacted-local-identifier>",
+  "live_recovery": {
+    "schema_version": 1,
+    "status": "unknown",
+    "cli": "kiro",
+    "reason": "no_process_bound_transcript",
+    "conversation_id": null,
+    "id_source": null,
+    "transcript_paths": [],
+    "evidence": [
+      "pane_process_identity_verified",
+      "matching_cli_process_found"
+    ],
+    "resume_argv": null
+  },
+  "normal_exit": {
+    "command": "/quit",
+    "status": 0,
+    "resume_hint_matches_candidate": true
+  },
+  "limitations": [
+    "No model dispatch or full context-resume roundtrip was performed.",
+    "A visible /session-id output is a candidate, not process-bound durable recovery proof.",
+    "This Kiro V3 process exposed no process-bound transcript to the adapter; recovery correctly remained unknown."
+  ],
+  "cleanup": "not_open",
+  "fixture_gui_absent": true,
+  "preexisting_sessions_preserved": true,
+  "private_socket_absent": true,
+  "temporary_workspace_trust_revoked": true,
+  "public_evidence_note": "Volatile local process, GUI, session and temporary-path identifiers are redacted; outcomes and counts are unchanged."
+}

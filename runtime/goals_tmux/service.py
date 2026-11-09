@@ -450,17 +450,27 @@ class Service:
         if op in contract.CREATE_OPERATIONS:
             return self._create(request, snap)
         if op == "send_text":
+            tui = None
+            if records:
+                tui = self._require_tui_for_input(pane, records[0], snap)
+            else:
+                tui = self._unregistered_input_tui(pane, snap)
             if args.get("exit_intent"):
                 self._save_exit_recovery(pane, records)
             data = send_text(self.tmux, pane["pane_id"], args["text"])
             self._confirmed_effects = True
-            return data
+            return {**data, **(tui or {})}
         if op == "send_keys":
+            tui = None
+            if records:
+                tui = self._require_tui_for_input(pane, records[0], snap)
+            else:
+                tui = self._unregistered_input_tui(pane, snap)
             if args.get("exit_intent"):
                 self._save_exit_recovery(pane, records)
             data = send_keys(self.tmux, pane["pane_id"], args["keys"])
             self._confirmed_effects = True
-            return data
+            return {**data, **(tui or {})}
         if op in {"rename_session", "rename_window", "set_pane_title"}:
             name = contract.string(args["name"], "name", max_bytes=128)
             if op == "set_pane_title":
@@ -475,10 +485,61 @@ class Service:
         if op in contract.CLOSE_OPERATIONS:
             return self._close(request, snap, affected, records)
         if op in {"dispatch", "submit_dispatch"}:
-            return self._dispatch(request, pane, records)
+            if len(records) != 1:
+                return self._dispatch(request, pane, records)
+            tui = self._require_tui_for_input(pane, records[0], snap)
+            return {**self._dispatch(request, pane, records), **tui}
         if op == "show_tui":
-            return self._show_viewer(target["session_id"], args.get("tui"), snap,
-                                     task_ids=sorted({r["task_id"] for r in records}))
+            session_id = target["session_id"]
+            settings = self._effective_tui(args.get("tui"))
+            pane = self._show_tui_target_pane(session_id, target, affected, snap)
+            if pane is None:
+                viewer = self._show_viewer(session_id, settings, snap,
+                                           task_ids=sorted({r["task_id"] for r in records}))
+                evidence = {"status": "unavailable", "reason": "exact_pane_target_unavailable",
+                            "viewer_gui_session_id": viewer.get("viewer_gui_session_id"), "evidence": {}}
+                capture = {"status": "unavailable", "reason": "exact_pane_target_unavailable",
+                           "source": "tmux.capture-pane"}
+                tui_target = {"session_id": session_id, "scope": "unverified"}
+            elif not settings["enabled"]:
+                viewer = self._show_viewer(session_id, settings, snap,
+                                           task_ids=sorted({r["task_id"] for r in records}))
+                evidence = {"status": "not_required", "reason": "explicit_headless",
+                            "viewer_gui_session_id": None, "evidence": {}}
+                capture = self._capture_pane(pane)
+                tui_target = {"session_id": session_id, "pane_id": pane["pane_id"],
+                              "window_id": pane["window_id"],
+                              "scope": "requested_pane" if target.get("pane_id") else "active_pane"}
+            else:
+                viewer, evidence, capture, _current, _fresh, _problem = self._show_tui_once(
+                    session_id, settings, pane, snap,
+                    task_ids=sorted({r["task_id"] for r in records}),
+                )
+                tui_target = {"session_id": session_id, "pane_id": pane["pane_id"],
+                              "window_id": pane["window_id"],
+                              "scope": "requested_pane" if target.get("pane_id") else "active_pane"}
+            data = {**viewer, "tui": viewer, "tui_evidence": evidence,
+                    "pane_capture": capture, "tui_target": tui_target}
+            if (settings["enabled"] and
+                    (viewer.get("status") != "attached" or not viewer.get("viewer_gui_session_id")
+                     or evidence.get("status") != "verified" or capture.get("status") != "captured")):
+                data["remediation"] = {
+                    "next_operation": "inspect_tui_evidence",
+                    "show_tui_attempted": True,
+                    "show_tui_attempts": 1,
+                    "automatic_retry_exhausted": True,
+                    "dispatch_allowed": False,
+                    "retry_create": False,
+                    "session_id": session_id,
+                    "pane_id": pane.get("pane_id") if pane else None,
+                    "manual_attach_command": viewer.get("attach_command"),
+                }
+                self._confirmed_effects = True
+                raise DomainError(
+                    "TUI_REQUIRED", "visible GUI and pane capture evidence are required",
+                    status="partial", side_effects="confirmed", data=data,
+                )
+            return data
         if op == "hide_tui":
             key = contract.string(args["viewer_record_id"], "viewer_record_id", max_bytes=128)
             if not re.fullmatch(r"[a-f0-9]{32}", key):
@@ -508,8 +569,32 @@ class Service:
     def _inspect_recovery(self, pane, record=None):
         from .cli_adapters import inspect_recovery
         cli = (record or {}).get("cli")
-        if not record or not cli or not pane.get("dead"):
+        if not record or not cli:
             return inspect_recovery(pane, cli)
+        if not pane.get("dead"):
+            if cli.get("name") not in {"kiro", "kiro-cli"}:
+                return inspect_recovery(pane, cli)
+            from .cli_adapters import _base_result, _normalized_cwd
+            # Do not inspect a replacement process against this task's stores.
+            # A shared Kiro daemon or a recent transcript is not a pane binding.
+            if (pane.get("pane_id") != record.get("pane_id")
+                    or pane.get("pid") != record.get("pane_pid")
+                    or not record.get("process_instance_id")
+                    or pane.get("process_instance_id") != record["process_instance_id"]):
+                return _base_result(status="unknown", cli="kiro",
+                                    reason="registered_pane_process_mismatch")
+            task = self.tasks.get(record["task_id"]) or {}
+            expected_cwd = _normalized_cwd(cli.get("cwd") or task.get("cwd"))
+            if expected_cwd is None or _normalized_cwd(pane.get("cwd")) != expected_cwd:
+                return _base_result(status="unknown", cli="kiro",
+                                    reason="registered_cli_cwd_mismatch")
+            dispatches = [d for d in task.get("dispatches", [])
+                          if d.get("status") == "observed"
+                          and d.get("pane_id") == pane["pane_id"]
+                          and (d.get("binding") or {}).get("record_id") == record["record_id"]
+                          and (d.get("binding") or {}).get("process_instance_id") == record["process_instance_id"]]
+            markers = [dispatches[-1]["dispatch_id"]] if dispatches else []
+            return inspect_recovery(pane, cli, dispatch_markers=markers)
         from .cli_adapters import parse_exit_hint
         # Exit-screen hints are candidates only. Require the exact historical
         # pane PID and its own observed dispatch before consulting durable data.
@@ -548,6 +633,7 @@ class Service:
 
     def _create(self, request, snap):
         args, op = request["arguments"], request["operation"]
+        tui_settings = self._effective_tui(args.get("tui"))
         cwd = Path(contract.string(args["cwd"], "cwd", max_bytes=4096)).expanduser()
         if not cwd.is_absolute() or not cwd.is_dir():
             raise DomainError("INVALID_CWD", "cwd must be an existing absolute directory")
@@ -566,8 +652,14 @@ class Service:
                         "extra_args": deepcopy(args.get("extra_args") or [])}
         else:
             argv = args.get("program_argv", ["/bin/sh"])
+            if cli_info is not None:
+                cli_info = self._validate_custom_cli(cli_info, args.get("program_argv"))
+            elif (isinstance(argv, list) and argv and isinstance(argv[0], str)
+                  and Path(argv[0]).name.lower() in self._known_cli_executables()):
+                raise DomainError("INVALID_ARGUMENT", "recognized CLI commands require a cli metadata object")
         if isinstance(cli_info, dict):
-            cli_info = {**cli_info, "cwd": str(cwd)}
+            cli_info = {**cli_info, "cwd": str(cwd), "program_argv": deepcopy(argv),
+                        "program_argv_source": "adapter" if op in {"launch_cli", "restore_cli"} else "custom"}
         if not isinstance(argv, list) or not argv or len(argv) > 128:
             raise DomainError("INVALID_ARGUMENT", "program_argv must contain 1–128 string arguments")
         for item in argv:
@@ -636,25 +728,512 @@ class Service:
         record = self.registry.register(pane, endpoint_id=self.endpoint_id, socket_path=self.socket_path,
                                         server_instance_id=fresh["server"]["instance_id"], task_id=task_id,
                                         coordinator_id=context["coordinator_id"], owned_container=owned or None, cli=cli_info)
+        record = self.registry.update(
+            record["record_id"], _context(record),
+            {
+                "tui_requested": tui_settings["enabled"],
+                "tui_status": "pending" if tui_settings["enabled"] else "disabled",
+                "viewer": {"settings": deepcopy(tui_settings), "status": "pending" if tui_settings["enabled"] else "disabled"},
+            },
+        )
         creation.update(status="registered", record_id=record["record_id"])
         atomic_json(creation_path, creation)
         self.tasks.event(task_id, "created", {"pane_id": pane_id, "record_id": record["record_id"],
                                              "server_instance_id": fresh["server"]["instance_id"]}, pane_id=pane_id)
-        viewer = None
-        if op in {"create_session", "launch_cli", "restore_cli"} and session_id:
+        tui, tui_evidence, pane_capture, visible, tui_attempts = self._ensure_tui_for_target(
+            session_id=session_id, pane=pane, record=record, snap=fresh,
+            settings=tui_settings, task_ids=[task_id], allow_open=True,
+        )
+        if tui_settings["enabled"] and not visible:
+            data = self._creation_result(
+                pane, session_id, record, fresh, creation_path, tui, tui_evidence, pane_capture,
+                op=op,
+            )
+            data["remediation"] = {
+                "next_operation": "show_tui",
+                "session_id": session_id,
+                "pane_id": pane["pane_id"],
+                "retry_create": False,
+                "dispatch_allowed": False,
+                "initial_open_attempts": 1 if tui_attempts else 0,
+                "show_tui_retry_attempts": max(0, tui_attempts - 1),
+                "automatic_retry_exhausted": tui_attempts > 1,
+                "manual_attach_command": tui.get("attach_command") if isinstance(tui, dict) else None,
+            }
+            raise DomainError(
+                "TUI_REQUIRED",
+                "the managed pane was created, but required visible GUI evidence is missing; do not recreate it or dispatch work",
+                status="partial", side_effects="confirmed", data=data,
+            )
+        if not tui_settings["enabled"]:
+            tui_status = "disabled"
+        else:
+            tui_status = "attached"
+        record = self.registry.update(
+            record["record_id"], _context(record),
+            {
+                "tui_status": tui_status,
+                "viewer_status": tui.get("status") if isinstance(tui, dict) else tui_status,
+                "viewer_client_id": tui.get("viewer_client_id") if isinstance(tui, dict) else None,
+                "viewer_origin": tui.get("viewer_origin") if isinstance(tui, dict) else None,
+                "viewer": {
+                    "settings": deepcopy(tui_settings),
+                    "status": tui_status,
+                    "record": deepcopy(tui),
+                    "evidence": deepcopy(tui_evidence),
+                },
+            },
+        )
+        return self._creation_result(
+            pane, session_id, record, fresh, creation_path, tui, tui_evidence, pane_capture,
+            op=op,
+        )
+
+    @staticmethod
+    def _cli_executable_aliases(name):
+        aliases = {
+            "claude": {"claude", "claude.exe"},
+            "cursor": {"agent", "cursor-agent", "agent.exe", "cursor-agent.exe"},
+            "agent": {"agent", "cursor-agent", "agent.exe", "cursor-agent.exe"},
+            "codex": {"codex", "codex.exe"},
+            "agy": {"agy", "agy.exe"},
+            "antigravity": {"agy", "agy.exe"},
+            "kiro": {"kiro", "kiro-cli", "kiro.exe", "kiro-cli.exe"},
+            "kiro-cli": {"kiro", "kiro-cli", "kiro.exe", "kiro-cli.exe"},
+        }
+        return aliases.get(name.strip().lower())
+
+    @classmethod
+    def _known_cli_executables(cls):
+        return set().union(*(cls._cli_executable_aliases(name) for name in (
+            "claude", "cursor", "codex", "agy", "kiro",
+        )))
+
+    def _validate_custom_cli(self, value, program_argv):
+        if not isinstance(value, dict) or not value:
+            raise DomainError("INVALID_ARGUMENT", "cli must be a nonempty CLI metadata object")
+        allowed_fields = {"name", "permission_mode", "conversation_id"}
+        if set(value) - allowed_fields:
+            raise DomainError("INVALID_ARGUMENT", "cli metadata contains unsupported or reserved fields")
+        name = value.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise DomainError("INVALID_ARGUMENT", "cli.name must be a supported nonempty CLI name")
+        original_name = name.strip().lower()
+        aliases = self._cli_executable_aliases(original_name)
+        if aliases is None:
+            raise DomainError("INVALID_ARGUMENT", "cli.name must be claude, cursor/agent, codex, agy/antigravity, or kiro/kiro-cli")
+        if not isinstance(program_argv, list) or not program_argv or len(program_argv) > 128:
+            raise DomainError("INVALID_ARGUMENT", "a CLI metadata object requires a complete program_argv")
+        for item in program_argv:
+            contract.string(item, "program argument", max_bytes=16384)
+        executable = Path(program_argv[0]).name.lower()
+        if executable not in aliases:
+            raise DomainError("INVALID_ARGUMENT", "program_argv[0] does not match cli.name")
+        canonical_names = {"agent": "cursor", "antigravity": "agy", "kiro-cli": "kiro"}
+        name = canonical_names.get(original_name, original_name)
+        permission_mode = value.get("permission_mode", "default")
+        if not isinstance(permission_mode, str) or permission_mode not in {"default", "bypass"}:
+            raise DomainError("INVALID_ARGUMENT", "cli.permission_mode must be default or bypass")
+        conversation_id = value.get("conversation_id")
+        if conversation_id is not None:
+            contract.string(conversation_id, "cli.conversation_id", max_bytes=256)
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", conversation_id):
+                raise DomainError("INVALID_ARGUMENT", "cli.conversation_id must be a safe CLI identifier")
+        bypass_flags = {
+            "claude": "--dangerously-skip-permissions",
+            "cursor": "--force",
+            "codex": "--dangerously-bypass-approvals-and-sandbox",
+            "agy": "--dangerously-skip-permissions",
+            "kiro": "--trust-all-tools",
+        }
+        all_bypass_flags = set(bypass_flags.values()) | {
+            "--allow-dangerously-skip-permissions", "--yolo", "--approve-for-me", "--trust-tools",
+        }
+        argv_flags = {item.split("=", 1)[0] for item in program_argv[1:]}
+        requested_bypass = argv_flags & all_bypass_flags
+        expected_bypass = bypass_flags[name]
+        if "--trust-tools" in requested_bypass:
+            raise DomainError("INVALID_ARGUMENT", "--trust-tools is unsupported for managed CLI launches")
+        if permission_mode == "default" and requested_bypass:
+            raise DomainError("INVALID_ARGUMENT", "bypass CLI flags require cli.permission_mode=bypass")
+        if permission_mode == "bypass" and requested_bypass != {expected_bypass}:
+            raise DomainError("INVALID_ARGUMENT", "cli.permission_mode=bypass must match exactly one supported bypass flag in program_argv")
+        normalized = deepcopy(value)
+        normalized["name"] = name
+        normalized["permission_mode"] = permission_mode
+        normalized["identity_status"] = "startup_only"
+        return normalized
+
+    def _effective_tui(self, overrides=None):
+        if overrides is not None and not isinstance(overrides, dict):
+            raise DomainError("INVALID_ARGUMENT", "tui override must be an object")
+        return deepcopy(self.config.effective({"tui": overrides} if overrides is not None else None)["tui"])
+
+    @staticmethod
+    def _creation_result(pane, session_id, record, snap, creation_path, tui, tui_evidence,
+                         pane_capture, *, op):
+        return {
+            "pane": pane,
+            "session_id": session_id,
+            "record": record,
+            "target": {"endpoint_id": snap["endpoint_id"],
+                       "server_instance_id": snap["server"]["instance_id"],
+                       "pane_id": pane["pane_id"]},
+            "observation": snap["observation"],
+            "tui": tui,
+            "tui_evidence": tui_evidence,
+            "pane_capture": pane_capture,
+            "creation_receipt": str(creation_path),
+            "recovery_verification": "pending" if op == "restore_cli" else None,
+        }
+
+    def _linked_session(self, snap, pane, preferred=None):
+        sessions = sorted({link["session_id"] for link in snap.get("links", [])
+                           if link["window_id"] == pane.get("window_id")},
+                          key=lambda item: int(item[1:]))
+        if preferred in sessions:
+            return preferred
+        if len(sessions) == 1:
+            return sessions[0]
+        return None
+
+    def _show_tui_target_pane(self, session_id, target, affected, snap):
+        linked_windows = {link["window_id"] for link in snap.get("links", [])
+                          if link["session_id"] == session_id}
+        if target.get("window_id") and target["window_id"] not in linked_windows:
+            return None
+        if target.get("pane_id"):
+            pane_id = target["pane_id"]
+        else:
+            target_id = target.get("window_id") or session_id
             try:
-                scope = self.policy.scope(self.socket_path) or {}
-                if scope.get("allow_view"):
-                    viewer = self._show_viewer(session_id, args.get("tui"), fresh, task_ids=[task_id])
-                else:
-                    viewer = {"status": "unavailable", "reason": "viewer_not_authorized"}
+                pane_id = self.tmux.run("display-message", "-p", "-t", target_id,
+                                        "-F", "#{pane_id}").strip()
+            except DomainError:
+                return None
+        pane = next((item for item in affected if item.get("pane_id") == pane_id), None)
+        return pane
+
+    def _authorize_view_session(self, snap, session_id):
+        windows = {link["window_id"] for link in snap.get("links", [])
+                   if link["session_id"] == session_id}
+        panes = [pane for pane in snap.get("panes", []) if pane["window_id"] in windows]
+        if not panes:
+            raise DomainError("VIEW_TARGET_MISSING", "viewer session has no panes")
+        self._read_scope(snap, panes)
+        self.policy.authorize("show_tui", self.socket_path,
+                              [pane["pane_id"] for pane in panes],
+                              owned_panes=self._owned(snap))
+
+    def _capture_pane(self, pane):
+        try:
+            capture = read_capture(self.tmux, pane["pane_id"], max_lines=200, max_bytes=65536)
+        except (DomainError, OSError) as exc:
+            return {"status": "unavailable", "reason": getattr(exc, "code", type(exc).__name__),
+                    "pane_id": pane.get("pane_id"), "source": "tmux.capture-pane"}
+        return {"status": "captured", "source": "tmux.capture-pane", "pane": deepcopy(pane), **capture}
+
+    def _refresh_exact_pane(self, pane, expected_server_instance_id):
+        try:
+            fresh = self._snapshot()
+        except DomainError as exc:
+            return None, None, {"status": "unknown", "reason": exc.code}
+        server_id = (fresh.get("server") or {}).get("instance_id")
+        current = next((item for item in fresh["panes"] if item["pane_id"] == pane.get("pane_id")), None)
+        if not current:
+            return fresh, None, {"status": "unavailable", "reason": "target_pane_missing"}
+        if (server_id != expected_server_instance_id
+                or current.get("window_id") != pane.get("window_id")
+                or current.get("process_instance_id") != pane.get("process_instance_id")):
+            return fresh, current, {"status": "unknown", "reason": "target_identity_changed"}
+        return fresh, current, None
+
+    def _verify_visible(self, viewer, pane, server_instance_id):
+        fresh, current, problem = self._refresh_exact_pane(pane, server_instance_id)
+        if problem:
+            return {"status": problem["status"], "reason": problem["reason"],
+                    "viewer_gui_session_id": viewer.get("viewer_gui_session_id") if isinstance(viewer, dict) else None,
+                    "evidence": {"target": {"pane_id": pane.get("pane_id"),
+                                                "window_id": pane.get("window_id")}}}, current, fresh, problem
+        if not isinstance(viewer, dict):
+            result = {"status": "unavailable", "reason": "viewer_record_missing",
+                      "viewer_gui_session_id": None, "evidence": {}}
+        else:
+            try:
+                result = self.viewer.verify_visible(
+                    viewer, tmux_binary=self.tmux.binary, pane_id=current["pane_id"],
+                    window_id=current["window_id"],
+                )
+            except (AttributeError, DomainError, OSError) as exc:
+                result = {"status": "unknown", "reason": getattr(exc, "code", "viewer_verification_failed"),
+                          "viewer_gui_session_id": viewer.get("viewer_gui_session_id"), "evidence": {}}
+            if not isinstance(result, dict):
+                result = {"status": "unknown", "reason": "viewer_verification_result_invalid",
+                          "viewer_gui_session_id": viewer.get("viewer_gui_session_id"), "evidence": {}}
+        # The GUI inspection may take time. Bind its result to the original
+        # server, pane process, and window again before authorizing input.
+        after, after_pane, after_problem = self._refresh_exact_pane(pane, server_instance_id)
+        if after_problem:
+            return {"status": after_problem["status"], "reason": after_problem["reason"],
+                    "viewer_gui_session_id": viewer.get("viewer_gui_session_id") if isinstance(viewer, dict) else None,
+                    "evidence": {"target": {"pane_id": pane.get("pane_id"),
+                                                "window_id": pane.get("window_id")}}}, after_pane, after, after_problem
+        return result, after_pane, after, None
+
+    def _show_tui_once(self, session_id, settings, pane, snap, task_ids=None):
+        try:
+            self._confirmed_effects = True
+            viewer = self._show_viewer(session_id, settings, snap, task_ids=task_ids)
+        except Exception as exc:
+            viewer = {"status": "unknown", "reason": getattr(exc, "code", type(exc).__name__),
+                      "session_id": session_id}
+            evidence = {"status": "unknown", "reason": "viewer_open_outcome_uncertain",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            capture = self._capture_pane(pane)
+            return viewer, evidence, capture, pane, snap, {"kind": "viewer_open_uncertain"}
+        evidence, current, fresh, _problem = self._verify_visible(
+            viewer, pane, (snap.get("server") or {}).get("instance_id")
+        )
+        capture = self._capture_pane(current) if current is not None else {
+            "status": "unavailable", "reason": "target_pane_unavailable",
+            "pane_id": pane.get("pane_id"), "source": "tmux.capture-pane",
+        }
+        return viewer, evidence, capture, current, fresh, _problem
+
+    def _ensure_tui_for_target(self, *, session_id, pane, record, snap, settings,
+                               task_ids=None, allow_open):
+        if session_id is None:
+            viewer = {"status": "unavailable", "reason": "viewer_session_ambiguous"}
+            evidence = {"status": "unavailable", "reason": "viewer_session_ambiguous",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            capture = self._capture_pane(pane)
+            return viewer, evidence, capture, False, 0
+        if not settings["enabled"]:
+            viewer = {"status": "disabled", "reason": "explicit_headless",
+                      "session_id": session_id}
+            evidence = {"status": "not_required", "reason": "explicit_headless",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            capture = self._capture_pane(pane)
+            return viewer, evidence, capture, True, 0
+
+        try:
+            self._authorize_view_session(snap, session_id)
+        except DomainError as exc:
+            viewer = {"status": "unavailable", "reason": exc.code,
+                      "session_id": session_id}
+            evidence = {"status": "unavailable", "reason": exc.code,
+                        "viewer_gui_session_id": None, "evidence": {}}
+            capture = self._capture_pane(pane)
+            return viewer, evidence, capture, False, 0
+
+        initial, evidence, capture, current, fresh, problem = self._show_tui_once(
+            session_id, settings, pane, snap, task_ids=task_ids
+        )
+        visible = (initial.get("status") == "attached"
+                   and bool(initial.get("viewer_gui_session_id"))
+                   and evidence.get("status") == "verified"
+                   and capture.get("status") == "captured")
+        if visible or not allow_open or problem:
+            return initial, evidence, capture, visible, 1
+
+        # Viewer.open is idempotent for an attached identity and refuses to
+        # duplicate an uncertain launch. This one retry uses the same path as
+        # explicit show_tui and never recreates the tmux resource.
+        retried, evidence, capture, _current, _fresh, _problem = self._show_tui_once(
+            session_id, settings, pane, snap, task_ids=task_ids
+        )
+        visible = (retried.get("status") == "attached"
+                   and bool(retried.get("viewer_gui_session_id"))
+                   and evidence.get("status") == "verified"
+                   and capture.get("status") == "captured")
+        return retried, evidence, capture, visible, 2
+
+    def _record_tui_settings(self, record):
+        saved_viewer = record.get("viewer") if isinstance(record.get("viewer"), dict) else {}
+        settings = saved_viewer.get("settings")
+        if isinstance(settings, dict):
+            try:
+                effective = self.config.effective({"tui": settings})["tui"]
+            except DomainError:
+                effective = None
+        else:
+            effective = None
+        requested = record.get("tui_requested")
+        if effective is None:
+            effective = self._effective_tui()
+        if type(requested) is bool:
+            effective = {**effective, "enabled": requested}
+        else:
+            requested = effective["enabled"]
+        return effective, requested
+
+    def _latest_viewer_record(self, record, session_id):
+        viewer_state = record.get("viewer") if isinstance(record.get("viewer"), dict) else {}
+        matches = []
+        for path in (self.state_dir / "viewer-receipts").glob("*.json"):
+            receipt = read_json(path)
+            viewer = receipt.get("viewer", {}) if isinstance(receipt, dict) else {}
+            if (isinstance(receipt, dict) and receipt.get("socket_path") == self.socket_path
+                    and receipt.get("session_id") == session_id
+                    and receipt.get("server_instance_id") == record.get("server_instance_id")
+                    and (not receipt.get("task_ids") or record.get("task_id") in receipt["task_ids"])
+                    and isinstance(viewer, dict)):
+                matches.append((receipt.get("created_at", ""), path.stat().st_mtime_ns, viewer))
+        if matches:
+            return max(matches, key=lambda item: (item[0], item[1]))[2]
+        embedded = viewer_state.get("record")
+        if isinstance(embedded, dict) and embedded.get("session_id") == session_id:
+            return embedded
+        return None
+
+    def _tui_required(self, *, pane, session_id, record, snap, viewer, evidence, capture,
+                      show_tui_attempts=0, message=None):
+        attempted_show = show_tui_attempts > 0
+        data = {
+            "pane": pane,
+            "session_id": session_id,
+            "record": record,
+            "target": {"endpoint_id": self.endpoint_id,
+                       "server_instance_id": record.get("server_instance_id"),
+                       "pane_id": pane.get("pane_id")},
+            "observation": snap.get("observation"),
+            "tui": viewer,
+            "tui_evidence": evidence,
+            "pane_capture": capture,
+            "remediation": {
+                "next_operation": "inspect_tui_evidence" if attempted_show else "show_tui",
+                "session_id": session_id,
+                "pane_id": pane.get("pane_id"),
+                "retry_create": False,
+                "dispatch_allowed": False,
+                "show_tui_attempted": attempted_show,
+                "show_tui_attempts": show_tui_attempts,
+                "automatic_retry_exhausted": attempted_show,
+                "manual_attach_command": viewer.get("attach_command") if isinstance(viewer, dict) else None,
+            },
+        }
+        return DomainError(
+            "TUI_REQUIRED", message or "visible GUI evidence is required before managed CLI input",
+            status="partial" if attempted_show else "refused",
+            side_effects=("unknown" if attempted_show and isinstance(viewer, dict)
+                          and viewer.get("status") == "unknown" else "confirmed")
+            if attempted_show else "none",
+            data=data,
+        )
+
+    def _require_tui_for_input(self, pane, record, snap):
+        settings, requested = self._record_tui_settings(record)
+        saved_viewer = record.get("viewer") if isinstance(record.get("viewer"), dict) else {}
+        embedded_viewer = saved_viewer.get("record") if isinstance(saved_viewer.get("record"), dict) else {}
+        session_id = self._linked_session(
+            snap, pane, preferred=(record.get("owned_container") or {}).get("session_id")
+            or embedded_viewer.get("session_id")
+        )
+        capture = self._capture_pane(pane)
+        if capture.get("status") != "captured":
+            evidence = {"status": "unavailable", "reason": "pane_capture_unavailable",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            viewer = {"status": "unavailable", "reason": "pane_capture_unavailable"}
+            raise self._tui_required(pane=pane, session_id=session_id, record=record, snap=snap,
+                                     viewer=viewer, evidence=evidence, capture=capture)
+        if not requested:
+            return {"tui": {"status": "disabled", "reason": "explicit_headless"},
+                    "tui_evidence": {"status": "not_required", "reason": "explicit_headless",
+                                     "viewer_gui_session_id": None, "evidence": {}},
+                    "pane_capture": capture}
+        if session_id is None:
+            evidence = {"status": "unavailable", "reason": "viewer_session_ambiguous",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            viewer = {"status": "unavailable", "reason": "viewer_session_ambiguous"}
+            raise self._tui_required(pane=pane, session_id=None, record=record, snap=snap,
+                                     viewer=viewer, evidence=evidence, capture=capture)
+
+        viewer = self._latest_viewer_record(record, session_id)
+        evidence, current, _fresh, target_problem = self._verify_visible(
+            viewer, pane, record.get("server_instance_id")
+        )
+        if target_problem:
+            raise self._tui_required(
+                pane=pane, session_id=session_id, record=record, snap=snap,
+                viewer=viewer or {"status": "unavailable", "reason": "viewer_record_missing"},
+                evidence=evidence, capture=capture,
+            )
+
+        visible = (isinstance(viewer, dict) and viewer.get("status") == "attached"
+                   and bool(viewer.get("viewer_gui_session_id"))
+                   and evidence.get("status") == "verified")
+        show_attempts = 0
+        if not visible:
+            try:
+                self._authorize_view_session(snap, session_id)
             except DomainError as exc:
-                viewer = {"status": "unavailable", "reason": exc.code, "message": str(exc)}
-        return {"pane": pane, "session_id": session_id, "record": record,
-                "target": {"endpoint_id": self.endpoint_id, "server_instance_id": fresh["server"]["instance_id"], "pane_id": pane_id},
-                "observation": fresh["observation"], "tui": viewer,
-                "creation_receipt": str(creation_path),
-                "recovery_verification": "pending" if op == "restore_cli" else None}
+                evidence = {"status": "unavailable", "reason": exc.code,
+                            "viewer_gui_session_id": None, "evidence": {}}
+                viewer = viewer if isinstance(viewer, dict) else {
+                    "status": "unavailable", "reason": exc.code}
+                raise self._tui_required(
+                    pane=pane, session_id=session_id, record=record, snap=snap,
+                    viewer=viewer, evidence=evidence, capture=capture,
+                )
+            show_attempts = 1
+            viewer, evidence, capture, current, _fresh, target_problem = self._show_tui_once(
+                session_id, settings, pane, snap, task_ids=[record.get("task_id")]
+            )
+            if target_problem:
+                raise self._tui_required(
+                    pane=pane, session_id=session_id, record=record, snap=snap,
+                    viewer=viewer, evidence=evidence, capture=capture,
+                    show_tui_attempts=show_attempts,
+                )
+
+        visible = (isinstance(viewer, dict) and viewer.get("status") == "attached"
+                   and bool(viewer.get("viewer_gui_session_id"))
+                   and evidence.get("status") == "verified"
+                   and capture.get("status") == "captured")
+        # The GUI call and pane capture can take time. Recheck the original
+        # target identity one last time immediately before sending input.
+        fresh, current, final_problem = self._refresh_exact_pane(
+            pane, record.get("server_instance_id")
+        )
+        if final_problem:
+            evidence = {"status": final_problem["status"], "reason": final_problem["reason"],
+                        "viewer_gui_session_id": viewer.get("viewer_gui_session_id") if isinstance(viewer, dict) else None,
+                        "evidence": {"target": {"pane_id": pane.get("pane_id"),
+                                                    "window_id": pane.get("window_id")}}}
+            visible = False
+        elif visible:
+            capture = self._capture_pane(current)
+            visible = capture.get("status") == "captured"
+        if not visible:
+            raise self._tui_required(
+                pane=pane, session_id=session_id, record=record, snap=fresh or snap,
+                viewer=viewer, evidence=evidence, capture=capture,
+                show_tui_attempts=show_attempts,
+            )
+        return {"tui": viewer, "tui_evidence": evidence, "pane_capture": capture}
+
+    def _unregistered_input_tui(self, pane, snap):
+        settings = self._effective_tui()
+        capture = self._capture_pane(pane)
+        if capture.get("status") != "captured":
+            raise DomainError("PANE_CAPTURE_REQUIRED", "capture the exact pane before sending input",
+                              data={"pane": pane, "pane_capture": capture})
+        if settings["enabled"]:
+            evidence = {"status": "unavailable", "reason": "managed_pane_required",
+                        "viewer_gui_session_id": None, "evidence": {}}
+            raise DomainError(
+                "MANAGED_PANE_REQUIRED",
+                "register or adopt this pane before managed input so its GUI visibility policy can be verified",
+                data={"pane": pane, "observation": snap.get("observation"),
+                      "tui": {"status": "unavailable", "reason": "managed_pane_required"},
+                      "tui_evidence": evidence, "pane_capture": capture,
+                      "remediation": {"next_operation": "register_or_adopt_pane",
+                                      "dispatch_allowed": False}},
+            )
+        return {"tui": {"status": "disabled", "reason": "explicit_headless"},
+                "tui_evidence": {"status": "not_required", "reason": "explicit_headless",
+                                 "viewer_gui_session_id": None, "evidence": {}},
+                "pane_capture": capture}
 
     def _show_viewer(self, session_id, overrides, snap, *, task_ids=None):
         if self.endpoint_namespace:
@@ -669,7 +1248,7 @@ class Service:
         atomic_json(self.state_dir / "viewer-receipts" / (key + ".json"),
                     {"socket_path": self.socket_path, "session_id": session_id,
                      "server_instance_id": snap["server"]["instance_id"], "viewer": data,
-                     "task_ids": task_ids or []})
+                     "task_ids": task_ids or [], "created_at": _now()})
         return {**data, "viewer_record_id": key}
 
     def _dispatch(self, request, pane, records):

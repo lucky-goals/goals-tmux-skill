@@ -70,9 +70,45 @@ Use a new `request_id` for each independent operation. Managed writes to a pane 
 
 After an unknown mutation result, query `operation-status --request-id ID` and inspect the live target with fresh read-only operations. Do not replay text input, Enter, create, close, or other mutation unless reconciliation proves the first operation did not take effect and the operation is safe to retry. An identical request ID with different content is a conflict.
 
+## Create a CLI session and verify its visible viewer
+
+For a new managed CLI session, `create_session` takes a structured `cli` metadata object and the full explicit launch `program_argv`. Include every requested model/effort argument in that array; do not append the task prompt at launch. The task prompt is sent later through the private dispatch protocol. The following operation/arguments excerpt goes inside the standard `invoke` envelope; include the required `schema_version`, fresh `request_id`, and task/target context from the current capability schema. This Antigravity example uses the selected model:
+
+```json
+{
+  "operation": "create_session",
+  "arguments": {
+    "cwd": "/absolute/project/path",
+    "name": "project-task",
+    "cli": { "name": "agy", "permission_mode": "default" },
+    "program_argv": [
+      "agy", "--model", "gemini-4-argon-high", "--effort", "high"
+    ],
+    "tui": { "enabled": true }
+  }
+}
+```
+
+`launch_cli` and `restore_cli` are convenience operations whose `cli` input remains a string. They normalize the CLI name into session metadata internally; do not pass a `cli` object to them. Use `create_session` when the task requires control of the complete argv, including wrapper commands such as Kiro CLI.
+
+The default is `tui.enabled=true`. Before dispatching any task text, check the fresh creation or `show_tui` result and require all four independent facts:
+
+| Result field | Required evidence |
+|---|---|
+| `tui.status` | `attached` |
+| `tui.viewer_gui_session_id` | Non-empty identity for the desktop viewer session |
+| `tui_evidence.status` | `verified`, based on fresh GUI identity and visibility evidence for this viewer |
+| `pane_capture` | A separate capture of the exact target pane; this is terminal-buffer evidence only and cannot establish GUI visibility |
+
+In `iterm2-native` mode, `tui_evidence` must identify the mapped task pane. Evidence for only the outer Control Mode gateway is insufficient. The runtime automatically makes one `show_tui` remediation attempt after an initial creation proof failure. Inspect `remediation` in the result and do not repeat an attempt that is already recorded. For a legacy or external result with no attempt recorded, call `show_tui` once for the existing session and inspect its fresh `tui`, `tui_evidence`, and `pane_capture` again. If the proof still does not meet every condition, stop and report the blocker without dispatching. Do not recreate the session or turn TUI off as a fallback.
+
+When the visible-TUI gate fails, `invoke` can return `status: "partial"`, `code: "TUI_REQUIRED"`, and `side_effects: "confirmed"`; the session was created, but task input was not sent. Use retained `data`/`remediation` to inspect the existing pane and viewer. The runtime's `show_tui` remediation is attempted once; do not repeat it when the result records that attempt. For a legacy or external result with no attempt recorded, make at most one explicit `show_tui` attempt. Do not repeat `create_session`. At every input/dispatch gate, `TUI_REQUIRED` means dispatch bytes were not sent. An unsupported GUI proof path is a blocker, not permission to continue headless.
+
+Headless execution is an explicit choice: use `tui.enabled=false` only when the user approved headless operation for the task. Do not disable TUI after an attach or visibility failure. In explicit headless mode, the GUI proof gate is intentionally not applicable.
+
 ## User display
 
-`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, `tui.mode=tmux`, `tui.keep_open=false`, and `tui.allow_input=true`. Old schema-1 files missing `allow_input` use `true`; missing `keep_open` uses `false`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `current` TTY handoff remains unavailable. Headless/unsupported environments return `unavailable` with a manual attach command honoring the input setting; task execution can still continue without a GUI.
+`config show --json` reports stored and effective values. Defaults are `tui.enabled=true`, `tui.terminal=auto`, `tui.mode=tmux`, `tui.keep_open=false`, and `tui.allow_input=true`. Old schema-1 files missing `allow_input` use `true`; missing `keep_open` uses `false`. On macOS `auto` prefers iTerm2 and falls back to Terminal.app. `current` TTY handoff remains unavailable. In a default visible workflow, headless/unsupported environments cannot satisfy the GUI proof gate; stop and report if `show_tui` cannot establish proof. Use an explicit headless override only when the user authorized it.
 
 Allow or block human keyboard/mouse input through newly opened viewers:
 
@@ -105,7 +141,7 @@ scripts/tmuxctl config set tui.keep_open false
 
 Each launch records its effective setting. Changes do not retroactively change existing viewers; hide and reopen a viewer to apply a different setting. With `keep_open=true`, the launcher waits after tmux exits so the output remains visible, even when the terminal normally closes ended sessions. Press Enter to exit that viewer, or close its tab manually. Retaining the display does not retain task panes or keep a coding CLI running. Per-operation `tui.keep_open` overrides are supported alongside the other display settings. Legacy config files that omit the key use `false`.
 
-Cleanup follows the **resolved terminal**, including the result of `terminal=auto`. For iTerm2, new launches record the exact desktop launcher session; after task cleanup removes its tmux session, the runner closes that launcher and verifies the result. Other launched terminals use an outer shell command ending in `exit`, replacing the original login shell so it does not remain at a prompt. This does not send `exit` to the coding CLI or a tmux pane. For Terminal.app, an `exited` outcome confirms the viewer process ended; `gui_close_verified=false` means whether the tab disappears still depends on the terminal's own close-on-exit preferences. The runner does not modify shared terminal profiles. Unsupported/headless launchers still require manual attachment.
+Cleanup follows the **resolved terminal**, including the result of `terminal=auto`. For iTerm2, new launches record the exact desktop launcher session; after task cleanup removes its tmux session, the runner closes that launcher and verifies the result. Other launched terminals use an outer shell command ending in `exit`, replacing the original login shell so it does not remain at a prompt. This does not send `exit` to the coding CLI or a tmux pane. For Terminal.app, an `exited` outcome confirms the viewer process ended; `gui_close_verified=false` means whether the tab disappears still depends on the terminal's own close-on-exit preferences. The runner does not modify shared terminal profiles. Unsupported launchers cannot pass the default visible-TUI gate. A manual attach command is not GUI visibility proof; use it only after the user explicitly approves headless operation.
 
 When a desktop launcher is unavailable, the returned `launch_command` applies the same outer-shell exit/retention behavior if run manually in the intended terminal; `attach_command` remains the raw tmux argument list with the selected input mode for existing integrations.
 

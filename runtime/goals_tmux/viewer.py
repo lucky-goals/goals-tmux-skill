@@ -95,6 +95,67 @@ _ITERM_SESSION_QUERY_SCRIPT = r'''on run argv
     end tell
 end run'''
 
+_ITERM_SESSION_VISIBILITY_QUERY_SCRIPT = r'''on run argv
+    set targetSessionId to item 1 of argv
+    set targetToken to item 2 of argv
+    set targetTty to item 3 of argv
+    if application id "com.googlecode.iterm2" is not running then return "absent"
+    tell application id "com.googlecode.iterm2"
+        repeat with aWindow in windows
+            repeat with aTab in tabs of aWindow
+                repeat with aSession in sessions of aTab
+                    try
+                        tell aSession to set candidateId to unique id as text
+                    on error
+                        return "unknown"
+                    end try
+                    if candidateId is targetSessionId then
+                        try
+                            tell aSession to set savedToken to variable named "user.goals_tmux_viewer_token"
+                        on error
+                            return "unknown"
+                        end try
+                        if (savedToken as text) is not targetToken then return "mismatch"
+                        try
+                            tell aSession to set savedTty to tty
+                        on error
+                            return "unknown"
+                        end try
+                        if (savedTty as text) is not targetTty then return "tty-mismatch"
+
+                        -- A split iTerm tab may zoom a different session. The
+                        -- normal launcher creates a single-session tab, so
+                        -- require that exact layout before claiming visibility.
+                        try
+                            set tabSessionCount to count of sessions of aTab as text
+                        on error
+                            return "visibility-unsupported"
+                        end try
+                        if tabSessionCount is not "1" then return "multi-session-tab"
+
+                        -- These are read-only Standard Suite window properties.
+                        -- Do not activate the app or select a tab to make it visible.
+                        try
+                            tell aWindow
+                                set windowVisible to visible as text
+                                set windowMiniaturized to miniaturized as text
+                                set windowId to id as text
+                                set windowCurrentSessionId to unique id of current session as text
+                            end tell
+                        on error
+                            return "visibility-unsupported"
+                        end try
+                        set tabSelected to "false"
+                        if windowCurrentSessionId is candidateId then set tabSelected to "true"
+                        return "present|" & candidateId & "|" & (savedTty as text) & "|" & windowVisible & "|" & windowMiniaturized & "|" & tabSelected & "|" & windowId & "|" & tabSessionCount
+                    end if
+                end repeat
+            end repeat
+        end repeat
+        return "absent"
+    end tell
+end run'''
+
 _ITERM_SESSION_CLOSE_SCRIPT = r'''on run argv
     set targetSessionId to item 1 of argv
     set targetToken to item 2 of argv
@@ -608,6 +669,372 @@ class Viewer:
             entry["record"] = record
             self._write_entry(registry_path, entry)
             return dict(record)
+
+    def verify_visible(
+        self, record: dict, *, tmux_binary: str, pane_id: str, window_id: str,
+    ) -> dict:
+        """Verify that an exact registered viewer currently shows a target pane.
+
+        This method is deliberately read-only. It checks the durable owner
+        receipt, live tmux server/client state, and (for an ordinary iTerm2
+        viewer) the owned GUI session's current window and selected tab.
+        """
+        evidence: dict[str, object] = {}
+        if not isinstance(record, dict) or record.get("status") != "attached":
+            return self._visibility_result("unavailable", "viewer_record_not_attached", None, evidence)
+        try:
+            socket_path = _safe_string(record.get("socket_path"), "record.socket_path")
+            session_id = _verify_session_id(record.get("session_id"))
+            server_instance_id = _safe_string(record.get("server_instance_id"), "record.server_instance_id")
+            token = _safe_string(record.get("viewer_token"), "record.viewer_token", max_bytes=64)
+            tmux_binary = _safe_string(tmux_binary, "tmux_binary", max_bytes=1024)
+            pane_id = _safe_string(pane_id, "pane_id", max_bytes=64)
+            window_id = _safe_string(window_id, "window_id", max_bytes=64)
+        except DomainError:
+            return self._visibility_result("unavailable", "viewer_or_target_identity_invalid", None, evidence)
+        if len(pane_id) < 2 or pane_id[0] != "%" or not pane_id[1:].isdigit():
+            return self._visibility_result("unavailable", "target_pane_id_invalid", None, evidence)
+        if len(window_id) < 2 or window_id[0] != "@" or not window_id[1:].isdigit():
+            return self._visibility_result("unavailable", "target_window_id_invalid", None, evidence)
+
+        try:
+            receipt_path = self._viewer_receipt_path(token)
+            entry = self._read_registry(receipt_path)
+        except DomainError:
+            return self._visibility_result("unknown", "viewer_receipt_unavailable", None, evidence)
+        if not isinstance(entry, dict) or not isinstance(entry.get("record"), dict):
+            return self._visibility_result("unavailable", "viewer_receipt_missing", None, evidence)
+        registered = entry["record"]
+        if (
+            entry.get("state") != "attached"
+            or not self._record_matches(record, registered)
+            or record.get("_client_tty") != registered.get("_client_tty")
+            or token != registered.get("viewer_token")
+        ):
+            return self._visibility_result("unavailable", "viewer_receipt_mismatch_or_not_attached", None, evidence)
+        registered_server = entry.get("server")
+        if (
+            not isinstance(registered_server, dict)
+            or registered_server.get("server_instance_id") != server_instance_id
+        ):
+            return self._visibility_result("unavailable", "viewer_receipt_server_mismatch", None, evidence)
+        evidence["receipt"] = "matched"
+
+        snapshot = self._server_snapshot(tmux_binary, socket_path, session_id)
+        if snapshot is None:
+            return self._visibility_result("unknown", "tmux_server_check_failed", None, evidence)
+        if not self._same_server(entry.get("server"), snapshot):
+            evidence["server"] = "replaced"
+            return self._visibility_result("unavailable", "tmux_server_incarnation_mismatch", None, evidence)
+        if (
+            registered.get("server_pid") != snapshot.get("pid")
+            or registered.get("server_start_time") != snapshot.get("start_time")
+            or registered.get("server_process_start") != snapshot.get("process_start")
+        ):
+            evidence["server"] = "receipt_mismatch"
+            return self._visibility_result("unavailable", "viewer_receipt_server_mismatch", None, evidence)
+        evidence["server"] = {
+            "pid": snapshot["pid"],
+            "start_time": snapshot["start_time"],
+        }
+
+        allow_input = self._recorded_allow_input(registered)
+        native_mode = registered.get("mode") == "iterm2-native"
+        viewer_pid = registered.get("viewer_pid")
+        expected_tty = registered.get("_client_tty")
+        if type(viewer_pid) is not int or viewer_pid <= 0 or not isinstance(expected_tty, str):
+            return self._visibility_result("unavailable", "viewer_tmux_identity_incomplete", None, evidence)
+        try:
+            expected_tty = _safe_string(expected_tty, "record._client_tty", max_bytes=256)
+        except DomainError:
+            return self._visibility_result("unavailable", "viewer_tmux_identity_incomplete", None, evidence)
+        if not expected_tty.startswith("/dev/"):
+            return self._visibility_result("unavailable", "viewer_tmux_identity_incomplete", None, evidence)
+        if registered.get("viewer_client_id") != f"tty:{expected_tty}":
+            return self._visibility_result("unavailable", "viewer_tmux_tty_mismatch", None, evidence)
+
+        clients = self._client_snapshot(tmux_binary, socket_path)
+        if clients is None:
+            return self._visibility_result("unknown", "tmux_client_check_failed", None, evidence)
+        client = self._match_client(
+            clients, session_id, viewer_pid, readonly=not allow_input,
+            control_mode=native_mode,
+        )
+        if client is None:
+            same_pid = self._find_client_by_pid(clients, session_id, viewer_pid)
+            same_tty = self._find_client_identity(clients, session_id, viewer_pid, expected_tty)
+            reason = "viewer_client_policy_mismatch" if same_pid or same_tty else "viewer_client_detached"
+            return self._visibility_result("unavailable", reason, None, evidence)
+        if client.get("client_tty") != expected_tty:
+            return self._visibility_result("unavailable", "viewer_tmux_tty_mismatch", None, evidence)
+        if client.get("session_id") != session_id:
+            return self._visibility_result("unavailable", "viewer_client_session_mismatch", None, evidence)
+        evidence["tmux_client"] = {
+            "pid": viewer_pid,
+            "tty": expected_tty,
+            "session_id": session_id,
+            "read_only": not allow_input,
+            "control_mode": native_mode,
+            "flags": sorted(client.get("client_flags", set()))[:8],
+        }
+
+        # iTerm2 native control mode creates a gateway rather than a normal
+        # terminal view. Its native mapping is not exposed here, so it cannot
+        # prove which task pane the visible GUI currently renders.
+        if native_mode:
+            return self._visibility_result(
+                "unavailable", "native_mapped_visibility_unverified",
+                registered.get("viewer_gui_session_id"), evidence,
+            )
+        if registered.get("terminal") != "iTerm2":
+            return self._visibility_result(
+                "unavailable", "gui_visibility_unavailable_for_terminal_app",
+                registered.get("viewer_gui_session_id"), evidence,
+            )
+
+        # Read the current tmux window for this exact client and the requested
+        # target pane. All identifiers are validated and passed as argv items.
+        view_format = "#{session_id}|#{window_id}|#{pane_id}|#{window_zoomed_flag}"
+        def parse_view(result: subprocess.CompletedProcess[str]) -> dict[str, str] | None:
+            if result.returncode != 0 or not isinstance(result.stdout, str):
+                return None
+            fields = result.stdout.strip().split("|")
+            if len(fields) != 4:
+                return None
+            current_session, current_window, current_pane, zoomed = fields
+            if (
+                not current_session.startswith("$") or not current_session[1:].isdigit()
+                or len(current_window) < 2 or current_window[0] != "@" or not current_window[1:].isdigit()
+                or len(current_pane) < 2 or current_pane[0] != "%" or not current_pane[1:].isdigit()
+                or zoomed not in {"0", "1"}
+            ):
+                return None
+            return {
+                "session_id": current_session,
+                "window_id": current_window,
+                "pane_id": current_pane,
+                "window_zoomed_flag": zoomed,
+            }
+
+        def read_tmux_views() -> tuple[dict[str, str], dict[str, str]] | None:
+            current_result = self._run_tmux(
+                tmux_binary, socket_path,
+                ["display-message", "-p", "-c", expected_tty, view_format], timeout=3,
+            )
+            target_result = self._run_tmux(
+                tmux_binary, socket_path,
+                ["display-message", "-p", "-t", pane_id, view_format], timeout=3,
+            )
+            current = parse_view(current_result)
+            target = parse_view(target_result)
+            if current is None or target is None:
+                return None
+            return current, target
+
+        initial_views = read_tmux_views()
+        if initial_views is None:
+            return self._visibility_result("unknown", "tmux_visibility_query_failed", None, evidence)
+        current_view, target_view = initial_views
+        if (
+            target_view["session_id"] != session_id
+            or target_view["window_id"] != window_id
+            or target_view["pane_id"] != pane_id
+        ):
+            evidence["target"] = {
+                "pane_id": target_view["pane_id"],
+                "window_id": target_view["window_id"],
+                "session_id": target_view["session_id"],
+            }
+            return self._visibility_result("unavailable", "target_pane_or_window_mismatch", None, evidence)
+        if current_view["session_id"] != session_id:
+            return self._visibility_result("unavailable", "viewer_client_session_changed", None, evidence)
+        if current_view["window_id"] != window_id:
+            evidence["target"] = {
+                "pane_id": target_view["pane_id"],
+                "window_id": window_id,
+                "session_id": session_id,
+                "window_visible": False,
+            }
+            return self._visibility_result("unavailable", "target_window_not_current", None, evidence)
+        window_zoomed = target_view["window_zoomed_flag"] == "1"
+        if current_view["window_zoomed_flag"] != target_view["window_zoomed_flag"]:
+            return self._visibility_result("unknown", "tmux_visibility_changed_during_check", None, evidence)
+        pane_hidden_by_zoom = window_zoomed and current_view["pane_id"] != pane_id
+        evidence["target"] = {
+            "pane_id": pane_id,
+            "window_id": window_id,
+            "session_id": session_id,
+            "window_visible": True,
+            "window_zoomed": window_zoomed,
+            "pane_zoomed": window_zoomed and current_view["pane_id"] == pane_id,
+            "pane_hidden_by_zoom": pane_hidden_by_zoom,
+            "pane_active": current_view["pane_id"] == pane_id,
+        }
+        if pane_hidden_by_zoom:
+            return self._visibility_result("unavailable", "target_pane_hidden_by_zoom", None, evidence)
+
+        gui_session_id = registered.get("viewer_gui_session_id")
+        gui_tty = registered.get("viewer_gui_tty")
+        if gui_tty is not None and gui_tty != expected_tty:
+            return self._visibility_result("unavailable", "iterm_gui_tty_mismatch", None, evidence)
+        if gui_session_id is None:
+            # Recover only from a unique owner-token match, then require its
+            # TTY to be the same TTY already verified against tmux.
+            recovered = self._run_iterm_script(_ITERM_SESSION_FIND_SCRIPT, token)
+            if recovered is None:
+                return self._visibility_result("unknown", "iterm_gui_identity_recovery_failed", None, evidence)
+            if recovered == "ambiguous":
+                return self._visibility_result("unavailable", "iterm_gui_owner_token_ambiguous", None, evidence)
+            if recovered == "absent":
+                return self._visibility_result("unavailable", "iterm_gui_session_absent", None, evidence)
+            identity = recovered.splitlines()
+            if len(identity) != 2 or not identity[0] or identity[1] != expected_tty:
+                return self._visibility_result("unavailable", "iterm_gui_tty_mismatch", None, evidence)
+            gui_session_id = identity[0]
+            gui_tty = identity[1]
+        elif not isinstance(gui_session_id, str) or not gui_session_id:
+            return self._visibility_result("unavailable", "viewer_gui_identity_incomplete", None, evidence)
+        elif gui_tty is None:
+            # The tmux client TTY is already exact; the fresh GUI query below
+            # still checks that the owned session reports that same TTY.
+            gui_tty = expected_tty
+        elif not isinstance(gui_tty, str) or not gui_tty:
+            return self._visibility_result("unavailable", "viewer_gui_identity_incomplete", None, evidence)
+        if gui_tty != expected_tty:
+            return self._visibility_result("unavailable", "iterm_gui_tty_mismatch", gui_session_id, evidence)
+
+        gui_result = self._run_iterm_script(
+            _ITERM_SESSION_VISIBILITY_QUERY_SCRIPT, gui_session_id, token, gui_tty
+        )
+        if gui_result is None:
+            return self._visibility_result("unknown", "iterm_visibility_query_failed", gui_session_id, evidence)
+        if gui_result == "absent":
+            return self._visibility_result("unavailable", "iterm_gui_session_absent", gui_session_id, evidence)
+        if gui_result == "mismatch":
+            return self._visibility_result("unavailable", "iterm_gui_owner_token_mismatch", gui_session_id, evidence)
+        if gui_result == "tty-mismatch":
+            return self._visibility_result("unavailable", "iterm_gui_tty_mismatch", gui_session_id, evidence)
+        if gui_result == "visibility-unsupported":
+            return self._visibility_result("unavailable", "iterm_window_visibility_unsupported", gui_session_id, evidence)
+        if gui_result == "multi-session-tab":
+            return self._visibility_result("unavailable", "iterm_split_visibility_unverified", gui_session_id, evidence)
+        if gui_result == "unknown":
+            return self._visibility_result("unknown", "iterm_visibility_query_failed", gui_session_id, evidence)
+        gui_fields = gui_result.split("|")
+        if len(gui_fields) != 8 or gui_fields[0] != "present":
+            return self._visibility_result("unknown", "iterm_visibility_evidence_invalid", gui_session_id, evidence)
+        _, found_id, found_tty, visible, miniaturized, selected, found_window_id, tab_session_count = gui_fields
+        if found_id != gui_session_id:
+            return self._visibility_result("unavailable", "iterm_gui_session_id_mismatch", gui_session_id, evidence)
+        if found_tty != gui_tty:
+            return self._visibility_result("unavailable", "iterm_gui_tty_mismatch", gui_session_id, evidence)
+        if visible not in {"true", "false", "1", "0"} or miniaturized not in {"true", "false", "1", "0"} or selected not in {"true", "false", "1", "0"}:
+            return self._visibility_result("unknown", "iterm_visibility_evidence_invalid", gui_session_id, evidence)
+        window_visible = visible in {"true", "1"}
+        window_minimized = miniaturized in {"true", "1"}
+        tab_selected = selected in {"true", "1"}
+        try:
+            gui_window_id = int(found_window_id)
+            gui_tab_session_count = int(tab_session_count)
+        except ValueError:
+            return self._visibility_result("unknown", "iterm_visibility_evidence_invalid", gui_session_id, evidence)
+        if gui_window_id < 0 or gui_tab_session_count < 0:
+            return self._visibility_result("unknown", "iterm_visibility_evidence_invalid", gui_session_id, evidence)
+        evidence["gui_session"] = {
+            "id": gui_session_id,
+            "tty": gui_tty,
+            "token_match": True,
+            "present": True,
+            "window_id": gui_window_id,
+            "tab_session_count": gui_tab_session_count,
+            "window_visible": window_visible,
+            "window_minimized": window_minimized,
+            "tab_selected": tab_selected,
+            "tab_visible": window_visible and not window_minimized and tab_selected,
+            "session_visible": window_visible and not window_minimized and tab_selected,
+        }
+        if not window_visible or window_minimized:
+            return self._visibility_result("unavailable", "iterm_window_hidden_or_minimized", gui_session_id, evidence)
+        if not tab_selected:
+            return self._visibility_result("unavailable", "iterm_tab_not_selected", gui_session_id, evidence)
+        if gui_tab_session_count != 1:
+            return self._visibility_result("unavailable", "iterm_split_visibility_unverified", gui_session_id, evidence)
+
+        # AppleScript can take seconds. Re-query the exact client and both tmux
+        # views after it returns; reject any change instead of accepting a new
+        # baseline captured after a window switch, pane switch, or zoom.
+        fresh_clients = self._client_snapshot(tmux_binary, socket_path)
+        if fresh_clients is None:
+            return self._visibility_result("unknown", "tmux_client_check_failed_after_gui_query", gui_session_id, evidence)
+        fresh_client = self._match_client(
+            fresh_clients, session_id, viewer_pid, readonly=not allow_input,
+            control_mode=native_mode,
+        )
+        if fresh_client is None:
+            same_pid = self._find_client_by_pid(fresh_clients, session_id, viewer_pid)
+            same_tty = self._find_client_identity(fresh_clients, session_id, viewer_pid, expected_tty)
+            reason = "viewer_client_policy_changed_during_check" if same_pid or same_tty else "viewer_client_detached_during_check"
+            evidence["freshness"] = {"tmux_client": reason}
+            return self._visibility_result("unavailable", reason, gui_session_id, evidence)
+        if (
+            fresh_client.get("client_tty") != client.get("client_tty")
+            or fresh_client.get("client_control_mode") != client.get("client_control_mode")
+            or fresh_client.get("client_readonly") != client.get("client_readonly")
+            or ("read-only" in fresh_client.get("client_flags", set()))
+            != ("read-only" in client.get("client_flags", set()))
+        ):
+            evidence["freshness"] = {"tmux_client": "identity_or_policy_changed"}
+            return self._visibility_result("unavailable", "viewer_client_changed_during_check", gui_session_id, evidence)
+
+        fresh_views = read_tmux_views()
+        if fresh_views is None:
+            return self._visibility_result("unknown", "tmux_visibility_query_failed_after_gui_query", gui_session_id, evidence)
+        if fresh_views != initial_views:
+            evidence["freshness"] = {"tmux_view": "changed"}
+            return self._visibility_result("unavailable", "tmux_view_changed_during_check", gui_session_id, evidence)
+        fresh_server = self._server_snapshot(tmux_binary, socket_path, session_id)
+        if fresh_server is None:
+            return self._visibility_result("unknown", "tmux_server_check_failed_after_gui_query", gui_session_id, evidence)
+        if not self._same_server(entry.get("server"), fresh_server):
+            evidence["freshness"] = {"server": "replaced"}
+            return self._visibility_result("unavailable", "tmux_server_incarnation_changed_during_check", gui_session_id, evidence)
+        if (
+            registered.get("server_pid") != fresh_server.get("pid")
+            or registered.get("server_start_time") != fresh_server.get("start_time")
+            or registered.get("server_process_start") != fresh_server.get("process_start")
+        ):
+            evidence["freshness"] = {"server": "receipt_mismatch"}
+            return self._visibility_result("unavailable", "viewer_receipt_server_mismatch", gui_session_id, evidence)
+        evidence["freshness"] = {
+            "server": "matched",
+            "tmux_client": "matched",
+            "tmux_view": "unchanged",
+        }
+
+        # The receipt is durable and atomically replaced. Re-read before
+        # returning success so a concurrent detach/replacement cannot reuse
+        # evidence collected for an earlier viewer state.
+        try:
+            latest_entry = self._read_registry(receipt_path)
+        except DomainError:
+            return self._visibility_result("unknown", "viewer_receipt_changed_during_verification", gui_session_id, evidence)
+        if (
+            not isinstance(latest_entry, dict)
+            or latest_entry.get("state") != "attached"
+            or latest_entry.get("record") != registered
+            or latest_entry.get("server") != entry.get("server")
+        ):
+            return self._visibility_result("unknown", "viewer_receipt_changed_during_verification", gui_session_id, evidence)
+        return self._visibility_result("verified", "verified_visible", gui_session_id, evidence)
+
+    @staticmethod
+    def _visibility_result(status: str, reason: str, gui_session_id: object, evidence: dict) -> dict:
+        return {
+            "status": status,
+            "reason": reason,
+            "viewer_gui_session_id": gui_session_id,
+            "evidence": evidence,
+        }
 
     def hide(self, record: dict, *, tmux_binary: str) -> dict:
         if not isinstance(record, dict):

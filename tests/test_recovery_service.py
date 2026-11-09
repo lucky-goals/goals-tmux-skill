@@ -161,6 +161,57 @@ class ServiceRecoveryInspectionTests(unittest.TestCase):
         self.assertEqual(inspect.call_args.kwargs["exit_evidence"]["cwd"], "/task/cwd")
         parse_hint.assert_called_once_with("codex", "exit screen")
 
+    def test_live_kiro_uses_only_latest_observed_exact_dispatch(self):
+        self.record["cli"] = {"name": "kiro", "cwd": "/pane/cwd"}
+        live = {**self.pane, "dead": False, "process_instance_id": "original-process"}
+        self.task["dispatches"] = [
+            {**self._matching_dispatch("older"), "pane_id": "%7"},
+            {**self._matching_dispatch("latest"), "pane_id": "%7"},
+            {**self._matching_dispatch("wrong-record", record_id="record-other"), "pane_id": "%7"},
+            {**self._matching_dispatch("wrong-process", process_id="other-process"), "pane_id": "%7"},
+            {**self._matching_dispatch("wrong-pane"), "pane_id": "%8"},
+            {**self._matching_dispatch("unobserved", status="submitted"), "pane_id": "%7"},
+        ]
+        with patch("runtime.goals_tmux.cli_adapters.inspect_recovery", return_value={"status": "ready"}) as inspect, \
+             patch("runtime.goals_tmux.service.read_capture") as capture:
+            result = self.service._inspect_recovery(live, self.record)
+        inspect.assert_called_once_with(live, self.record["cli"], dispatch_markers=["latest"])
+        capture.assert_not_called()
+        self.assertEqual(result["status"], "ready")
+
+    def test_live_kiro_without_observed_dispatch_passes_no_marker(self):
+        self.record["cli"] = {"name": "kiro-cli", "cwd": "/pane/cwd"}
+        live = {**self.pane, "dead": False, "process_instance_id": "original-process"}
+        with patch("runtime.goals_tmux.cli_adapters.inspect_recovery", return_value={"status": "unknown"}) as inspect:
+            self.service._inspect_recovery(live, self.record)
+        inspect.assert_called_once_with(live, self.record["cli"], dispatch_markers=[])
+
+    def test_live_kiro_changed_identity_does_not_inspect_another_process(self):
+        self.record["cli"] = {"name": "kiro", "cwd": "/pane/cwd"}
+        live = {**self.pane, "dead": False, "process_instance_id": "original-process"}
+        for changes in ({"pid": 999}, {"process_instance_id": "replacement"}, {"pane_id": "%9"}):
+            with self.subTest(changes=changes), \
+                 patch("runtime.goals_tmux.cli_adapters.inspect_recovery") as inspect:
+                result = self.service._inspect_recovery({**live, **changes}, self.record)
+                inspect.assert_not_called()
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(result["reason"], "registered_pane_process_mismatch")
+
+    def test_live_kiro_changed_cwd_does_not_search_other_workspace(self):
+        self.record["cli"] = {"name": "kiro", "cwd": "/original/workspace"}
+        live = {**self.pane, "dead": False, "process_instance_id": "original-process"}
+        with patch("runtime.goals_tmux.cli_adapters.inspect_recovery") as inspect:
+            result = self.service._inspect_recovery(live, self.record)
+        inspect.assert_not_called()
+        self.assertEqual(result["reason"], "registered_cli_cwd_mismatch")
+
+    def test_live_kiro_legacy_metadata_can_use_task_cwd(self):
+        self.record["cli"] = {"name": "kiro"}
+        live = {**self.pane, "dead": False, "cwd": "/task/cwd", "process_instance_id": "original-process"}
+        with patch("runtime.goals_tmux.cli_adapters.inspect_recovery", return_value={"status": "unknown"}) as inspect:
+            self.service._inspect_recovery(live, self.record)
+        inspect.assert_called_once_with(live, self.record["cli"], dispatch_markers=[])
+
 
 if __name__ == "__main__":
     unittest.main()

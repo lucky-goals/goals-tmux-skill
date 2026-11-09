@@ -23,6 +23,7 @@ class LaunchArgvTests(unittest.TestCase):
                       "-c", 'service_tier="priority"'],
             "agy": ["agy", "--model", "gemini-4-argon-high", "--effort", "high"],
             "antigravity": ["agy", "--model", "gemini-4-argon-high", "--effort", "high"],
+            "kiro": ["kiro-cli", "chat"],
         }
         for cli, argv in expected.items():
             with self.subTest(cli=cli):
@@ -36,6 +37,7 @@ class LaunchArgvTests(unittest.TestCase):
             "cursor": "--force",
             "codex": "--dangerously-bypass-approvals-and-sandbox",
             "agy": "--dangerously-skip-permissions",
+            "kiro": "--trust-all-tools",
         }
         for cli, flag in expected.items():
             with self.subTest(cli=cli):
@@ -75,6 +77,7 @@ class ResumeArgvTests(unittest.TestCase):
             "codex": ["codex", "resume", "-m", "gpt-6.1-sol", "-c", 'model_reasoning_effort="xhigh"',
                       "-c", 'service_tier="priority"', CLAUDE_ID],
             "agy": ["agy", "--model", "gemini-4-argon-high", "--effort", "high", "--conversation", CLAUDE_ID],
+            "kiro": ["kiro-cli", "chat", "--resume-id", CLAUDE_ID],
         }
         for cli, argv in expected.items():
             with self.subTest(cli=cli):
@@ -90,6 +93,7 @@ class ResumeArgvTests(unittest.TestCase):
             "cursor": "--force",
             "codex": "--dangerously-bypass-approvals-and-sandbox",
             "agy": "--dangerously-skip-permissions",
+            "kiro": "--trust-all-tools",
         }
         for cli, flag in expected.items():
             with self.subTest(cli=cli):
@@ -125,9 +129,10 @@ class DescribeClisTests(unittest.TestCase):
             second = cli_adapters.describe_clis()
         self.assertEqual(first["claude"]["version"], "local-version")
         self.assertTrue(first["agy"]["available"])
+        self.assertEqual(first["kiro"]["version"], "local-version")
         self.assertIsNone(first["agy"]["interactive_by_default"])
         self.assertEqual(second["cursor"]["version_status"], "ok")
-        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_count, 5)
 
     def test_missing_binary_is_reported_without_execution(self):
         with patch.object(cli_adapters.shutil, "which", return_value=None), \
@@ -268,6 +273,7 @@ class ExitHintTests(unittest.TestCase):
         "cursor": "503c7e56-8f7f-4d18-affe-af5a5a1f40fd",
         "codex": CODEX_ID,
         "agy": "123e4567-e89b-12d3-a456-426614174002",
+        "kiro": "123e4567-e89b-12d3-a456-426614174003",
     }
 
     def _hint_line(self, cli, conversation_id):
@@ -276,6 +282,7 @@ class ExitHintTests(unittest.TestCase):
             "cursor": f"To resume this session: agent --resume={conversation_id}",
             "codex": f"codex resume {conversation_id}",
             "agy": f"agy --conversation={conversation_id}",
+            "kiro": f"kiro-cli chat --resume-id {conversation_id}",
         }[cli]
 
     @staticmethod
@@ -356,6 +363,15 @@ class ExitHintTests(unittest.TestCase):
             transcript = root / "brain" / conversation_id / ".system_generated" / "logs" / "transcript.jsonl"
             transcript.parent.mkdir(parents=True)
             transcript.write_text(json.dumps({"dispatch_id": marker}) + "\n", encoding="utf-8")
+        elif cli == "kiro":
+            session = root / "sessions" / "cli"
+            session.mkdir(parents=True)
+            (session / f"{conversation_id}.json").write_text(
+                json.dumps({"session_id": conversation_id, "cwd": str(cwd)}), encoding="utf-8",
+            )
+            (session / f"{conversation_id}.jsonl").write_text(
+                json.dumps({"dispatch_id": marker}) + "\n", encoding="utf-8",
+            )
 
     def test_exit_candidate_must_match_durable_id_cwd_and_dispatch_for_each_cli(self):
         marker = "task-round-dispatch-123"
@@ -380,7 +396,8 @@ class ExitHintTests(unittest.TestCase):
                 self.assertEqual(result["conversation_id"], conversation_id)
                 self.assertEqual(result["id_source"], "durable_exit_transcript")
                 self.assertTrue(result["resume_argv"])
-                self.assertTrue(any("bypass" in arg or arg in {"--force", "--dangerously-skip-permissions"}
+                self.assertTrue(any("bypass" in arg or arg in {"--force", "--dangerously-skip-permissions",
+                                                                  "--trust-all-tools"}
                                     for arg in result["resume_argv"]))
                 if cli == "agy":
                     self.assertIn("agy_opaque_cwd_metadata_corroborated", result["evidence"])

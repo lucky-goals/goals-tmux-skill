@@ -7,12 +7,14 @@ Monitoring is an active part of the coordinator's current execution. The `watch`
 After every dispatch, continuation, routine decision, or retry:
 
 1. Read the returned status and task/dispatch state.
-2. Run a bounded `watch` for the exact session; use fresh `read_screen`, `read_history`, or `inspect_panes` calls where a notification needs context. Revalidate pane/server/process identity before a write.
+2. Run a bounded `watch` for the exact session; use fresh `read_screen`, `read_history`, or `inspect_panes` calls where a notification needs context. Revalidate pane/server/process identity before a write. Before every new dispatch or submitted response, recheck the visible-TUI proof: `tui.status=attached`, a non-empty `viewer_gui_session_id`, verified fresh `tui_evidence`, and a separate `pane_capture` for the exact task pane. A pane capture cannot prove that a GUI viewer is visible.
 3. Before a wait, give a concise user-visible update stating what is running, what this check is waiting for, and when the next check will happen. Afterward report a change, blocker, or no change and the next action.
 4. Decide from evidence. Let active work continue without injecting “continue”, Enter, or interrupt keys. Resolve routine choices inside the user's authorization; preserve a pending choice and stop writes only when it exceeds that authorization.
 5. Keep one writing coordinator for the current generation. On takeover or handoff, read the latest registry/task state; stale revisions cannot write. Observation-only notes may be passed to the active coordinator.
 
 Use short bounded intervals appropriate to the activity. The default `watch --timeout` is five seconds; it can be called again while this execution remains active. If the CLI is quiet, inspect before deciding it is idle or complete. A Control Mode event or screen capture is terminal evidence, not structured model reasoning or proof of project correctness.
+
+If the visible-TUI proof is missing, stale, or unsupported at an input gate, inspect `remediation` first. The runtime makes one `show_tui` attempt on its initial proof failure; do not make a second attempt when that remediation is recorded. If a legacy or external result has no attempt recorded, call `show_tui` once for the existing session and check its fresh evidence. If that still fails, stop and report without sending input or dispatch. Do not recreate the session or silently switch to `tui.enabled=false`; headless operation requires explicit user authorization.
 
 ## Classify the state
 

@@ -1,0 +1,126 @@
+{
+  "date": "2026-11-09",
+  "fixture_dir": "<redacted-local-identifier>",
+  "status": "passed",
+  "wrapper_from_project_cwd": true,
+  "catalog_exact_selection": true,
+  "profile_reuse": true,
+  "reserved_scenarios_retained": true,
+  "per_cli_limit_only": true,
+  "project_yaml_save": true,
+  "user_xdg_yaml_save": true,
+  "overwrite_cancel_preserved_original": true,
+  "overwrite_saved_exact_backup": true,
+  "files_private": true,
+  "scan_json_clean": true,
+  "model_requests": 0,
+  "real_user_config_changed": false,
+  "live_scan": [
+    {
+      "cli": "claude",
+      "installed": true,
+      "version": "2.1.319 (Claude Code)",
+      "models_status": "manual",
+      "models_count": 0,
+      "models_source": null,
+      "efforts_status": "unknown",
+      "efforts": [],
+      "diagnostics": [
+        "The CLI exposes --effort but does not enumerate its accepted values in help.",
+        "No documented non-interactive model-list command was confirmed by this CLI's help."
+      ]
+    },
+    {
+      "cli": "cursor",
+      "installed": true,
+      "version": "2026.11.05-86047df",
+      "models_status": "available",
+      "models_count": 270,
+      "models_source": "agent --list-models",
+      "efforts_status": "unknown",
+      "efforts": [],
+      "diagnostics": [
+        "Model help shows parameterized effort syntax; accepted values are not enumerated."
+      ]
+    },
+    {
+      "cli": "codex",
+      "installed": true,
+      "version": "codex-cli 0.167.0",
+      "models_status": "available",
+      "models_count": 8,
+      "models_source": "codex app-server model/list",
+      "efforts_status": "model_catalog",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "diagnostics": [
+        "The CLI help does not enumerate model-specific reasoning effort values.",
+        "Codex model/list may return a bundled or cached catalog; it is not an entitlement check."
+      ]
+    },
+    {
+      "cli": "agy",
+      "installed": true,
+      "version": "1.5.3",
+      "models_status": "available",
+      "models_count": 13,
+      "models_source": "agy models",
+      "efforts_status": "cli_flag_values",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "diagnostics": [
+        "Effort values are accepted by the CLI flag; support for each selected model is unknown."
+      ]
+    },
+    {
+      "cli": "kiro",
+      "installed": true,
+      "version": "kiro-cli 3.1.0",
+      "models_status": "available",
+      "models_count": 22,
+      "models_source": "kiro-cli chat --list-models --format json",
+      "efforts_status": "cli_flag_examples",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "diagnostics": [
+        "Effort values are examples from CLI help; support for each selected model is unknown."
+      ]
+    }
+  ],
+  "package_smoke": {
+    "status": "passed",
+    "payload_files": 46,
+    "archive": "<redacted-local-identifier>",
+    "sha256": "18a7ff06e913b6133c93b13e86f3d4c9e7b04edbb5150534982e68fdb6f38280",
+    "required_files_present": true,
+    "standalone_help": true,
+    "standalone_scan": true,
+    "no_config_created": true,
+    "no_proposal_doc_dependency": true
+  },
+  "focused_tests": {
+    "wizard": 11,
+    "discovery": 14,
+    "packaging": 2,
+    "total": 27,
+    "full_suite_run": false
+  },
+  "review": "No remaining actionable P1/P2 findings.",
+  "public_evidence_note": "Volatile local process, GUI, session and temporary-path identifiers are redacted; outcomes and counts are unchanged."
+}

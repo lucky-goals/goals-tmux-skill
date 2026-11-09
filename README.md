@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.5](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5)
+Skill version: [v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.5 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.6 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
 
@@ -12,7 +12,7 @@ The coordinator understands the goal, observes progress, makes routine decisions
 
 The **host** is the agent or client that loads this skill and coordinates the work. It must be able to read the skill and its references, read and write coordination files, execute the bundled runner in an environment with the required Python/tmux access, and continue observing results during an active task. Reading the instructions in a chat without file and command execution access is not sufficient.
 
-The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, and `agy` adapters describe execution targets, not a list of compatible host clients. The four-CLI acceptance results do not establish compatibility with every host. Skill discovery, installation paths, invocation syntax, and reload behavior depend on the host client.
+The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, `agy`, and `kiro` adapters describe execution targets, not a list of compatible host clients. The four-CLI acceptance results do not establish compatibility with every host. Skill discovery, installation paths, invocation syntax, and reload behavior depend on the host client. Kiro CLI uses its configured default model; exact-ID conversation resume depends on the installed Kiro version.
 
 `agents/openai.yaml` is optional Codex integration metadata. Other hosts may ignore it; the runner does not read it, and the package builder does not require it.
 
@@ -21,10 +21,10 @@ The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, and `ag
 Copy this prompt to a coding agent with local filesystem access. Replace the placeholders with your target client and the coding CLI you intend to use. Installation prepares the skill; it does not start a coding task.
 
 ```text
-Please install goals-tmux-skill v0.2.5 for [target client].
+Please install goals-tmux-skill v0.2.6 for [target client].
 Repository: https://github.com/lucky-goals/goals-tmux-skill
-Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5
-Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
+Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. Inspect the target client's supported skill mechanism, actual search paths, and
    existing installations. Use the requested scope; default to user scope when supported.
@@ -45,8 +45,9 @@ Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
    compatibility alias: it does not install dependencies. If using GOALS_TMUX_PYTHON,
    ensure that the actual agent host receives the same interpreter setting.
 5. Check availability of the chosen coding CLI. Report any required installation or
-   interactive sign-in separately; do not install all four CLIs or put credentials in prompts.
-   iTerm2 is optional for execution and required only for its native GUI viewer mode.
+   interactive sign-in separately; do not install all supported CLIs or put credentials in prompts.
+   The verified default visible workflow uses ordinary iTerm2/tmux. Terminal.app can launch
+   a viewer but cannot provide the required mapped GUI proof; dispatch/input will be blocked. Headless operation needs explicit user approval.
 6. Verify metadata, relative references, and executable permissions. Use the client's
    supported reload/discovery mechanism and confirm it can find goals-tmux-skill.
    Report unverified discovery honestly. Do not start a model request, create a tmux
@@ -62,8 +63,8 @@ Use this prompt when the skill files are already installed but runtime readiness
 ```text
 Check and prepare dependencies for the existing goals-tmux-skill installation in [target client].
 Installation path: [absolute path, or discover the client's active installation]
-Required mode: [basic tmux / tmux 3.8 Events/Monitors / iTerm2 native viewer / SSH]
-Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity]
+Required mode: [visible tmux / approved headless tmux / tmux 3.8 Events/Monitors / iTerm2 native viewer / SSH]
+Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. Locate the active installation and inspect its current instructions. Do not install
    a second copy or replace skill files as part of this dependency check.
@@ -122,7 +123,7 @@ There is no universal skill installation directory. Inspect the target client's 
 
 ### 3. Download and install the complete package
 
-Download **goals-tmux-skill.zip** from [v0.2.5 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
+Download **goals-tmux-skill.zip** from [v0.2.6 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
 
 For a new user-scoped Codex installation, with the asset saved in `~/Downloads/`:
 
@@ -151,9 +152,9 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-Use your actual installed path if different. `--version` should report `0.2.5`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
+Use your actual installed path if different. `--version` should report `0.2.6`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
 
-`doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; all four are not required. iTerm2 is optional for tmux execution and required for `iterm2-native` display. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
+`doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; installing every supported CLI is unnecessary. The verified default visible workflow uses ordinary iTerm2/tmux. `terminal=auto` can fall back to launching Terminal.app, but that viewer cannot provide the required mapped GUI proof and dispatch/input will be blocked. Headless operation requires explicit user approval. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
 
 These installation checks do not need a running tmux server. Use `doctor --live` only with the exact socket of an explicitly selected existing endpoint; do not scan for or guess sockets. No runtime check alone proves that the client has discovered the skill.
 
@@ -168,6 +169,48 @@ After installation and CLI sign-in, you can start a task:
 > Use `goals-tmux-skill` to have Claude Code fix the login timeout in `/absolute/project/path`. Follow the applicable project instructions, including `AGENTS.md` when present, verify the relevant cases, then check acceptance and clean up the panes created for this task while preserving other sessions.
 
 The initial policy is read-only. Before work that writes, run `scripts/tmuxctl policy show` to inspect the endpoint and existing permissions. Configure only the socket, pane, and operations authorized for that task. The policy's read-only switch affects configured endpoints; avoid enabling unrelated resources for convenience. See the [runtime reference](references/runtime.md).
+
+### Start a CLI session with verified GUI visibility
+
+For a new session, call `create_session` with a CLI metadata object and the complete launch argv. This operation/arguments excerpt goes inside the standard `invoke` envelope. The Antigravity example includes the requested model and effort explicitly; it starts the CLI without a task prompt:
+
+```json
+{
+  "operation": "create_session",
+  "arguments": {
+    "cwd": "/absolute/project/path",
+    "name": "project-task",
+    "cli": { "name": "agy", "permission_mode": "default" },
+    "program_argv": [
+      "agy", "--model", "gemini-4-argon-high", "--effort", "high"
+    ],
+    "tui": { "enabled": true }
+  }
+}
+```
+
+Before every dispatch or submitted input, require `tui.status=attached`, a non-empty `tui.viewer_gui_session_id`, `tui_evidence.status=verified`, and a separate `pane_capture` for the target pane. Pane capture cannot prove a desktop window is visible. In `iterm2-native` mode, GUI evidence must identify the mapped task pane, not only the outer Control Mode gateway. If any evidence is missing or unsupported, inspect `remediation`: the runtime automatically tries `show_tui` once after an initial creation proof failure, so do not repeat a recorded attempt. If an external or legacy result has no attempt recorded, call `show_tui` once for the existing session and recheck. If proof still fails, stop without dispatching. Do not recreate the session or turn off TUI to work around the failure. Headless operation with `tui.enabled=false` requires explicit user approval. A `TUI_REQUIRED` partial result means the session exists but input was not sent.
+
+For Kiro CLI, use `cli: {"name":"kiro", "permission_mode":"default"}` and `program_argv: ["kiro-cli", "chat"]`; do not add an invented model preset. The supported exact-ID resume options depend on the installed version. See the [CLI adapter reference](references/cli-adapters.md).
+
+## Interactive YAML setup wizard
+
+```sh
+sh scripts/setup-workflow.sh --project-dir /absolute/path/to/project
+# Read-only CLI/model inventory:
+sh scripts/setup-workflow.sh --scan --json
+```
+
+The wizard scans supported installed CLIs, offers discovered models or explicitly
+unverified manual entries, and lets you configure each scenario's model/effort,
+fallbacks and per-CLI concurrency limit. It previews the YAML before saving to
+the user configuration directory or the selected project's `.goals-tmux.yaml`.
+Existing files require overwrite confirmation and are backed up. It requires
+Python 3.12+ but no tmux, extra Python package, or model turn.
+
+**Generator only:** the current runner does not automatically load or enforce
+workflow YAML. The wizard does not activate task permissions or change host rules.
+See the [setup guide](references/workflow-setup.md).
 
 ## Configuration and diagnostics
 
@@ -185,8 +228,8 @@ These commands save display preferences or inspect readiness; they do not open a
 
 | Key | Default | Accepted values and effect |
 |---|---|---|
-| `tui.enabled` | `true` | `true` enables viewer launch; `false` disables it without disabling tmux task execution. |
-| `tui.terminal` | `auto` | `auto`, `iterm2`, `terminal-app`, `current`. On macOS, `auto` prefers iTerm2, then Terminal.app. `current` is accepted but current-TTY handoff is not implemented; it reports unavailable. |
+| `tui.enabled` | `true` | `true` enables the default visible workflow; `false` selects headless execution and is allowed only with explicit user approval. |
+| `tui.terminal` | `auto` | `auto`, `iterm2`, `terminal-app`, `current`. On macOS, `auto` prefers iTerm2, then Terminal.app; the latter cannot satisfy the required GUI proof and blocks task input. `current` is accepted but current-TTY handoff is not implemented; it reports unavailable. |
 | `tui.mode` | `tmux` | `tmux` for ordinary attachment; `iterm2-native` for native iTerm2 tabs/panes on macOS, with terminal `iterm2` or `auto`. |
 | `tui.keep_open` | `false` | `true` retains newly opened viewers after their tmux client exits; `false` enables automatic exit/cleanup. |
 | `tui.allow_input` | `true` | `true` allows keyboard and mouse input through the viewer; `false` attaches a read-only viewer. |
@@ -282,8 +325,8 @@ Policy starts read-only. For an authorized task, select the exact `--socket`/`--
 
 ## Current support
 
-- Coding CLI adapter names are `claude`, `cursor`, `codex`, and `agy` (Antigravity). See the [CLI adapter reference](references/cli-adapters.md) for model/effort presets and permission modes. All four CLIs passed real dispatch, collaboration, review, normal exit, and resource settlement checks, including a review finding followed by a fix and a 19-test rerun. See the [acceptance report](docs/acceptance-2026-11-06.md).
-- TUI display is enabled by default. On macOS, `terminal=auto` tries iTerm2 before Terminal.app; availability is determined by `doctor` and the launch result. Read-only iTerm2 attachment, exact client verification, and detach passed live checks. The `iterm2-native` mapped GUI input restriction was tested against a writable control. `read_only_scope=native_gui_input` does not restrict raw `send-keys` on the same Control Mode channel. The `current` TTY handoff is not yet available.
+- Coding CLI adapter names are `claude`, `cursor`, `codex`, `agy` (Antigravity), and `kiro`. See the [CLI adapter reference](references/cli-adapters.md) for launch modes, model/effort presets, and permission modes. The four CLIs named in the [acceptance report](docs/acceptance-2026-11-06.md) passed real dispatch, collaboration, review, normal exit, and resource settlement checks, including a review finding followed by a fix and a 19-test rerun; these results do not imply the same acceptance for Kiro CLI.
+- TUI display is enabled by default. Before each task dispatch/input, require an attached viewer with `viewer_gui_session_id`, verified fresh GUI identity/visibility evidence, and a separate pane capture. Pane capture alone cannot prove GUI visibility. On macOS, `terminal=auto` tries iTerm2 before Terminal.app, but Terminal.app cannot satisfy the required mapped GUI proof and will block dispatch/input. In native mode, verify the mapped task pane rather than the outer gateway. If the runtime's `show_tui` remediation cannot establish proof, stop without dispatching; headless mode requires explicit user approval. The `current` TTY handoff is not yet available.
 - `watch` observes inline for a bounded duration. The runner does not wake an idle host or create a background schedule. The GUI viewer is separate from coding CLI input and monitoring.
 - All four CLIs passed real conversation recovery and context checks. At close time, durable recovery evidence was `ready` for three CLIs and `degraded` for Antigravity. Startup or a screen hint alone is not verification. See the [0.2 acceptance report](docs/acceptance-0.2-2026-11-06.md).
 - The SSH remote runner and per-connection state isolation are implemented. An isolated local SSH service passed acceptance checks. Commands are documented in the [SSH reference](references/ssh.md).
@@ -292,8 +335,8 @@ Policy starts read-only. For an authorized task, select the exact `--socket`/`--
 
 ## Not yet verified or implemented
 
-- Terminal.app live acceptance remains incomplete (launch timed out on the test machine). Its shell exit and retention behavior is covered by PTY tests; desktop tab closure is not verified.
-- Linux process identity, terminal display, and the complete task lifecycle lack sufficient acceptance evidence. Desktop viewer launch paths currently cover macOS iTerm2 and Terminal.app. Without a desktop, use the manual attach command returned by the runner, honoring `tui.allow_input`.
+- Terminal.app does not provide the required mapped GUI proof; the default visible workflow blocks dispatch/input. Live acceptance remains incomplete (launch timed out on the test machine). Its shell exit and retention behavior is covered by PTY tests; desktop tab closure is not verified.
+- Linux process identity, terminal display, and the complete task lifecycle lack sufficient acceptance evidence. Desktop viewer launch paths currently cover macOS iTerm2 and Terminal.app. Without a desktop, the default visible workflow cannot pass its GUI gate; stop and report. Use the runner's manual attach command only after the user explicitly authorizes headless execution, honoring `tui.allow_input`.
 - A separate remote host has not been verified. Local loopback SSH results do not establish support for other operating systems or host combinations.
 - Automatic orchestration across multiple endpoints remains outside this release's scope.
 - The runner does not provide a full terminal emulator, idle-host wakeup, or recovery of live processes after a tmux server crash. It does not expose arbitrary shell/raw commands or `kill-server`.

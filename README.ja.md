@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill バージョン：[v0.2.5](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5)
+Skill バージョン：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.5 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
+`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.6 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
 
 調整役は目標の理解、進捗の観察、通常の判断、完了条件の確認を担当します。プロジェクトの編集、テスト、ビルドなど、状態を変更する作業は制御対象の Coding CLI が行います。実行境界と手順の詳細は [SKILL.md](SKILL.md) を参照してください。
 
@@ -12,7 +12,7 @@ Skill バージョン：[v0.2.5](https://github.com/lucky-goals/goals-tmux-skill
 
 **ホスト**は、この skill を読み込んで作業を調整する agent またはクライアントです。skill と参照ファイルの読み取り、調整記録の読み書き、必要な Python/tmux にアクセスできる環境での同梱 runner の実行、進行中のタスクの継続的な観察が必要です。ファイルやコマンドを扱えないチャット環境では、指示を読むだけでこの手順を実行することはできません。
 
-**実行側 CLI**は tmux 内で動作します。`claude`、`cursor`、`codex`、`agy` のアダプターは実行対象を示しており、対応ホストクライアントの一覧ではありません。4 種類の CLI の検証結果は、すべてのホストでの互換性を保証しません。skill の検出方法、インストール先、呼び出し構文、再読み込み方法はホストクライアントに依存します。
+**実行側 CLI**は tmux 内で動作します。`claude`、`cursor`、`codex`、`agy`、`kiro` のアダプターは実行対象を示しており、対応ホストクライアントの一覧ではありません。4 種類の CLI の検証結果は、すべてのホストでの互換性を保証しません。skill の検出方法、インストール先、呼び出し構文、再読み込み方法はホストクライアントに依存します。Kiro CLI は設定済みの既定モデルを使用し、会話 ID を指定した復元の対応状況はインストール済みバージョンによって異なります。
 
 `agents/openai.yaml` は任意の Codex 統合メタデータです。ほかのホストは無視できます。runner はこのファイルを読み取らず、パッケージ作成にも必須ではありません。
 
@@ -21,10 +21,10 @@ Skill バージョン：[v0.2.5](https://github.com/lucky-goals/goals-tmux-skill
 以下のプロンプトをローカルファイルシステムにアクセスできるコーディングエージェントにコピーし、対象クライアントと使用予定の coding CLI のプレースホルダーを置き換えてください。インストールでは skill を準備するだけで、コーディングタスクは開始しません。
 
 ```text
-[対象クライアント] に goals-tmux-skill v0.2.5 をインストールしてください。
+[対象クライアント] に goals-tmux-skill v0.2.6 をインストールしてください。
 リポジトリ：https://github.com/lucky-goals/goals-tmux-skill
-リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5
-使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity]
+リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. 対象クライアントがサポートする skill の仕組み、実際の検索パス、既存のインストールを確認してくださ
    い。指定された範囲を使用し、ユーザー範囲がサポートされる場合はそれを既定にしてください。パスを推
@@ -46,8 +46,8 @@ Skill バージョン：[v0.2.5](https://github.com/lucky-goals/goals-tmux-skill
    使う場合は、実際のエージェントホストにも同じインタープリター設定が届いていることを確認してくださ
    い。
 5. 選択した coding CLI が利用可能か確認してください。インストールや対話型サインインが必要な場合は、
-   別々に報告してください。4 種類すべての CLI をインストールしたり、プロンプトに認証情報を記載したり
-   しないでください。iTerm2 は実行に必須ではなく、ネイティブ GUI ビューワーモードでのみ必要です。
+   別々に報告してください。すべての対応 CLI をインストールしたり、プロンプトに認証情報を記載したりしないでください。
+   検証済みの既定の可視ワークフローは通常の iTerm2/tmux を使用します。Terminal.app は viewer を起動できますが、必要な mapped GUI proof を提供できず、dispatch/input はブロックされます。ヘッドレス実行にはユーザーの明示的な承認が必要です。
 6. メタデータ、相対参照、実行権限を確認してください。クライアントがサポートする再読み込み／検出方法
    を使い、goals-tmux-skill を検出できることを確認してください。検出を確認できない場合は、その事実
    を正直に報告してください。モデルリクエストを開始したり、tmux セッションを作成したり、既存の端末内
@@ -64,8 +64,8 @@ skill のファイルはすでにインストール済みで、実行環境の�
 [対象クライアント] にある既存の goals-tmux-skill インストールについて、依存関係を確認して準備してく
 ださい。
 インストール先：[絶対パス、またはクライアントが現在使用中のインストール先を特定]
-必要なモード：[基本 tmux / tmux 3.8 Events/Monitors / iTerm2 ネイティブビューワー / SSH]
-使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity]
+必要なモード：[可視 tmux / 承認済みヘッドレス tmux / tmux 3.8 Events/Monitors / iTerm2 ネイティブビューワー / SSH]
+使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. 現在使用中のインストール先を特定し、そこにある指示を確認してください。2 つ目のコピーをインストー
    ルしたり、この依存関係確認の一環として skill のファイルを置き換えたりしないでください。
@@ -124,7 +124,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. パッケージ一式をダウンロードしてインストールする
 
-[v0.2.5 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.5) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
+[v0.2.6 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
 
 新しい Codex ユーザー範囲のインストールで、アセットを `~/Downloads/` に保存した場合は、次のようにします。
 
@@ -153,9 +153,9 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.5` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
+インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.6` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
 
-`doctor --cli-check` はインストール済み CLI の実行ファイルとバージョンを確認し、モデルリクエストは開始しません。使用する coding CLI をインストールしてサインインしてください。4 種類すべてをそろえる必要はありません。tmux の実行に iTerm2 は任意ですが、`iterm2-native` 表示には必要です。GUI の起動には macOS のオートメーション権限が必要な場合があります。SSH を使う場合は、ローカルの SSH クライアントとリモートホスト上のランタイム依存関係も必要です。[SSH の設定](references/ssh.md)を参照してください。
+`doctor --cli-check` はインストール済み CLI の実行ファイルとバージョンを確認し、モデルリクエストは開始しません。使用する coding CLI をインストールしてサインインしてください。すべての対応 CLI をそろえる必要はありません。検証済みの既定の可視ワークフローは通常の iTerm2/tmux を使用します。`terminal=auto` は Terminal.app の起動にフォールバックできますが、必要な mapped GUI proof を提供できず、dispatch/input はブロックされます。ヘッドレス実行にはユーザーの明示的な承認が必要です。GUI の起動には macOS のオートメーション権限が必要な場合があります。SSH を使う場合は、ローカルの SSH クライアントとリモートホスト上のランタイム依存関係も必要です。[SSH の設定](references/ssh.md)を参照してください。
 
 これらのインストール確認に、実行中の tmux サーバーは不要です。`doctor --live` は、明示的に選択した既存 endpoint の正確な socket を指定する場合に限り使用してください。socket を走査したり推測したりしないでください。ランタイム確認だけでは、クライアントが skill を検出した証明にはなりません。
 
@@ -170,6 +170,47 @@ scripts/tmuxctl doctor --cli-check --json
 > `goals-tmux-skill` を使って、Claude Code に `/absolute/project/path` のログインタイムアウトを修正してもらってください。適用されるプロジェクトの指示（存在する場合は `AGENTS.md` を含む）に従い、関連するケースを検証した後、受け入れ条件を確認し、このタスクで作成した pane を片付けて、ほかのセッションは保持してください。
 
 初期ポリシーは読み取り専用です。書き込みを伴う作業の前に `scripts/tmuxctl policy show` を実行して、endpoint と既存の権限を確認してください。そのタスクで許可された socket、pane、操作だけを設定してください。ポリシーの読み取り専用スイッチは設定済み endpoint に影響します。便宜上、無関係なリソースを有効にしないでください。[ランタイムリファレンス](references/runtime.md)を参照してください。
+
+### CLI セッションを作成し、GUI 表示を確認する
+
+新しい session は `create_session` に CLI metadata オブジェクトと完全な起動 argv を渡して作成します。以下は標準 `invoke` envelope の operation/arguments 断片です。Antigravity の例では model と effort を明示し、起動時にタスクのプロンプトは付けません。
+
+```json
+{
+  "operation": "create_session",
+  "arguments": {
+    "cwd": "/absolute/project/path",
+    "name": "project-task",
+    "cli": { "name": "agy", "permission_mode": "default" },
+    "program_argv": [
+      "agy", "--model", "gemini-4-argon-high", "--effort", "high"
+    ],
+    "tui": { "enabled": true }
+  }
+}
+```
+
+各 dispatch または input の送信前に、`tui.status=attached`、空でない `tui.viewer_gui_session_id`、`tui_evidence.status=verified`、対象 pane の独立した `pane_capture` を確認します。pane capture は端末バッファーの内容だけを示し、デスクトップ window の表示証明にはなりません。`iterm2-native` モードでは、外側の Control Mode gateway だけでなく、task が表示された mapped pane を GUI 証拠で特定する必要があります。証拠が不足または未対応の場合は `remediation` を確認してください。runner は作成時の初回証明失敗後に `show_tui` を一度自動試行するため、記録済みの試行を重複させません。旧版または外部の結果に試行記録がない場合のみ、既存 session に対して一度 `show_tui` を呼び出して再確認します。それでも証明できなければ dispatch せず停止します。session を再作成したり、失敗を回避するため TUI を無効化したりしません。ヘッドレス実行の `tui.enabled=false` はユーザーの明示承認がある場合のみ使用します。`TUI_REQUIRED` partial 結果では session は作成されていますが、入力は送られていません。
+
+Kiro CLI は `cli: {"name":"kiro", "permission_mode":"default"}` と `program_argv: ["kiro-cli", "chat"]` で起動します。モデル preset は追加せず、Kiro の設定済み既定値を使用します。conversation ID による復元はインストール済みバージョンに依存します。[CLI アダプターのリファレンス](references/cli-adapters.md)を参照してください。
+
+## 対話型 YAML 設定ウィザード
+
+```sh
+sh scripts/setup-workflow.sh --project-dir /absolute/path/to/project
+# CLI／モデルの検出結果のみ表示し、設定は保存しません:
+sh scripts/setup-workflow.sh --scan --json
+```
+
+対応するインストール済み CLI を検出し、取得したモデル一覧または「未検証」と明示した
+手動入力を使って、シナリオごとの CLI・モデル・effort・フォールバックと CLI 別の同時
+実行上限を設定できます。シナリオはスキップ可能です。YAML のプレビュー後、ユーザー
+設定ディレクトリまたはプロジェクトの `.goals-tmux.yaml` に保存します。既存ファイルの
+上書きには追加確認が必要で、バックアップを残します。Python 3.12+ が必要ですが、tmux、
+追加 Python パッケージ、モデルへのタスク送信は不要です。
+
+**現時点では設定の生成のみです。runner は workflow YAML を自動読込・適用しません。**
+タスクの権限付与やホストのルール変更も行いません。[ガイド](references/workflow-setup.md)を参照してください。
 
 ## ターミナル表示とウィンドウの保持
 
@@ -187,7 +228,7 @@ scripts/tmuxctl doctor --json
 
 | 設定 | 既定値 | 指定できる値とコマンド |
 |---|---|---|
-| `tui.enabled` | `true` | `true`: `scripts/tmuxctl config set tui.enabled true`<br>`false`: `scripts/tmuxctl config set tui.enabled false` |
+| `tui.enabled` | `true` | `true`: `scripts/tmuxctl config set tui.enabled true`<br>`false`: `scripts/tmuxctl config set tui.enabled false` — ヘッドレス実行を選択します。ユーザーが明示的に承認した場合に限り使用します。 |
 | `tui.terminal` | `auto` | `auto`: `scripts/tmuxctl config set tui.terminal auto`<br>`iterm2`: `scripts/tmuxctl config set tui.terminal iterm2`<br>`terminal-app`: `scripts/tmuxctl config set tui.terminal terminal-app`<br>`current`: `scripts/tmuxctl config set tui.terminal current` — 設定値としては受け付けますが、runner は現在の TTY への引き継ぎに未対応です。入力設定に従う手動 attach コマンドが代替として返されます。選択は推奨しません。 |
 | `tui.mode` | `tmux` | `tmux`: `scripts/tmuxctl config set tui.mode tmux`<br>`iterm2-native`: `scripts/tmuxctl config set tui.mode iterm2-native` |
 | `tui.keep_open` | `false` | `true`: `scripts/tmuxctl config set tui.keep_open true`<br>`false`: `scripts/tmuxctl config set tui.keep_open false` |
@@ -197,7 +238,7 @@ scripts/tmuxctl doctor --json
 
 設定は viewer の起動ごとに記録されます。変更後は隠すか detach して開き直してください。既存の読み取り専用 viewer を自動で書き込み可能にはしません。手動入力は pane に直接届くため、agent と同時に入力しないよう調整してください。runner のタスク権限は変わりません。ネイティブ GUI の読み取り専用制限は raw Control Mode コマンドに対するセキュリティ境界ではありません。
 
-macOS で `terminal=auto` を使うと、iTerm2 を先に試し、次に Terminal.app を試します。`tmux` は通常の tmux viewer です。`iterm2-native` の利用には macOS と iTerm2 が必要で、ターミナルには `iterm2` または `auto` を指定します。`tui.enabled=false` の場合、viewer は開きません。reset サブコマンドはありません。既定値に戻すには、上の表にある既定値のコマンドを実行します。
+macOS で `terminal=auto` を使うと、iTerm2 を先に試し、次に Terminal.app を試します。ただし Terminal.app は必要な mapped GUI proof を提供できず、dispatch/input はブロックされます。既定の可視ワークフローには対応するデスクトップ viewer が必要です。`tmux` は通常の tmux viewer です。`iterm2-native` の利用には macOS と iTerm2 が必要で、ターミナルには `iterm2` または `auto` を指定します。`tui.enabled=false` の場合 viewer は開きません。これは明示的に承認されたヘッドレス実行でのみ使用し、起動や表示確認の失敗を回避するために無効化してはいけません。reset サブコマンドはありません。既定値に戻すには、上の表にある既定値のコマンドを実行します。
 
 設定は既定で `${XDG_CONFIG_HOME:-~/.config}/goals-tmux-skill/config.json` に保存されます。`XDG_CONFIG_HOME` に絶対パスを設定すると保存先を変更できます。`config show --json` は保存値と有効値を表示します。グローバルオプション `--config ABSOLUTE_PATH` を指定すると別の設定ファイルを選び、既定ファイルとのマージは行いません。グローバルオプションはサブコマンドより前に置きます。例：
 
@@ -242,8 +283,8 @@ scripts/tmuxctl --socket /absolute/path/to/task.sock doctor --live --json
 
 ## 現在の対応範囲
 
-- Coding CLI アダプター名は `claude`、`cursor`、`codex`、`agy`（Antigravity）です。モデル・effort の既定値と権限モードは [CLI アダプターのリファレンス](references/cli-adapters.md)を参照してください。4 種類すべてで実際の指示送信、共同作業、レビュー、正常終了、リソース処理の完了を確認しました。「レビューで問題を発見 → 修正 → 19 件のテストを再実行」という一連の検証も含みます。[受け入れ検証レポート](docs/acceptance-2026-11-06.md)を参照してください。
-- TUI 表示は既定で有効です。macOS の `terminal=auto` は iTerm2、Terminal.app の順に選択します。利用可否は `doctor` と起動結果で確認してください。iTerm2 の読み取り専用接続、正確な client の照合、detach は実機検証済みです。`iterm2-native` のマッピング先 GUI での入力制限は、書き込み可能な対照条件と比較して確認しました。`read_only_scope=native_gui_input` は、同じ Control Mode チャネル上の raw `send-keys` を制限しません。`current` TTY への引き継ぎは未対応です。
+- Coding CLI アダプター名は `claude`、`cursor`、`codex`、`agy`（Antigravity）、`kiro` です。起動方法、model/effort preset、権限モードは [CLI アダプターのリファレンス](references/cli-adapters.md)を参照してください。受け入れレポートに記載された4種類は、実際の指示送信、共同作業、レビュー、正常終了、リソース処理の完了を確認しました。「レビューで問題を発見 → 修正 → 19 件のテストを再実行」という一連の検証も含みます。この結果は Kiro CLI も同様に検証済みという意味ではありません。[受け入れ検証レポート](docs/acceptance-2026-11-06.md)を参照してください。
+- TUI 表示は既定で有効です。各 dispatch/input の前に viewer の attach、`viewer_gui_session_id`、新しい GUI 身元／可視性の証明、独立した pane capture を確認します。pane capture だけでは GUI 表示を証明できません。macOS の `terminal=auto` は iTerm2、Terminal.app の順に選択します。ただし Terminal.app は必要な mapped GUI proof を提供できず、dispatch/input はブロックされます。ネイティブモードでは外側の gateway ではなく mapped task pane を確認します。runner の一度の `show_tui` remediation でも証明できない場合は停止し、dispatch しません。ヘッドレスモードはユーザーの明示承認が必要です。`current` TTY への引き継ぎは未対応です。
 - `watch` は時間制限付きのインライン観察です。実行ツールは待機中のホストを起こしたり、バックグラウンドの実行予定を作成したりしません。GUI viewer は Coding CLI の入力・監視とは別に動作します。
 - 4 種類の CLI で実際の会話復元と文脈の確認に成功しました。終了時点の永続化された復元証拠は 3 件が `ready`、Antigravity の 1 件が `degraded` でした。起動成功や画面のヒントだけを検証済みの根拠にはできません。[0.2 受け入れ検証レポート](docs/acceptance-0.2-2026-11-06.md)を参照してください。
 - SSH リモート実行と接続ごとの状態分離を実装し、ローカルの隔離 SSH サービスで検証しました。コマンドは [SSH リファレンス](references/ssh.md)に記載しています。
@@ -252,8 +293,8 @@ scripts/tmuxctl --socket /absolute/path/to/task.sock doctor --live --json
 
 ## 未検証または未実装の範囲
 
-- Terminal.app の実機検証は未完了です（テスト機で起動がタイムアウト）。外側の shell の終了・保持は疑似端末テストで確認しましたが、GUI タブの閉鎖は未検証です。
-- Linux のプロセス識別、端末表示、タスク全体のライフサイクルには十分な検証証拠がありません。現在のデスクトップ viewer 起動経路は macOS の iTerm2 と Terminal.app に対応します。デスクトップがない場合は、実行ツールが返す`tui.allow_input` に従う手動 attach コマンドを利用できます。
+- Terminal.app は必要な mapped GUI proof を提供できず、既定の可視ワークフローの dispatch/input はブロックされます。実機検証は未完了です（テスト機で起動がタイムアウト）。外側の shell の終了・保持は疑似端末テストで確認しましたが、GUI タブの閉鎖は未検証です。
+- Linux のプロセス識別、端末表示、タスク全体のライフサイクルには十分な検証証拠がありません。現在のデスクトップ viewer 起動経路は macOS の iTerm2 と Terminal.app に対応します。デスクトップがない場合、既定の可視ワークフローは GUI gate を通過できないため停止して報告します。手動 attach コマンドは、ユーザーがヘッドレス実行を明示的に承認した後に限り、`tui.allow_input` に従って利用できます。
 - 別のリモートホストでは未検証です。ローカルのループバック SSH の結果は、ほかの OS やホスト構成での動作保証にはなりません。
 - 複数 endpoint にまたがる自動連携は本リリースの対象外です。
 - 完全な端末エミュレーター、待機中ホストの起動、tmux server のクラッシュ後に実行中プロセスを復元する機能は提供しません。任意の shell／raw コマンドや `kill-server` も公開していません。

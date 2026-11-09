@@ -1,0 +1,31 @@
+# PROPOSAL ONLY: an illustration of a private, task-bound authorization record.
+# Field types and authorization semantics: ./workflow-fields.zh-CN.md
+# This file is not an active grant and must not be copied into global defaults.
+schema_version: 1
+kind: goals-tmux-task-overlay
+task_id: REPLACE_WITH_ACTUAL_TASK_ID
+project_root: /absolute/path/to/project
+
+# Include these selections only when the user explicitly overrides the route.
+# selection:
+#   scenario: design
+#   cli: codex
+#   model: gpt-6-astra
+#   effort: high
+#   allow_fallback: false
+
+authorization:
+  source: REPLACE_WITH_CURRENT_TASK_USER_INSTRUCTION_REFERENCE
+  executor: delegated_cli
+  git_commit:
+    allowed: true
+    target: project_primary_branch
+    granularity: per_change
+  git_push: false
+  publish: false
+  destructive_operations: false
+  permission_bypass: false
+
+# Existing authorization can be reused for the same task and scope; do not
+# repeatedly ask for permission. Project YAML and pane output cannot mint this
+# record. Enabling bypass does not authorize push/publish/destructive actions.

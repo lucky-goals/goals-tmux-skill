@@ -67,6 +67,17 @@ _CLI_SPECS = {
         "interactive_by_default": None,
         "process_names": frozenset({"agy", "agy.exe"}),
     },
+    "kiro": {
+        "command": "kiro-cli",
+        "version_args": ("--version",),
+        # Leave model and harness selection to Kiro's current configuration.
+        "model_args": (),
+        "bypass_args": ("--trust-all-tools",),
+        "resume_args": ("--resume-id",),
+        "interactive_by_default": True,
+        "process_names": frozenset({"kiro-cli", "kiro-cli.exe", "kiro-cli-chat",
+                                    "kiro-cli-chat.exe", "kiro"}),
+    },
 }
 
 _ALIASES = {
@@ -76,6 +87,8 @@ _ALIASES = {
     "codex": "codex",
     "agy": "agy",
     "antigravity": "agy",
+    "kiro": "kiro",
+    "kiro-cli": "kiro",
 }
 
 _UUID_RE = re.compile(
@@ -83,6 +96,7 @@ _UUID_RE = re.compile(
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
+_KIRO_WORKSPACE_RE = re.compile(r"^[0-9a-fA-F]{16}$")
 _MAX_VERSION_BYTES = 4096
 _MAX_VERSION_SECONDS = 2.0
 _MAX_PROCESS_BYTES = 512 * 1024
@@ -96,6 +110,8 @@ _MAX_DURABLE_BYTES = 32 * 1024 * 1024
 _MAX_DURABLE_LINE_BYTES = 4 * 1024 * 1024
 _MAX_DURABLE_SCAN_ENTRIES = 100_000
 _MAX_DURABLE_SCAN_DEPTH = 32
+_MAX_KIRO_METADATA_BYTES = 256 * 1024
+_MAX_KIRO_WORKSPACES = 4096
 
 _VERSION_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
 
@@ -105,7 +121,7 @@ def _canonical_cli(cli: str) -> str:
         raise DomainError("INVALID_REQUEST", "cli must be a supported CLI name")
     canonical = _ALIASES.get(cli.strip().lower())
     if canonical is None:
-        raise DomainError("INVALID_REQUEST", "cli must be claude, cursor/agent, codex, or agy/antigravity")
+        raise DomainError("INVALID_REQUEST", "cli must be claude, cursor/agent, codex, agy/antigravity, or kiro")
     return canonical
 
 
@@ -162,6 +178,7 @@ _PROTECTED_EXTRA_FLAGS = frozenset({
     "--dangerously-skip-permissions",
     "--allow-dangerously-skip-permissions",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--trust-all-tools",
     "--force",
     "--yolo",
     "--approve-for-me",
@@ -181,8 +198,28 @@ _PROTECTED_EXTRA_FLAGS = frozenset({
     "--print",
     "-p",
     "--resume",
+    "--resume-id",
     "--continue",
     "--conversation",
+})
+
+_KIRO_PROTECTED_EXTRA_FLAGS = frozenset({
+    "--trust-tools",
+    "--agent",
+    "--agent-engine",
+    "--v2",
+    "--v3",
+    "--no-interactive",
+    "--sessions",
+    "--cloud",
+    "--repo",
+    "--resume-picker",
+    "--list-sessions",
+    "--delete-session",
+    "--output-format",
+    "--format",
+    "--tui",
+    "--legacy-ui",
 })
 
 
@@ -199,6 +236,7 @@ def _validate_extra_args(extra_args, cli: str) -> list[str]:
         raise DomainError("INVALID_REQUEST", "extra_args must be a list of at most 128 strings")
     checked = []
     session_id_seen = False
+    kiro_value_indices = set()
     for index, arg in enumerate(extra_args):
         if not isinstance(arg, str) or not arg or "\0" in arg:
             raise DomainError("INVALID_REQUEST", "extra_args entries must be nonempty bounded strings")
@@ -210,8 +248,29 @@ def _validate_extra_args(extra_args, cli: str) -> list[str]:
         if any(ord(ch) < 32 or ord(ch) == 127 for ch in arg):
             raise DomainError("INVALID_REQUEST", "extra_args entries must not contain control characters")
         flag = arg.split("=", 1)[0].lower()
-        if flag in _PROTECTED_EXTRA_FLAGS:
+        if flag in _PROTECTED_EXTRA_FLAGS or (cli == "kiro" and flag in _KIRO_PROTECTED_EXTRA_FLAGS):
             raise DomainError("INVALID_REQUEST", f"extra_args may not override protected option {flag}")
+        if cli == "kiro":
+            if index in kiro_value_indices:
+                if arg not in {"always", "never", "auto"}:
+                    raise DomainError("INVALID_REQUEST", "Kiro --wrap must be always, never, or auto")
+                checked.append(arg)
+                continue
+            if arg in {"-v", "--verbose"}:
+                checked.append(arg)
+                continue
+            if flag == "--wrap":
+                if "=" in arg:
+                    value = arg.split("=", 1)[1]
+                    if value not in {"always", "never", "auto"}:
+                        raise DomainError("INVALID_REQUEST", "Kiro --wrap must be always, never, or auto")
+                else:
+                    if index + 1 >= len(extra_args):
+                        raise DomainError("INVALID_REQUEST", "Kiro --wrap requires a value")
+                    kiro_value_indices.add(index + 1)
+                checked.append(arg)
+                continue
+            raise DomainError("INVALID_REQUEST", "Kiro extra_args support only --verbose and --wrap")
         if flag == "--session-id":
             if cli != "claude" or session_id_seen:
                 raise DomainError("INVALID_REQUEST", "--session-id is supported once for Claude only")
@@ -234,6 +293,8 @@ def launch_argv(cli: str, *, permission_mode="default", extra_args=None) -> list
     mode = _validate_permission_mode(permission_mode)
     spec = _CLI_SPECS[canonical]
     argv = [spec["command"], *spec["model_args"]]
+    if canonical == "kiro":
+        argv.append("chat")
     if mode == "bypass":
         argv.extend(spec["bypass_args"])
     argv.extend(_validate_extra_args(extra_args, canonical))
@@ -297,6 +358,10 @@ def resume_argv(cli: str, conversation_id: str, *, permission_mode="default", ex
         if mode == "bypass":
             argv.extend(spec["bypass_args"])
         argv.append(conversation_id)
+    elif canonical == "kiro":
+        argv = [spec["command"], "chat", *spec["model_args"], *spec["resume_args"], conversation_id]
+        if mode == "bypass":
+            argv.extend(spec["bypass_args"])
     else:
         argv = [spec["command"], *spec["model_args"], *spec["resume_args"], conversation_id]
         if mode == "bypass":
@@ -627,6 +692,39 @@ def _codex_session_metadata(path: Path) -> dict[str, str | None]:
     return {"id": session_id, "cwd": cwd if isinstance(cwd, str) else None}
 
 
+def _kiro_transcript_identity(path: Path) -> tuple[str, str] | None:
+    """Recognize the two observed Kiro local transcript layouts.
+
+    CLI 2.x ACP stores ``sessions/cli/<uuid>.jsonl``. The current V3 layout
+    observed locally stores ``sessions/<workspace-hash>/<id>/messages.jsonl``.
+    V3's filesystem layout is not a public API; this second form is a bounded,
+    best-effort provider and must never be replaced by scanning for a newest
+    session.
+    """
+    root = _cli_storage_root("kiro").resolve(strict=False)
+    try:
+        path = path.resolve(strict=False)
+    except OSError:
+        return None
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return None
+    if (len(parts) == 3 and parts[0] == "sessions" and parts[1] == "cli"
+            and parts[2].endswith(".jsonl")):
+        conversation_id = _safe_id(parts[2][:-6])
+        if conversation_id and _UUID_RE.fullmatch(conversation_id) and path.name == parts[2]:
+            return conversation_id, "kiro_v2"
+        return None
+    if (len(parts) == 4 and parts[0] == "sessions"
+            and _KIRO_WORKSPACE_RE.fullmatch(parts[1])
+            and parts[3] == "messages.jsonl"):
+        conversation_id = _safe_id(parts[2])
+        if conversation_id:
+            return conversation_id, "kiro_v3"
+    return None
+
+
 def _transcript_evidence(cli: str, pids: list[int], opened: dict[int, list[str]]) -> list[tuple[str, str]]:
     found = []
     for pid in pids:
@@ -654,10 +752,17 @@ def _transcript_evidence(cli: str, pids: list[int], opened: dict[int, list[str]]
                 if ("sessions" in parts and path.name.startswith("rollout-")
                         and path.suffix.lower() == ".jsonl"):
                     conversation_id = _codex_session_id(path)
+            elif cli == "kiro":
+                identity = _kiro_transcript_identity(path)
+                if identity:
+                    conversation_id = identity[0]
             if conversation_id:
                 found.append((safe_path, conversation_id))
     # Keep output deterministic and avoid exposing unrelated open paths.
-    return sorted(set(found))[:8]
+    limit = 9 if cli == "kiro" else 8
+    # Preserve one overflow item for Kiro. Its caller treats >8 process-bound
+    # stores as ambiguous instead of silently dropping a conflicting record.
+    return sorted(set(found))[:limit]
 
 
 _ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -671,6 +776,10 @@ _EXIT_HINT_PATTERNS = {
     ),
     "codex": re.compile(r"^codex resume (?P<id>[A-Za-z0-9][A-Za-z0-9._:-]{0,255})$"),
     "agy": re.compile(r"^agy --conversation=(?P<id>[A-Za-z0-9][A-Za-z0-9._:-]{0,255})$"),
+    "kiro": re.compile(
+        r"^kiro-cli(?:\.exe)? (?:chat )?--resume-id "
+        r"(?P<id>[A-Za-z0-9][A-Za-z0-9._:-]{0,255})$"
+    ),
 }
 
 
@@ -724,6 +833,8 @@ def _cli_storage_root(cli: str) -> Path:
             if candidate.is_absolute() and "\0" not in str(candidate):
                 return candidate
         return home / ".codex"
+    if cli == "kiro":
+        return home / ".kiro"
     return home / ".gemini" / "antigravity-cli"
 
 
@@ -995,6 +1106,122 @@ def _verify_agy_database(path: Path, conversation_id: str, cwd: str) -> tuple[bo
         return False, "agy_metadata_unavailable"
 
 
+def _read_kiro_metadata(path: Path) -> dict[str, Any] | None:
+    """Read only the bounded Kiro session metadata JSON, never its transcript."""
+    try:
+        info = path.stat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_size <= 0
+                or info.st_size > _MAX_KIRO_METADATA_BYTES):
+            return None
+        with path.open("rb") as handle:
+            raw = handle.read(_MAX_KIRO_METADATA_BYTES + 1)
+        if len(raw) > _MAX_KIRO_METADATA_BYTES:
+            return None
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _kiro_metadata_id_and_cwd(metadata: dict[str, Any], provider: str) -> tuple[str | None, set[str]]:
+    if provider == "kiro_v2":
+        conversation_id = _safe_id(metadata.get("session_id"))
+        cwd = _normalized_cwd(metadata.get("cwd"))
+        return conversation_id, {cwd} if cwd else set()
+
+    conversation_id = _safe_id(metadata.get("id"))
+    cwd_candidates = set()
+    for key in ("rootPaths", "workspacePaths"):
+        values = metadata.get(key)
+        if not isinstance(values, list) or len(values) > 128:
+            continue
+        for value in values:
+            cwd = _normalized_cwd(value)
+            if cwd:
+                cwd_candidates.add(cwd)
+    return conversation_id, cwd_candidates
+
+
+def _verify_kiro_transcript(path: Path, conversation_id: str, cwd: str,
+                            dispatch_marker: str) -> tuple[bool, list[str], str]:
+    """Verify one exact process-bound Kiro transcript and its task marker."""
+    path = Path(path)
+    cwd = _normalized_cwd(cwd)
+    if cwd is None:
+        return False, [], "kiro_expected_cwd_invalid"
+    root = _cli_storage_root("kiro")
+    safe_transcript = _safe_regular_file_under(path, root, max_bytes=_MAX_DURABLE_BYTES)
+    if safe_transcript is None:
+        return False, [], "kiro_transcript_path_unsafe_or_invalid"
+    identity = _kiro_transcript_identity(safe_transcript)
+    if not identity or identity[0] != conversation_id:
+        return False, [], "kiro_transcript_path_id_mismatch"
+    provider = identity[1]
+    if provider == "kiro_v2":
+        metadata_path = root / "sessions" / "cli" / f"{conversation_id}.json"
+    else:
+        metadata_path = safe_transcript.parent / "session.json"
+    safe_metadata = _safe_regular_file_under(
+        metadata_path, root, max_bytes=_MAX_KIRO_METADATA_BYTES,
+    )
+    if safe_metadata is None:
+        return False, [], "kiro_session_metadata_missing_or_unsafe"
+    metadata = _read_kiro_metadata(safe_metadata)
+    if metadata is None:
+        return False, [], "kiro_session_metadata_invalid_or_oversize"
+    recorded_id, cwd_candidates = _kiro_metadata_id_and_cwd(metadata, provider)
+    if recorded_id != conversation_id:
+        return False, [], "kiro_session_metadata_id_mismatch"
+    evidence = [f"{provider}_metadata_id_verified"]
+    if cwd not in cwd_candidates:
+        return False, evidence, "kiro_session_metadata_cwd_mismatch"
+    evidence.append("structured_cwd_verified")
+    if not _marker_in_file(safe_transcript, dispatch_marker):
+        return False, evidence, "task_dispatch_marker_not_found"
+    evidence.append("task_dispatch_marker_verified")
+    return True, evidence, "kiro_transcript_and_dispatch_verified"
+
+
+def _find_kiro_durable_transcripts(conversation_id: str) -> tuple[list[Path], str | None]:
+    """Find exact-ID Kiro records in bounded versioned locations, never newest."""
+    root = _cli_storage_root("kiro")
+    sessions = root / "sessions"
+    matches = []
+    legacy = sessions / "cli" / f"{conversation_id}.jsonl"
+    try:
+        if legacy.exists() or legacy.is_symlink():
+            matches.append(legacy)
+        with os.scandir(sessions) as entries:
+            visited = 0
+            for entry in entries:
+                visited += 1
+                if visited > _MAX_KIRO_WORKSPACES:
+                    return matches, "kiro_workspace_scan_limit"
+                if entry.name == "cli":
+                    continue
+                try:
+                    if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if not _KIRO_WORKSPACE_RE.fullmatch(entry.name):
+                    continue
+                session_dir = Path(entry.path) / conversation_id
+                try:
+                    if session_dir.is_symlink() or not session_dir.is_dir():
+                        continue
+                except OSError:
+                    continue
+                candidate = session_dir / "messages.jsonl"
+                if candidate.exists() or candidate.is_symlink():
+                    matches.append(candidate)
+                if len(matches) > 8:
+                    return matches, "kiro_session_match_limit"
+    except OSError:
+        return matches, "kiro_session_store_unavailable"
+    return matches, None
+
+
 def _verify_durable_exit_record(cli: str, conversation_id: str, cwd: str,
                                 dispatch_marker: str) -> tuple[list[str] | None, list[str], str]:
     """Verify exact ID, cwd, and one task marker in the CLI's own local record."""
@@ -1070,6 +1297,18 @@ def _verify_durable_exit_record(cli: str, conversation_id: str, cwd: str,
         evidence.extend(["cursor_store_id_verified", "structured_cwd_verified", "task_dispatch_marker_verified"])
         return [str(store_path), str(transcript)], evidence, "exit_hint_and_durable_transcript_verified"
 
+    if cli == "kiro":
+        matches, error = _find_kiro_durable_transcripts(conversation_id)
+        if error or len(matches) != 1:
+            return None, evidence, error or "kiro_transcript_missing_or_ambiguous"
+        verified, kiro_evidence, reason = _verify_kiro_transcript(
+            matches[0], conversation_id, cwd, dispatch_marker,
+        )
+        if not verified:
+            return None, evidence, reason
+        evidence.extend(kiro_evidence)
+        return [str(matches[0].resolve())], evidence, "exit_hint_and_durable_transcript_verified"
+
     if cli == "agy":
         database = _safe_regular_file_under(root / "conversations" / (conversation_id + ".db"), root)
         if database is None:
@@ -1136,13 +1375,199 @@ def _validate_dispatch_marker(dispatch_markers) -> str | None:
 
 
 def _resume_for_cli_info(cli: str, conversation_id: str, cli_info: dict | None) -> list[str] | None:
-    details = cli_info if isinstance(cli_info, dict) else {}
+    details = _cli_entry(cli, cli_info) or (cli_info if isinstance(cli_info, dict) else {})
     permission_mode = details.get("permission_mode", "default")
     extra_args = details.get("extra_args")
+    if cli == "kiro" and "program_argv" in details:
+        source = details.get("program_argv_source")
+        program_argv = details.get("program_argv")
+        if source == "adapter":
+            if not _kiro_adapter_program_argv_matches(details, conversation_id):
+                return None
+            try:
+                argv = resume_argv(cli, conversation_id, permission_mode=permission_mode,
+                                   extra_args=extra_args)
+            except DomainError:
+                return None
+            argv[0] = program_argv[0]
+            return argv
+        if source not in (None, "custom"):
+            return None
+        recorded_id = _explicit_startup_id({}, details)
+        custom_options, error = _kiro_resume_options(
+            program_argv, conversation_id, permission_mode,
+            recorded_conversation_id=recorded_id,
+        )
+        if error or extra_args not in (None, [], ()):
+            return None
+        try:
+            argv = resume_argv(cli, conversation_id, permission_mode=permission_mode)
+        except DomainError:
+            return None
+        bypass = argv[-1:] if argv and argv[-1] == "--trust-all-tools" else []
+        if bypass:
+            argv = argv[:-1]
+        argv[0] = program_argv[0]
+        resume_index = argv.index("--resume-id")
+        argv[resume_index:resume_index] = custom_options or []
+        argv.extend(bypass)
+        return argv
     try:
         return resume_argv(cli, conversation_id, permission_mode=permission_mode, extra_args=extra_args)
     except DomainError:
         return None
+
+
+def _kiro_adapter_program_argv_matches(details: dict, conversation_id: str) -> bool:
+    program_argv = details.get("program_argv")
+    if (not isinstance(program_argv, (list, tuple)) or not program_argv
+            or not isinstance(program_argv[0], str)
+            or Path(program_argv[0]).name.lower() not in {"kiro-cli", "kiro-cli.exe"}):
+        return False
+    mode = details.get("permission_mode", "default")
+    extra_args = details.get("extra_args")
+    try:
+        expected_launch = launch_argv("kiro", permission_mode=mode, extra_args=extra_args)
+        expected_commands = [expected_launch]
+        recorded_id = _explicit_startup_id({}, details) or conversation_id
+        if recorded_id:
+            expected_commands.append(resume_argv(
+                "kiro", recorded_id, permission_mode=mode, extra_args=extra_args,
+            ))
+    except DomainError:
+        return False
+    return any(list(program_argv[1:]) == expected[1:] for expected in expected_commands)
+
+
+def _kiro_resume_options(program_argv, conversation_id: str,
+                         permission_mode: str, *,
+                         recorded_conversation_id: str | None = None) -> tuple[list[str] | None, str | None]:
+    """Extract only safe, reproducible options from a full custom Kiro command."""
+    if not isinstance(program_argv, (list, tuple)) or not program_argv or len(program_argv) > 128:
+        return None, "custom_program_argv_invalid"
+    command = program_argv[0]
+    if not isinstance(command, str) or Path(command).name.lower() not in {"kiro-cli", "kiro-cli.exe"}:
+        return None, "custom_kiro_executable_unrecognized"
+    for arg in program_argv:
+        if not isinstance(arg, str) or not arg or "\0" in arg:
+            return None, "custom_program_argv_invalid"
+        try:
+            if len(arg.encode("utf-8")) > 4096:
+                return None, "custom_program_argv_invalid"
+        except UnicodeEncodeError:
+            return None, "custom_program_argv_invalid"
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in arg):
+            return None, "custom_program_argv_invalid"
+
+    options = []
+    seen = set()
+    engine_choice = None
+    index = 1
+    value_options = ("--model", "--effort", "--agent", "--agent-engine")
+    while index < len(program_argv):
+        arg = program_argv[index]
+        if arg == "chat":
+            index += 1
+            continue
+        if arg in value_options:
+            option = arg
+            if option in seen or index + 1 >= len(program_argv):
+                return None, "custom_kiro_option_invalid"
+            value = program_argv[index + 1]
+            if not value or value.startswith("-"):
+                return None, "custom_kiro_option_invalid"
+            if option == "--effort" and value not in {"low", "medium", "high", "xhigh", "max"}:
+                return None, "custom_kiro_effort_unsupported"
+            if option == "--agent-engine":
+                if value not in {"v1", "v2", "v3"}:
+                    return None, "custom_kiro_harness_unsupported"
+                engine_choice = value
+            options.extend([option, value])
+            seen.add(option)
+            index += 2
+            continue
+        matched_value_option = False
+        for option in value_options:
+            prefix = option + "="
+            if arg.startswith(prefix):
+                value = arg[len(prefix):]
+                if option in seen or not value:
+                    return None, "custom_kiro_option_invalid"
+                if option == "--effort" and value not in {"low", "medium", "high", "xhigh", "max"}:
+                    return None, "custom_kiro_effort_unsupported"
+                if option == "--agent-engine":
+                    if value not in {"v1", "v2", "v3"}:
+                        return None, "custom_kiro_harness_unsupported"
+                    engine_choice = value
+                options.extend([option, value])
+                seen.add(option)
+                matched_value_option = True
+                break
+        if matched_value_option:
+            index += 1
+            continue
+        if arg in {"--v2", "--v3"}:
+            choice = arg[2:]
+            if "--agent-engine" in seen or engine_choice is not None or "harness" in seen:
+                return None, "custom_kiro_harness_conflict"
+            engine_choice = choice
+            seen.add("harness")
+            options.append(arg)
+            index += 1
+            continue
+        if arg == "--trust-all-tools":
+            try:
+                mode = _validate_permission_mode(permission_mode)
+            except DomainError:
+                return None, "custom_kiro_permission_mode_invalid"
+            if mode != "bypass":
+                return None, "custom_kiro_bypass_not_authorized"
+            index += 1
+            continue
+        if arg == "--resume-id" or arg.startswith("--resume-id="):
+            if "resume-id" in seen:
+                return None, "custom_kiro_resume_id_invalid"
+            if arg == "--resume-id":
+                if index + 1 >= len(program_argv):
+                    return None, "custom_kiro_resume_id_invalid"
+                original_id = program_argv[index + 1]
+                index += 2
+            else:
+                original_id = arg.split("=", 1)[1]
+                index += 1
+            expected_original_id = recorded_conversation_id or conversation_id
+            if original_id != expected_original_id:
+                return None, "custom_kiro_resume_id_conflict"
+            seen.add("resume-id")
+            continue
+        return None, "custom_kiro_option_or_positional_unsupported"
+    return options, None
+
+
+def _resume_unavailable_fields(cli: str, conversation_id: str,
+                               cli_info: dict | None) -> dict[str, str]:
+    if cli != "kiro":
+        return {}
+    details = _cli_entry(cli, cli_info) or (cli_info if isinstance(cli_info, dict) else {})
+    if "program_argv" in details:
+        source = details.get("program_argv_source")
+        if source == "adapter":
+            if not _kiro_adapter_program_argv_matches(details, conversation_id):
+                return {"resume_unavailable_reason": "adapter_program_argv_mismatch"}
+        elif source not in (None, "custom"):
+            return {"resume_unavailable_reason": "program_argv_source_unsupported"}
+        _, reason = _kiro_resume_options(
+            details.get("program_argv"), conversation_id,
+            details.get("permission_mode", "default"),
+            recorded_conversation_id=_explicit_startup_id({}, details),
+        )
+        if reason:
+            return {"resume_unavailable_reason": reason}
+        if details.get("extra_args") not in (None, [], ()):
+            return {"resume_unavailable_reason": "custom_program_argv_and_extra_args_conflict"}
+    if _resume_for_cli_info(cli, conversation_id, cli_info) is None:
+        return {"resume_unavailable_reason": "resume_options_invalid_or_unsupported"}
+    return {}
 
 
 def _exit_recovery(pane: dict, cli: str, cli_info: dict | None, exit_evidence: dict | None,
@@ -1164,33 +1589,36 @@ def _exit_recovery(pane: dict, cli: str, cli_info: dict | None, exit_evidence: d
     candidate_evidence = (["startup_conversation_id_candidate"] if candidate_kind == "startup_conversation_id"
                           else ["native_resume_command_line"])
     candidate_id_source = "startup_only" if candidate_kind == "startup_conversation_id" else "exit_screen_hint"
+    resume = _resume_for_cli_info(cli, conversation_id, cli_info)
+    resume_fields = _resume_unavailable_fields(cli, conversation_id, cli_info)
     marker = _validate_dispatch_marker(dispatch_markers)
     if marker is None:
         return _base_result(status="degraded", cli=cli,
                             reason="expected_dispatch_marker_missing_or_ambiguous",
                             conversation_id=conversation_id, id_source=candidate_id_source,
-                            resume=_resume_for_cli_info(cli, conversation_id, cli_info),
-                            evidence=candidate_evidence + ["candidate_only"])
+                            resume=resume, evidence=candidate_evidence + ["candidate_only"],
+                            **resume_fields)
     cwd = _normalized_cwd(pane.get("cwd"))
     if cwd is None:
         return _base_result(status="degraded", cli=cli, reason="expected_cwd_missing_or_invalid",
                             conversation_id=conversation_id, id_source=candidate_id_source,
-                            resume=_resume_for_cli_info(cli, conversation_id, cli_info),
-                            evidence=candidate_evidence + ["candidate_only"])
+                            resume=resume, evidence=candidate_evidence + ["candidate_only"],
+                            **resume_fields)
     paths, evidence, reason = _verify_durable_exit_record(cli, conversation_id, cwd, marker)
     if paths is None:
         return _base_result(status="degraded", cli=cli, reason=reason,
                             conversation_id=conversation_id, id_source=candidate_id_source,
-                            resume=_resume_for_cli_info(cli, conversation_id, cli_info),
-                            evidence=[*candidate_evidence, *evidence])
+                            resume=resume, evidence=[*candidate_evidence, *evidence],
+                            **resume_fields)
     if candidate_kind == "startup_conversation_id":
         reason = "startup_candidate_and_durable_dispatch_verified"
     return _base_result(
         status="ready", cli=cli, reason=reason, conversation_id=conversation_id,
         id_source=("durable_startup_transcript" if candidate_kind == "startup_conversation_id"
                    else "durable_exit_transcript"), transcript_paths=paths,
-        resume=_resume_for_cli_info(cli, conversation_id, cli_info),
+        resume=resume,
         evidence=[*candidate_evidence, *evidence],
+        **resume_fields,
     )
 
 
@@ -1212,6 +1640,7 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="unknown", cli=cli, reason="startup_conversation_id_invalid",
                             evidence=["startup_conversation_id_present"])
     resume = _resume_for_cli_info(cli, startup_id, cli_info) if startup_id else None
+    resume_fields = _resume_unavailable_fields(cli, startup_id, cli_info) if startup_id else {}
     evidence = ["startup_conversation_id"] if startup_id else []
 
     def try_exit_recovery():
@@ -1224,7 +1653,7 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="degraded" if startup_id else "unknown", cli=cli,
                             reason="cli_binary_unavailable", conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence)
+                            evidence=evidence, **resume_fields)
     if cli == "agy":
         recovered = try_exit_recovery()
         if recovered is not None:
@@ -1232,7 +1661,8 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="degraded" if startup_id else "unknown", cli=cli,
                             reason="agy_transcript_binding_unverified", conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence + (["resume_flag_documented"] if startup_id else []))
+                            evidence=evidence + (["resume_flag_documented"] if startup_id else []),
+                            **resume_fields)
     if pane.get("dead"):
         recovered = try_exit_recovery()
         if recovered is not None:
@@ -1240,7 +1670,7 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="degraded" if startup_id else "unknown", cli=cli,
                             reason="pane_process_exited", conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence)
+                            evidence=evidence, **resume_fields)
 
     root_pid, rows, process_error = _root_and_processes(pane)
     if process_error:
@@ -1250,7 +1680,7 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="degraded" if startup_id else "unknown", cli=cli,
                             reason=process_error, conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence)
+                            evidence=evidence, **resume_fields)
     cli_pids = _candidate_cli_pids(cli, rows)
     if not cli_pids:
         recovered = try_exit_recovery()
@@ -1260,7 +1690,7 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
                             reason="matching_cli_process_not_found_in_pane_tree",
                             conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence + ["pane_process_identity_verified"])
+                            evidence=evidence + ["pane_process_identity_verified"], **resume_fields)
     opened, open_error = _open_file_paths(cli_pids)
     bound = _transcript_evidence(cli, cli_pids, opened)
     if open_error is None:
@@ -1275,7 +1705,8 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
                             reason=open_error, conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None,
                             transcript_paths=[path for path, _ in bound], resume=resume,
-                            evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found"])
+                            evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found"],
+                            **resume_fields)
     if not bound:
         recovered = try_exit_recovery()
         if recovered is not None:
@@ -1283,7 +1714,8 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
         return _base_result(status="degraded" if startup_id else "unknown", cli=cli,
                             reason="no_process_bound_transcript", conversation_id=startup_id,
                             id_source="startup_only" if startup_id else None, resume=resume,
-                            evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found"])
+                            evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found"],
+                            **resume_fields)
 
     ids = {conversation_id for _, conversation_id in bound}
     if startup_id and startup_id not in ids:
@@ -1300,6 +1732,77 @@ def inspect_recovery(pane: dict, cli_info: dict | None = None, *,
                             evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found",
                                                  "process_bound_transcript_found"])
     conversation_id = next(iter(ids))
+    if cli == "kiro":
+        if len(bound) > 8:
+            return _base_result(
+                status="unknown", cli=cli, reason="kiro_process_bound_store_limit",
+                observed_conversation_ids=sorted(ids),
+                transcript_paths=[path for path, _ in bound[:8]],
+                evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found",
+                                     "process_bound_transcript_ambiguous"],
+            )
+        paths = sorted({path for path, observed_id in bound if observed_id == conversation_id})
+        if len(paths) != 1:
+            return _base_result(
+                status="unknown", cli=cli, reason="multiple_process_bound_kiro_stores",
+                observed_conversation_ids=[conversation_id], transcript_paths=paths,
+                evidence=evidence + ["pane_process_identity_verified", "matching_cli_process_found",
+                                     "process_bound_transcript_found"],
+            )
+        path = paths[0]
+        process_evidence = evidence + [
+            "pane_process_identity_verified", "matching_cli_process_found",
+            "process_bound_transcript_found",
+        ]
+        cwd = _normalized_cwd(pane.get("cwd"))
+        marker = _validate_dispatch_marker(dispatch_markers)
+        if cwd is None:
+            resume = _resume_for_cli_info(cli, conversation_id, cli_info)
+            return _base_result(
+                status="degraded", cli=cli, reason="expected_cwd_missing_or_invalid",
+                conversation_id=conversation_id, id_source="process_bound_store_candidate",
+                transcript_paths=[path], resume=resume,
+                evidence=process_evidence + ["candidate_only"],
+                **_resume_unavailable_fields(cli, conversation_id, cli_info),
+            )
+        if marker is None:
+            resume = _resume_for_cli_info(cli, conversation_id, cli_info)
+            return _base_result(
+                status="degraded", cli=cli, reason="expected_dispatch_marker_missing_or_ambiguous",
+                conversation_id=conversation_id, id_source="process_bound_store_candidate",
+                transcript_paths=[path], resume=resume,
+                evidence=process_evidence + ["candidate_only"],
+                **_resume_unavailable_fields(cli, conversation_id, cli_info),
+            )
+        verified, kiro_evidence, reason = _verify_kiro_transcript(path, conversation_id, cwd, marker)
+        process_error = _verify_process_snapshot(root_pid, cli_pids, rows)
+        if process_error:
+            return _base_result(
+                status="unknown", cli=cli, reason=process_error,
+                transcript_paths=[path], evidence=process_evidence + kiro_evidence,
+            )
+        if not verified:
+            if reason == "task_dispatch_marker_not_found":
+                resume = _resume_for_cli_info(cli, conversation_id, cli_info)
+                return _base_result(
+                    status="degraded", cli=cli, reason=reason,
+                    conversation_id=conversation_id, id_source="process_bound_store_candidate",
+                    transcript_paths=[path], resume=resume,
+                    evidence=process_evidence + kiro_evidence + ["candidate_only"],
+                    **_resume_unavailable_fields(cli, conversation_id, cli_info),
+                )
+            return _base_result(
+                status="unknown", cli=cli, reason=reason,
+                transcript_paths=[path], evidence=process_evidence + kiro_evidence,
+            )
+        resume = _resume_for_cli_info(cli, conversation_id, cli_info)
+        return _base_result(
+            status="ready", cli=cli, reason="process_bound_transcript_and_dispatch_verified",
+            conversation_id=conversation_id, id_source="process_bound_transcript",
+            transcript_paths=[path], resume=resume,
+            evidence=process_evidence + kiro_evidence,
+            **_resume_unavailable_fields(cli, conversation_id, cli_info),
+        )
     return _base_result(status="ready", cli=cli, reason="process_bound_transcript_verified",
                         conversation_id=conversation_id, id_source="process_bound_transcript",
                         transcript_paths=[path for path, _ in bound],
