@@ -7,12 +7,15 @@ enforce the resulting YAML, and this module never launches a model session.
 from __future__ import annotations
 
 import argparse
+import copy
 from dataclasses import dataclass
+import difflib
 import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 import tempfile
@@ -25,7 +28,33 @@ DEFAULT_PROBE_TIMEOUT = 8.0
 MIN_PROBE_TIMEOUT = 0.1
 MAX_PROBE_TIMEOUT = 30.0
 MAX_EXISTING_CONFIG_BYTES = 1024 * 1024
-MODEL_PAGE_SIZE = 20
+CLAUDE_MODEL_GUIDE = "https://code.claude.com/docs/en/model-config"
+CLAUDE_MODEL_FALLBACK = (
+    {
+        "id": "claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5",
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+        "id": "claude-haiku-5-5",
+        "name": "Claude Haiku 5.5",
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+    },
+)
+QUICK_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+CLI_DISPLAY_NAMES = {
+    "claude": "Claude Code",
+    "cursor": "Cursor",
+    "codex": "Codex",
+    "agy": "Antigravity CLI",
+    "kiro": "Kiro CLI",
+}
 
 SCENARIOS = (
     ("research", "需求调研"),
@@ -400,6 +429,11 @@ def _model_label(model: Any) -> str:
     return identifier
 
 
+def _cli_label(entry: dict[str, Any]) -> str:
+    cli = str(entry.get("cli") or "unknown")
+    return CLI_DISPLAY_NAMES.get(cli, cli)
+
+
 def _unique_models(models: Any) -> list[Any]:
     result: list[Any] = []
     seen: set[str] = set()
@@ -440,6 +474,32 @@ def _text_inventory(clis: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _interactive_inventory(clis: list[dict[str, Any]]) -> str:
+    """Return the short inventory shown before interactive configuration."""
+
+    installed = [entry for entry in clis if entry.get("installed") is True]
+    lines = ["扫描完成。已安装 CLI："]
+    if not installed:
+        lines.append("  没有发现已安装的受支持 CLI。")
+        lines.append("详细路径、版本和诊断请使用 --scan。")
+        return "\n".join(lines)
+    for entry in installed:
+        models = _unique_models(entry.get("models"))
+        if models:
+            catalog = f"模型目录 {len(models)} 个 ID"
+        else:
+            catalog = "模型目录 0 个 ID"
+        if str(entry.get("cli")) == "claude" and not models:
+            action = "可选官方版本化模型建议或手动填写（本机目录/账号可用性未验证）"
+        elif models:
+            action = "可按编号选择，也可手动填写"
+        else:
+            action = "可手动填写未验证 ID"
+        lines.append(f"  {_cli_label(entry)} — {catalog}；{action}")
+    lines.append("详细路径、版本和诊断请使用 --scan。")
+    return "\n".join(lines)
+
+
 def _scan_json(clis: list[dict[str, Any]], timeout: float) -> str:
     return json.dumps(
         {"probe_timeout": timeout, "clis": clis},
@@ -472,10 +532,16 @@ class SetupWizard:
         self.workflow = new_workflow()
         self.clis: list[dict[str, Any]] = []
         self.profiles: dict[str, dict[str, Any]] = self.workflow["profiles"]
+        self.selected_clis: list[dict[str, Any]] = []
         self.unverified: list[tuple[str, str]] = []
         self.save_started = False
         self.save_destination: Path | None = None
         self.save_backup: Path | None = None
+        self._edit_document: Any | None = None
+        self._edit_snapshot: FileSnapshot | None = None
+        self._edit_destination: Path | None = None
+        self._edit_original_workflow: dict[str, Any] | None = None
+        self._edit_scan_complete = False
 
     def write(self, text: str = "") -> None:
         self.stdout.write(text + "\n")
@@ -532,256 +598,453 @@ class SetupWizard:
                 return candidates[int(choice) - 1]
             self.write("请输入列表中的编号。")
 
-    def _select_cli(self) -> dict[str, Any] | None:
+    def _parse_number_list(self, answer: str, count: int, *, context: str) -> list[int] | None:
+        """Parse an ordered, unique comma-separated list of one-based numbers.
+
+        An empty list (blank or ``0``) is valid. Invalid lists are rejected as
+        a whole so a malformed later item cannot leave a partial selection.
+        """
+
+        if answer in {"", "0"}:
+            return []
+        parts = [part.strip() for part in answer.split(",")]
+        if any(not part.isdecimal() for part in parts):
+            self.write(f"{context}格式无效；请输入逗号分隔的编号。")
+            return None
+        max_digits = max(1, len(str(count)))
+        if any(len(part) > max_digits for part in parts):
+            self.write(f"{context}包含超出范围的编号；请输入 1-{count}。")
+            return None
+        try:
+            numbers = [int(part) for part in parts]
+        except ValueError:
+            self.write(f"{context}编号过长；请重新输入较短的编号。")
+            return None
+        if any(number == 0 for number in numbers):
+            self.write("0/null 只能单独使用，不能与其他编号组合。")
+            return None
+        if any(number < 1 or number > count for number in numbers):
+            self.write(f"{context}包含超出范围的编号；请输入 1-{count}。")
+            return None
+        if len(set(numbers)) != len(numbers):
+            self.write(f"{context}包含重复编号；请每项只选择一次。")
+            return None
+        return numbers
+
+    @staticmethod
+    def _choice_number(answer: str, maximum: int) -> int | None:
+        """Parse one bounded, one-based menu number without huge int conversion."""
+
+        if not answer.isdecimal() or len(answer) > max(1, len(str(maximum))):
+            return None
+        try:
+            number = int(answer)
+        except ValueError:
+            return None
+        return number if 1 <= number <= maximum else None
+
+    def _select_clis(self) -> list[dict[str, Any]]:
         available = self.installed_clis()
         for entry in self.clis:
             if entry.get("installed") is not True:
                 self.write(f"  {entry.get('cli', 'unknown')}: 未安装；本向导不会安装或登录。")
         if not available:
-            self.write("没有已安装的受支持 CLI；此场景会保持未配置。")
-            return None
+            self.write("没有已安装的受支持 CLI；配置池为空，场景将保持未配置。")
+            return []
         for number, entry in enumerate(available, 1):
+            models = _unique_models(entry.get("models"))
+            if models:
+                catalog = f"模型目录 {len(models)} 个 ID"
+            elif str(entry.get("cli")) == "claude":
+                catalog = "模型列表未取得；可选官方版本化模型建议或手动填写"
+            else:
+                catalog = "模型列表未取得；可手动填写"
             self.write(
-                f"  {number}) {entry.get('cli')} — {entry.get('executable') or '路径未知'}"
-                f" — {entry.get('version') or '版本未知'}"
+                f"  {number}) {_cli_label(entry)} — {catalog}"
             )
         while True:
-            answer = self.ask("选择已安装的 CLI 编号")
-            if answer.isdecimal() and 1 <= int(answer) <= len(available):
-                return available[int(answer) - 1]
-            self.write("请输入列表中的编号。")
-
-    def _select_model(self, entry: dict[str, Any]) -> tuple[str, Any | None, bool]:
-        models = _unique_models(entry.get("models"))
-        status = str(entry.get("models_status") or "unknown")
-        source = entry.get("models_source") or "无"
-        self.write(f"模型目录状态：{status}；来源：{source}。目录 ID 不代表额度或可成功运行。")
-        if not models:
-            self.write("没有可核对的模型 ID。请显式手动填写；本向导不会猜测默认模型。")
-            while True:
-                model = self.ask("输入精确模型 ID（手动值未验证）")
-                if model:
-                    return model, None, True
-                self.write("模型 ID 不能为空。")
-
-        self.write(f"发现 {len(models)} 个模型 ID。显示精确 ID；不会合并或改写名称。")
-        visible = list(models)
-        page = 0
-        query: str | None = None
-        while True:
-            start = page * MODEL_PAGE_SIZE
-            end = min(start + MODEL_PAGE_SIZE, len(visible))
-            self.write(f"模型 {start + 1}-{end}/{len(visible)}" + (f"，筛选={query}" if query is not None else ""))
-            for index in range(start, end):
-                self.write(f"  {index - start + 1}) {_model_label(visible[index])}")
-            self.write("输入编号选择；n/p 翻页；/关键词筛选；* 显示全部；=精确ID；m 手动填写未验证 ID。")
-            answer = self.ask("模型选择").strip()
-            if answer.isdecimal() and 1 <= int(answer) <= end - start:
-                model = visible[start + int(answer) - 1]
-                return str(_model_id(model)), model, False
-            if answer == "n":
-                if end < len(visible):
-                    page += 1
+            answer = self.ask("选择要加入配置池的 CLI 编号（逗号分隔；回车或 0 不选择）")
+            numbers = self._parse_number_list(answer, len(available), context="CLI 列表")
+            if numbers is not None:
+                selected = [available[number - 1] for number in numbers]
+                if selected:
+                    self.write("已选择 CLI，顺序为：" + ", ".join(str(entry.get("cli")) for entry in selected))
                 else:
-                    self.write("已经是最后一页。")
-                continue
-            if answer == "p":
-                if page > 0:
-                    page -= 1
-                else:
-                    self.write("已经是第一页。")
-                continue
-            if answer.startswith("/") and len(answer) > 1:
-                needle = answer[1:].casefold()
-                visible = [
-                    model for model in models
-                    if needle in _model_label(model).casefold()
-                ]
-                query = answer[1:]
-                page = 0
-                if not visible:
-                    self.write("没有匹配项。输入 * 恢复完整列表，或 m 手动填写。")
-                continue
-            if answer == "*":
-                visible = list(models)
-                query = None
-                page = 0
-                continue
-            if answer.startswith("="):
-                exact = answer[1:]
-                for model in models:
-                    if _model_id(model) == exact:
-                        return exact, model, False
-                self.write("该 ID 不在已发现目录中。如需使用，请输入 m 后手动填写，并按未验证值处理。")
-                continue
-            if answer.lower() == "m":
-                while True:
-                    model = self.ask("输入精确模型 ID（手动值未验证）")
-                    if model:
-                        return model, None, True
-                    self.write("模型 ID 不能为空。")
-            self.write("无法识别选择。")
+                    self.write("未选择 CLI；将生成所有场景均未配置的模板。")
+                return selected
 
-    def _effort_values(self, entry: dict[str, Any], model: Any | None) -> tuple[list[str], bool]:
+    def _batch_effort_options(self, entry: dict[str, Any], model: Any) -> tuple[list[str], bool, str]:
+        """Return effort choices, whether model support is verified, and their source."""
+
         if isinstance(model, dict):
-            per_model = model.get("efforts")
-            if isinstance(per_model, list):
-                values = [value for value in per_model if isinstance(value, str) and value]
-                if values:
-                    return list(dict.fromkeys(values)), True
+            if model.get("_wizard_manual"):
+                return list(QUICK_EFFORTS), False, "快速选项；未验证此手动模型支持"
+            values = model.get("efforts")
+            if isinstance(values, list):
+                efforts = list(dict.fromkeys(value for value in values if isinstance(value, str) and value))
+                if efforts:
+                    if model.get("_wizard_claude_docs"):
+                        return efforts, False, "Anthropic 官方文档列出；本机 CLI/账号支持未验证"
+                    return efforts, True, "本机扫描报告的模型级选项"
+
         raw = entry.get("efforts")
-        values = [value for value in raw if isinstance(value, str) and value] if isinstance(raw, list) else []
-        if not values:
-            return [], False
-        scope = str(entry.get("efforts_scope") or "")
-        status = str(entry.get("efforts_status") or "")
-        model_verified = scope in {"model", "per_model", "model_specific"} and status in {"available", "ok", "discovered"}
-        return list(dict.fromkeys(values)), model_verified
-
-    def _select_effort(self, entry: dict[str, Any], model: Any | None, profile_name: str) -> str | None:
-        efforts, verified = self._effort_values(entry, model)
-        status = str(entry.get("efforts_status") or "unknown")
+        efforts = list(dict.fromkeys(value for value in raw if isinstance(value, str) and value)) if isinstance(raw, list) else []
         if efforts:
-            self.write("可见 effort 参数：")
-            for number, effort in enumerate(efforts, 1):
-                self.write(f"  {number}) {effort}")
+            scope = str(entry.get("efforts_scope") or "")
+            status = str(entry.get("efforts_status") or "")
+            verified = scope in {"model", "per_model", "model_specific"} and status in {"available", "ok", "discovered"}
             if verified:
-                self.write(f"  0) 不设置独立 effort（null；目录对当前模型提供了值）")
-            else:
-                self.write(f"  0) 不设置独立 effort（null）")
-                self.write(f"这些是 CLI 级参数提示（状态={status}），没有证据确认适用于刚选的模型。")
-            self.write("  m) 手动填写（未验证）")
-            while True:
-                answer = self.ask("选择 effort 编号、0/null 或 m", "0").lower()
-                if answer in {"0", "null", "none"}:
-                    return None
-                if answer.isdecimal() and 1 <= int(answer) <= len(efforts):
-                    if not verified:
-                        self.unverified.append((profile_name, "effort"))
-                    return efforts[int(answer) - 1]
-                if answer == "m":
-                    while True:
-                        effort = self.ask("输入精确 effort 值（未验证）")
-                        if effort:
-                            self.unverified.append((profile_name, "effort"))
-                            return effort
-                        self.write("effort 不能为空；使用 0/null 可不设置。")
-                self.write("请输入有效编号、0 或 m。")
+                return efforts, True, "本机扫描报告的模型级选项"
+            return efforts, False, "CLI 级提示；未确认此模型支持"
+        return list(QUICK_EFFORTS), False, "快速选项；未验证此模型支持"
 
-        self.write(f"没有发现 effort 值（状态={status}）。可手动填写未验证值，或留空生成 null。")
+    def _print_model_row(self, number: int, model: Any, entry: dict[str, Any]) -> None:
+        efforts, _verified, source = self._batch_effort_options(entry, model)
+        effort_text = ", ".join(efforts)
+        cli = str(entry.get("cli") or "unknown")
+        self.write(f"  {number}) {_model_label(model)} | CLI={cli} | effort: null, {effort_text} | {source}")
+
+    def _select_model_effort_batch(self, entry: dict[str, Any]) -> list[dict[str, Any]]:
+        """Compatibility wrapper for a one-CLI table and ordered batch."""
+
+        selected = self._select_global_model_effort_batch([entry])
+        return [{key: value for key, value in item.items() if key not in {"cli", "number"}} for item in selected]
+
+    def _print_global_model_rows(self, rows: list[dict[str, Any]]) -> None:
+        """Relist the current table without changing any global row numbers."""
+
+        self.write("模型表完整重列（全局编号保持不变；不会重新扫描）：")
+        if not rows:
+            self.write("  （当前没有模型行。）")
+        for row in rows:
+            self._print_model_row(row["number"], row["model"], row["entry"])
+
+    def _manual_model_cli(self, entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Ask which selected CLI receives a manually entered model ID."""
+
+        self.write("手动模型的目标 CLI：")
+        for number, entry in enumerate(entries, 1):
+            cli = str(entry.get("cli") or "unknown")
+            self.write(f"  {number}) {_cli_label(entry)} (CLI={cli})")
         while True:
-            answer = self.ask("选择 m 手动填写，或 0 不设置", "0").lower()
-            if answer in {"0", "null", "none"}:
+            answer = self.ask("选择目标 CLI 编号（回车或 b 返回；q 退出向导）").lower()
+            if answer == "q":
+                raise WizardCancelled("用户选择退出")
+            if not answer or answer == "b":
                 return None
-            if answer == "m":
-                while True:
-                    effort = self.ask("输入精确 effort 值（未验证）")
-                    if effort:
-                        self.unverified.append((profile_name, "effort"))
-                        return effort
-                    self.write("effort 不能为空；使用 0/null 可不设置。")
-            self.write("请输入 0 或 m。")
+            if answer.isdecimal() and 1 <= int(answer) <= len(entries):
+                return entries[int(answer) - 1]
+            self.write(f"请输入 1-{len(entries)}、b 或 q。")
 
-    def _new_profile_name(self, scenario: str, cli: str, kind: str) -> str:
-        stem = f"{scenario}_{cli}" if kind == "primary" else f"{scenario}_{kind}_{cli}"
-        name = stem
-        number = 2
-        while name in self.profiles:
-            name = f"{stem}_{number}"
-            number += 1
-        return name
+    def _global_batch_example(self, rows: list[dict[str, Any]]) -> str:
+        """Prefer one sample from each CLI group before repeating a group."""
 
-    def configure_profile(self, scenario: str, kind: str = "primary") -> str | None:
-        entry = self._select_cli()
-        if entry is None:
+        ordered: list[dict[str, Any]] = []
+        seen_clis: set[str] = set()
+        for row in rows:
+            cli = str(row["entry"].get("cli") or "unknown")
+            if cli not in seen_clis:
+                ordered.append(row)
+                seen_clis.add(cli)
+        for row in rows:
+            if row not in ordered:
+                ordered.append(row)
+            if len(ordered) >= 3:
+                break
+        examples: list[str] = []
+        preferred = ("high", "xhigh", "max")
+        for index, row in enumerate(ordered[:3]):
+            options, _verified, _source = self._batch_effort_options(row["entry"], row["model"])
+            effort = preferred[index] if preferred[index] in options else (options[0] if options else None)
+            examples.append(str(row["number"]) if effort is None else f"{row['number']}-{effort}")
+        return ", ".join(examples)
+
+    def _parse_global_model_effort_batch(
+        self,
+        answer: str,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]] | None:
+        """Validate a cross-CLI batch atomically in the user's token order."""
+
+        parts = answer.split(",")
+        if any(not part.strip() for part in parts):
+            self.write("组合格式无效；每项应为 全局编号、全局编号-effort 或 全局编号-null。")
             return None
-        cli = str(entry.get("cli"))
-        name = self._new_profile_name(scenario, cli, kind)
-        model, model_record, model_manual = self._select_model(entry)
-        if model_manual:
-            self.unverified.append((name, "model"))
-        effort = self._select_effort(entry, model_record, name)
-        self.write("权限模式 default 不会请求额外 bypass；bypass 仍须有本任务单独授权。")
-        while True:
-            permission = self.ask("permission_mode: d=default, b=bypass（仅偏好，不是授权）", "d").lower()
-            if permission in {"d", "default"}:
-                permission_mode = "default"
-                break
-            if permission in {"b", "bypass"}:
-                permission_mode = "bypass"
-                self.write("警告：YAML 中的 bypass 不能授权当前任务；执行时仍需当前任务明确授权。")
-                break
-            self.write("请输入 d 或 b。")
-        self.profiles[name] = {
-            "cli": cli,
-            "model": model,
-            "effort": effort,
-            "permission_mode": permission_mode,
+
+        by_number = {int(row["number"]): row for row in rows}
+        result: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str | None]] = set()
+        existing = {
+            (str(profile.get("cli")), str(profile.get("model")), profile.get("effort"))
+            for profile in self.profiles.values()
         }
-        self.write(f"已生成配置 {name}。")
-        return name
+        for part in parts:
+            match = re.fullmatch(r"(\d+)(?:\s*-\s*(.*))?", part.strip())
+            if match is None:
+                self.write("组合格式无效；每项应为 全局编号、全局编号-effort 或 全局编号-null。")
+                return None
+            try:
+                number = int(match.group(1))
+            except ValueError:
+                self.write("全局模型编号格式无效；请输入列表中的编号。")
+                return None
+            row = by_number.get(number)
+            if row is None:
+                self.write(f"全局模型编号超出范围或不存在；请使用当前表中的编号（1-{len(rows)}）。")
+                return None
+            entry = row["entry"]
+            model_record = row["model"]
+            model = _model_id(model_record)
+            cli = str(entry.get("cli") or "unknown")
+            if model is None:
+                self.write("所选行没有有效模型 ID；请重新选择。")
+                return None
+
+            raw_effort = match.group(2)
+            if raw_effort is None or raw_effort.strip().casefold() == "null":
+                effort = None
+                effort_unverified = False
+            else:
+                effort = raw_effort.strip()
+                options, verified, _source = self._batch_effort_options(entry, model_record)
+                if not effort or effort not in options:
+                    self.write(f"effort {effort!r} 不在全局编号 {number} 的选项中；可用值：null, {', '.join(options)}。")
+                    return None
+                effort_unverified = not verified
+
+            identity = (cli, model, effort)
+            if identity in seen or identity in existing:
+                self.write(
+                    f"包含重复组合：CLI={cli} / {model} / effort={effort if effort is not None else 'null'}；整行未添加。"
+                )
+                return None
+            seen.add(identity)
+            result.append({
+                "cli": cli,
+                "number": number,
+                "model": model,
+                "effort": effort,
+                "model_unverified": bool(
+                    isinstance(model_record, dict) and model_record.get("_wizard_model_unverified")
+                ),
+                "effort_unverified": effort_unverified,
+            })
+        return result
+
+    def _select_global_model_effort_batch(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Print every selected CLI table, then collect one cross-CLI batch."""
+
+        rows: list[dict[str, Any]] = []
+        for entry in entries:
+            cli = str(entry.get("cli") or "unknown")
+            label = _cli_label(entry)
+            models = _unique_models(entry.get("models"))
+            from_claude_docs = not models and cli == "claude"
+            if from_claude_docs:
+                models = [
+                    {
+                        **record,
+                        "_wizard_claude_docs": True,
+                        "_wizard_model_unverified": True,
+                    }
+                    for record in CLAUDE_MODEL_FALLBACK
+                ]
+
+            start_number = len(rows) + 1
+            if from_claude_docs:
+                end = start_number + len(models) - 1
+                self.write(
+                    f"{label} (CLI={cli})：完整目录未取得；以下仅3个官方文档参考模型，并非全部模型。"
+                    f"来源=Anthropic 官方文档；全局编号范围 {start_number}-{end}。"
+                )
+                self.write(f"  参考：{CLAUDE_MODEL_GUIDE}")
+            elif models:
+                source = entry.get("models_source") or "未提供"
+                end = start_number + len(models) - 1
+                self.write(
+                    f"{label} (CLI={cli})：本次扫描返回 {len(models)} 项，全部列出；"
+                    f"来源={source}；全局编号范围 {start_number}-{end}。"
+                )
+            else:
+                source = entry.get("models_source") or "未提供"
+                status = entry.get("models_status") or "unknown"
+                self.write(
+                    f"{label} (CLI={cli})：本次未取得模型列表；状态={status}；来源={source}；"
+                    "详情见 --scan；无可选模型编号，可用 m 手动添加。"
+                )
+
+            for model in models:
+                row = {"number": len(rows) + 1, "entry": entry, "model": model}
+                rows.append(row)
+                self._print_model_row(row["number"], model, entry)
+
+        if not entries:
+            self.write("没有选中 CLI；全局模型表为空，配置池保持为空。")
+            return []
+        self.write("所有已选 CLI 的模型表均已显示。")
+        if rows:
+            example = self._global_batch_example(rows)
+            self.write(
+                f"输入一个跨 CLI 全局模型-effort 批次（逗号分隔），例如 {example}；"
+                "裸编号或 -null 表示不单独设置 effort。"
+            )
+        else:
+            self.write("当前没有模型行；可用 m 添加手动模型，或用 s/空行跳过整个配置池。")
+        self.write("m) 手动添加到所选 CLI 并追加全局编号；l) 重列全部行；s 或空行) 跳过整个配置池；q) 退出向导。")
+
+        while True:
+            answer = self.ask("跨 CLI 全局模型-effort 批次")
+            normalized = answer.strip()
+            command = normalized.casefold()
+            if command == "q":
+                raise WizardCancelled("用户选择退出")
+            if not normalized or command == "s":
+                return []
+            if command == "l":
+                self._print_global_model_rows(rows)
+                continue
+            if command == "m":
+                target = self._manual_model_cli(entries)
+                if target is None:
+                    continue
+                cli = str(target.get("cli") or "unknown")
+                manual = self.ask(
+                    f"输入 {cli} 的精确模型 ID（未验证；回车或 b 返回；q 退出向导）"
+                )
+                if manual.casefold() == "q":
+                    raise WizardCancelled("用户选择退出")
+                if not manual or manual.casefold() == "b":
+                    continue
+                if any(
+                    row["entry"].get("cli") == target.get("cli") and _model_id(row["model"]) == manual
+                    for row in rows
+                ):
+                    self.write("该 CLI 的精确 ID 已在全局表中；请使用现有编号。")
+                    continue
+                manual_record = {
+                    "id": manual,
+                    "_wizard_manual": True,
+                    "_wizard_model_unverified": True,
+                }
+                row = {"number": len(rows) + 1, "entry": target, "model": manual_record}
+                rows.append(row)
+                self.write(f"已将手动模型追加到全局编号 {row['number']}；原有编号保持不变：")
+                self._print_model_row(row["number"], manual_record, target)
+                continue
+
+            parsed = self._parse_global_model_effort_batch(answer, rows)
+            if parsed is not None:
+                return parsed
+
+    def _new_profile_name(self, cli: str) -> str:
+        number = 1
+        while f"{cli}_{number}" in self.profiles:
+            number += 1
+        return f"{cli}_{number}"
+
+    def _select_permission_mode(self, cli: str) -> str:
+        self.write(f"为 {_cli_label({'cli': cli})} 本次加入的全部组合选择权限偏好：")
+        self.write("  1) default（推荐）：沿用 CLI 当前权限设置，不额外添加绕过参数。")
+        self.write("  2) bypass：请求 CLI 绕过权限确认；仅记录偏好，执行仍需当前任务明确授权。")
+        while True:
+            permission = self.ask("权限偏好（1/2；兼容 d/b；q 退出向导）", "1").lower()
+            if permission == "q":
+                raise WizardCancelled("用户选择退出")
+            if permission in {"1", "d", "default"}:
+                return "default"
+            if permission in {"2", "b", "bypass"}:
+                self.write("警告：YAML 中的 bypass 不能授权当前任务；执行时仍需当前任务明确授权。")
+                return "bypass"
+            self.write("请输入 1/default 或 2/bypass。")
+
+    def configure_pool(self) -> None:
+        """Build the reusable CLI/model/effort profile pool before scenarios."""
+
+        self.write("\n=== 阶段 1/2：选择 CLI 并建立配置池 ===")
+        self.selected_clis = self._select_clis()
+        pending = self._select_global_model_effort_batch(self.selected_clis)
+        if pending:
+            self.write("已选组合（按输入顺序）：")
+            for item in pending:
+                effort = item["effort"] if item["effort"] is not None else "null"
+                self.write(
+                    f"  全局编号 {item['number']} → CLI={item['cli']} → ID={item['model']} → effort={effort}"
+                )
+
+            # Ask once for each CLI represented in the batch, in selected-CLI order.
+            used_clis = {item["cli"] for item in pending}
+            permissions: dict[str, str] = {}
+            for entry in self.selected_clis:
+                cli = str(entry.get("cli") or "unknown")
+                if cli in used_clis and cli not in permissions:
+                    permissions[cli] = self._select_permission_mode(cli)
+
+            # Insert profiles in the user's global batch order, even when CLIs interleave.
+            for item in pending:
+                cli = item["cli"]
+                name = self._new_profile_name(cli)
+                self.profiles[name] = {
+                    "cli": cli,
+                    "model": item["model"],
+                    "effort": item["effort"],
+                    "permission_mode": permissions[cli],
+                }
+                if item["model_unverified"]:
+                    self.unverified.append((name, "model"))
+                if item["effort_unverified"]:
+                    self.unverified.append((name, "effort"))
+                self.write(f"已加入配置池 {name}：{self._profile_summary(name)}。")
+        elif self.selected_clis:
+            self.write("已跳过整个配置池；所选 CLI 的组合均未更改。")
+        if self.profiles:
+            self.write("配置池完成；场景阶段只能选择以下组合：")
+            for number, name in enumerate(self.profiles, 1):
+                self.write(f"  {number}) {self._profile_summary(name)}")
+        else:
+            self.write("配置池为空；可直接生成所有场景 profile=null 的模板。")
 
     def _choose_primary(self, scenario: str, label: str) -> str | None:
         self.write(f"\n=== {label}（{scenario}）===")
-        if self.profiles:
-            for number, name in enumerate(self.profiles, 1):
-                self.write(f"  {number}) 复用 {self._profile_summary(name)}")
-            self.write("  n) 新建 CLI/model/effort 配置")
-            self.write("  s) 跳过，保持 profile: null")
-            default = "s"
-            while True:
-                answer = self.ask("选择配置编号、n 新建或 s 跳过", default).lower()
-                names = list(self.profiles)
-                if answer.isdecimal() and 1 <= int(answer) <= len(names):
-                    return names[int(answer) - 1]
-                if answer == "n":
-                    return self.configure_profile(scenario, "primary")
-                if answer == "s":
-                    return None
-                self.write("请输入列表编号、n 或 s。")
-        self.write("输入 n 新建配置，或 s 跳过（该场景保持 profile: null）。")
+        for number, name in enumerate(self.profiles, 1):
+            self.write(f"  {number}) {self._profile_summary(name)}")
+        self.write("  s) 跳过，保持 profile: null")
         while True:
-            answer = self.ask("选择 n 新建或 s 跳过", "s").lower()
-            if answer == "n":
-                return self.configure_profile(scenario, "primary")
+            answer = self.ask("选择配置池编号或 s 跳过", "s").lower()
+            names = list(self.profiles)
+            if answer.isdecimal() and 1 <= int(answer) <= len(names):
+                return names[int(answer) - 1]
             if answer == "s":
                 return None
-            self.write("请输入 n 或 s。")
+            self.write("请输入配置池编号或 s。")
 
     def _add_fallbacks(self, scenario: str, primary: str) -> list[str]:
-        if scenario == "review":
-            self.write("Review 场景固定不配置 fallback。")
+        candidates = list(self.profiles)
+        if len(candidates) < 2:
             return []
-        fallbacks: list[str] = []
         while True:
-            self.write("可按顺序添加 fallback profile；回车完成（默认无 fallback）。")
-            for number, name in enumerate(self.profiles, 1):
-                marker = "（已选择）" if name in fallbacks else ""
+            self.write("选择 fallback 配置池编号并用逗号排列优先级；回车、d 或 0 表示无 fallback。")
+            for number, name in enumerate(candidates, 1):
+                marker = "（primary，不能选作 fallback）" if name == primary else ""
                 self.write(f"  {number}) {self._profile_summary(name)}{marker}")
-            if self.installed_clis():
-                self.write("  n) 新建一个 fallback profile")
-            self.write("  d) 完成 fallback 列表")
-            answer = self.ask("选择 profile 编号、n 新建或 d 完成", "d").lower()
-            if answer in {"d", ""}:
-                return fallbacks
-            if answer.isdecimal() and 1 <= int(answer) <= len(self.profiles):
-                name = list(self.profiles)[int(answer) - 1]
-                if name == primary:
-                    self.write("primary profile 不能同时作为 fallback。")
-                elif name in fallbacks:
-                    self.write("该 fallback 已在列表中。")
-                else:
-                    fallbacks.append(name)
-                    self.write(f"已添加第 {len(fallbacks)} 顺位 fallback：{name}")
+            answer = self.ask("fallback 编号（逗号分隔，按尝试顺序）", "d").lower()
+            if answer in {"d", "done"}:
+                return []
+            numbers = self._parse_number_list(answer, len(candidates), context="fallback 列表")
+            if numbers is None:
                 continue
-            if answer == "n" and self.installed_clis():
-                name = self.configure_profile(scenario, f"fallback{len(fallbacks) + 1}")
-                if name is not None:
-                    fallbacks.append(name)
+            if not numbers:
+                return []
+            names = [candidates[number - 1] for number in numbers]
+            if primary in names:
+                self.write("fallback 列表包含 primary；整组选择均未添加，请重新输入。")
                 continue
-            self.write("请输入列表编号、n 或 d。")
+            return names
 
     def configure_scenarios(self) -> None:
+        self.write("\n=== 阶段 2/2：为场景选择配置池组合 ===")
+        if not self.profiles:
+            self.write("配置池为空；十个场景均保持 profile: null，未配置 fallback。")
+            return
         for scenario, label in SCENARIOS:
             primary = self._choose_primary(scenario, label)
             route = self.workflow["scenarios"][scenario]
@@ -792,7 +1055,7 @@ class SetupWizard:
                 continue
             fallbacks = self._add_fallbacks(scenario, primary)
             route["fallbacks"] = fallbacks
-            route["allow_fallback"] = bool(fallbacks) and scenario != "review"
+            route["allow_fallback"] = bool(fallbacks)
 
     def configure_concurrency(self) -> None:
         used = {profile.get("cli") for profile in self.profiles.values() if profile.get("cli")}
@@ -813,7 +1076,7 @@ class SetupWizard:
 
     def _print_selection_summary(self) -> None:
         if self.unverified:
-            self.write("未验证的手动或 CLI 级选择（只作为偏好写入）：")
+            self.write("未验证的手动输入、文档建议或模型支持不明的 effort（只作为偏好写入）：")
             for profile_name, field in sorted(set(self.unverified)):
                 value = self.profiles[profile_name].get(field)
                 self.write(f"  profiles.{profile_name}.{field} = {json.dumps(value, ensure_ascii=False)}")
@@ -840,12 +1103,305 @@ class SetupWizard:
                 continue
             self.write("请输入 1 或 2。")
 
+    def choose_edit_destination(self) -> Path:
+        """Ask which existing project/user file or custom path to edit."""
+
+        while True:
+            self.write("\n选择要编辑的现有工作流文件：")
+            self.write(f"  1) 当前项目：{self.project_dir / '.goals-tmux.yaml'}")
+            self.write("  2) 用户配置：$XDG_CONFIG_HOME/goals-tmux-skill/workflow.yaml（未设置时 ~/.config/...）")
+            self.write("  3) 自定义路径")
+            answer = self.ask("输入 1/project、2/user 或 3/custom（q 取消）", "1").lower()
+            if answer == "q":
+                raise WizardCancelled("用户取消编辑")
+            try:
+                if answer in {"1", "p", "project"}:
+                    return _absolute(project_destination(self.project_dir))
+                if answer in {"2", "u", "user"}:
+                    return _absolute(user_config_destination(self.environ, self.home))
+                if answer in {"3", "c", "custom"}:
+                    custom = self.ask("输入现有工作流文件路径（q 取消）")
+                    if custom.casefold() == "q":
+                        raise WizardCancelled("用户取消编辑")
+                    if custom:
+                        return _absolute(Path(custom).expanduser())
+                    self.write("自定义路径不能为空。")
+                    continue
+            except ValueError as exc:
+                self.write(str(exc))
+                continue
+            self.write("请输入 1/project、2/user 或 3/custom。")
+
+    def _load_edit_target(self, destination: Path) -> None:
+        """Snapshot and parse one generated workflow before any prompts can edit it."""
+
+        from .workflow_edit import parse_generated_yaml
+
+        snapshot = inspect_destination(destination)
+        if not snapshot.exists or snapshot.content is None:
+            raise ValueError(f"编辑目标不存在或无法读取：{destination}")
+        document = parse_generated_yaml(snapshot.content)
+        workflow = copy.deepcopy(document.workflow)
+        profiles = workflow.get("profiles")
+        scenarios = workflow.get("scenarios")
+        if not isinstance(profiles, dict) or not isinstance(scenarios, dict):
+            raise ValueError("生成的工作流缺少可编辑的 profiles 或 scenarios。")
+
+        self._edit_document = document
+        self._edit_snapshot = snapshot
+        self._edit_destination = destination
+        self._edit_original_workflow = copy.deepcopy(workflow)
+        self.workflow = workflow
+        self.profiles = self.workflow["profiles"]
+        self.unverified = []
+
+    def _edit_profiles_to_add(self) -> dict[str, dict[str, Any]]:
+        original = (self._edit_original_workflow or {}).get("profiles", {})
+        return {
+            name: profile
+            for name, profile in self.profiles.items()
+            if name not in original
+        }
+
+    def _edit_scenario_updates(self) -> dict[str, dict[str, Any]]:
+        original_scenarios = (self._edit_original_workflow or {}).get("scenarios", {})
+        updates: dict[str, dict[str, Any]] = {}
+        for name, route in self.workflow.get("scenarios", {}).items():
+            original = original_scenarios.get(name)
+            if not isinstance(route, dict) or not isinstance(original, dict):
+                continue
+            changed = {
+                key: copy.deepcopy(route[key])
+                for key in ("profile", "fallbacks", "allow_fallback")
+                if key in route and route.get(key) != original.get(key)
+            }
+            if changed:
+                updates[name] = changed
+        return updates
+
+    def _edit_bytes_and_diff(self) -> tuple[bytes, str]:
+        from .workflow_edit import patch_generated_yaml
+
+        if self._edit_document is None or self._edit_snapshot is None or self._edit_destination is None:
+            raise RuntimeError("编辑目标尚未加载。")
+        added = self._edit_profiles_to_add()
+        updates = self._edit_scenario_updates()
+        added_names = set(added)
+        unverified = [item for item in self.unverified if item[0] in added_names]
+        output = patch_generated_yaml(self._edit_document, added, updates, unverified)
+        original = self._edit_snapshot.content
+        if original is None:
+            raise RuntimeError("编辑目标快照缺少原始内容。")
+        if output == original:
+            return output, ""
+        old_lines = original.decode("utf-8").splitlines(keepends=True)
+        new_lines = output.decode("utf-8").splitlines(keepends=True)
+        diff = "".join(difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=str(self._edit_destination),
+            tofile=f"{self._edit_destination} (修改后)",
+        ))
+        return output, diff
+
+    def _show_edit_diff(self) -> tuple[bytes, str]:
+        output, diff = self._edit_bytes_and_diff()
+        self.write("\n========== 工作流差异 ==========")
+        if diff:
+            self.write(diff.rstrip("\n"))
+        else:
+            self.write("未修改。")
+        self.write("========== 差异结束 ==========")
+        return output, diff
+
+    def _edit_add_profiles(self) -> None:
+        if not self._edit_scan_complete:
+            self.write("新增模型需要一次只读 CLI/模型目录扫描；场景编辑无需扫描。")
+            self.clis = self.scan()
+            self._edit_scan_complete = True
+            self.write(_interactive_inventory(self.clis))
+        self.configure_pool()
+
+    def _edit_choose_scenario(self) -> str | None:
+        scenarios = self.workflow.get("scenarios", {})
+        choices = list(scenarios.items())
+        if not choices:
+            self.write("此工作流没有可编辑的场景。")
+            return None
+        self.write("场景列表（按文件中保存的标签显示）：")
+        for number, (name, route) in enumerate(choices, 1):
+            label = route.get("label") if isinstance(route, dict) else None
+            self.write(f"  {number}) {label if isinstance(label, str) and label else name} ({name})")
+        self.write("  0) 返回编辑菜单")
+        while True:
+            answer = self.ask("选择要修改的场景（编号；q 取消编辑）").lower()
+            if answer == "q":
+                raise WizardCancelled("用户取消编辑")
+            if answer == "0":
+                return None
+            number = self._choice_number(answer, len(choices))
+            if number is not None:
+                return choices[number - 1][0]
+            self.write(f"请输入 1-{len(choices)}、0 或 q。")
+
+    def _edit_scenario_route(self, scenario: str) -> None:
+        route = self.workflow["scenarios"][scenario]
+        if not isinstance(route, dict):
+            self.write(f"场景 {scenario} 的配置格式不可编辑。")
+            return
+        label = route.get("label") if isinstance(route.get("label"), str) else scenario
+        current_profile = route.get("profile")
+        current_fallbacks = route.get("fallbacks", [])
+        current_allow = route.get("allow_fallback", False)
+        self.write(f"\n{label} ({scenario}) 当前配置：")
+        self.write(f"  primary: {current_profile if current_profile is not None else 'null'}")
+        self.write(f"  fallbacks: {', '.join(current_fallbacks) if current_fallbacks else '无'}")
+        self.write(f"  allow_fallback: {current_allow}")
+        names = list(self.profiles)
+        self.write("可选配置池组合：")
+        if names:
+            for number, name in enumerate(names, 1):
+                self.write(f"  {number}) {self._profile_summary(name)}")
+        else:
+            self.write("  （配置池为空；可清除 primary，或保留现状。）")
+
+        primary_cleared = False
+        while True:
+            answer = self.ask("primary：空行保留，0 清除，或输入配置池编号（q 取消）").lower()
+            if answer == "q":
+                raise WizardCancelled("用户取消编辑")
+            if answer == "":
+                primary = current_profile
+                break
+            if answer == "0":
+                primary = None
+                primary_cleared = True
+                break
+            number = self._choice_number(answer, len(names))
+            if number is not None:
+                primary = names[number - 1]
+                break
+            self.write(f"请输入空行、0 或 1-{len(names)}。")
+
+        if primary_cleared:
+            fallbacks = []
+            allow_fallback = False
+            self.write("primary 已清除；该场景的 fallbacks 和 allow_fallback 也会清除。")
+        else:
+            while True:
+                answer = self.ask("fallback：空行保留现有顺序，0 清除，或输入有序编号（逗号分隔；q 取消）").lower()
+                if answer == "q":
+                    raise WizardCancelled("用户取消编辑")
+                if answer == "":
+                    fallbacks = list(current_fallbacks) if isinstance(current_fallbacks, list) else []
+                    allow_fallback = current_allow if isinstance(current_allow, bool) else bool(fallbacks)
+                elif answer == "0":
+                    fallbacks = []
+                    allow_fallback = False
+                else:
+                    numbers = self._parse_number_list(answer, len(names), context="fallback 列表")
+                    if numbers is None:
+                        continue
+                    fallbacks = [names[number - 1] for number in numbers]
+                    allow_fallback = bool(fallbacks)
+                    if primary is None and fallbacks:
+                        self.write("该场景没有 primary；请先设置 primary，或输入 0 清除 fallbacks。")
+                        continue
+                if primary in fallbacks:
+                    self.write("fallback 列表包含 primary；请改选 fallbacks 或输入 0 清除。")
+                    continue
+                break
+
+        route["profile"] = primary
+        route["fallbacks"] = fallbacks
+        route["allow_fallback"] = allow_fallback
+        self.write(f"已更新内存中的 {scenario} 场景；写入会等到保存确认后进行。")
+
+    def _edit_save(self) -> int:
+        output, diff = self._show_edit_diff()
+        if not diff:
+            self.write("未修改；没有创建备份或写入文件。")
+            return 0
+        if self._edit_destination is None or self._edit_snapshot is None:
+            raise RuntimeError("编辑目标尚未加载。")
+        backup = choose_backup_path(self._edit_destination)
+        self.write(f"\n精确编辑路径：{self._edit_destination}")
+        self.write(f"旧文件备份路径：{backup}")
+        if not self.ask_yes_no("按以上差异保存并备份旧文件？", default=False):
+            self.write("已取消编辑；没有创建备份或写入文件。")
+            return 0
+
+        self.save_started = True
+        self.save_destination = self._edit_destination
+        self.save_backup = backup
+        try:
+            saved_backup = atomic_save(
+                self._edit_destination,
+                output,
+                self._edit_snapshot,
+                backup,
+            )
+        except (OSError, UnsafeTargetError, ConcurrentModificationError) as exc:
+            self.write(f"保存失败：{exc}")
+            if backup.exists():
+                self.write(f"旧文件备份仍保留在：{backup}")
+            return 1
+        self.write(f"已保存：{self._edit_destination}")
+        if saved_backup is not None:
+            self.write(f"旧文件备份：{saved_backup}")
+        self.write("此文件仅记录偏好；当前 runner 不会自动加载或强制执行其中配置。")
+        return 0
+
+    def run_edit(self, destination: Path | None = None) -> int:
+        """Edit a previously generated workflow while preserving untouched bytes."""
+
+        self.write("Goals tmux YAML 编辑向导")
+        self.write("只编辑生成的偏好文件；当前 runner 不会自动加载或执行它。场景编辑不会扫描 CLI。")
+        if destination is not None:
+            target = _absolute(Path(destination).expanduser())
+            self._load_edit_target(target)
+        else:
+            while True:
+                target = self.choose_edit_destination()
+                try:
+                    self._load_edit_target(target)
+                    break
+                except (OSError, ValueError, UnsafeTargetError, ConcurrentModificationError) as exc:
+                    self.write(f"无法编辑此目标：{exc}")
+
+        self.write(f"编辑目标：{self._edit_destination}")
+        while True:
+            self.write("\n编辑菜单：")
+            self.write("  1) 新增模型/effort 组合（按需扫描；只添加新组合）")
+            self.write("  2) 修改指定场景")
+            self.write("  3) 查看差异")
+            self.write("  4) 保存退出")
+            self.write("  q) 取消")
+            choice = self.ask("选择操作").lower()
+            if choice in {"q", "quit", "cancel"}:
+                raise WizardCancelled("用户取消编辑")
+            if choice == "1":
+                self._edit_add_profiles()
+                continue
+            if choice == "2":
+                scenario = self._edit_choose_scenario()
+                if scenario is not None:
+                    self._edit_scenario_route(scenario)
+                continue
+            if choice == "3":
+                self._show_edit_diff()
+                continue
+            if choice == "4":
+                return self._edit_save()
+            self.write("请输入 1、2、3、4 或 q。")
+
     def run(self) -> int:
         self.write("Goals tmux YAML 配置向导")
         self.write("只生成偏好文件：当前 runner 不会自动加载或执行它。不会启动 CLI 任务或发起模型生成请求。")
         self.write("模型目录探测可能通过现有 CLI 登录访问服务；扫描不会安装 CLI 或代替登录。")
         self.clis = self.scan()
-        self.write(_text_inventory(self.clis))
+        self.write(_interactive_inventory(self.clis))
+        self.configure_pool()
         self.configure_scenarios()
         self.configure_concurrency()
         self.write("\nTUI 设置保留模板默认值：keep_open=true，allow_input=true。")
@@ -907,10 +1463,23 @@ def _probe_timeout(value: str) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Scan supported CLI model catalogs and interactively generate a proposed workflow YAML."
+        description=(
+            "First shortlist installed CLIs and model/effort profiles, then assign scenarios from that pool; "
+            "fallback profiles accept comma-separated priority order. Generate a proposed workflow YAML only; "
+            "the current runner does not automatically load or enforce it.\n"
+            "Model batch example: 1-high, 3-xhigh, 5-max; a bare model number or 1-null omits effort."
+        )
     )
     parser.add_argument("--scan", action="store_true", help="scan CLIs and exit without prompts or writes")
     parser.add_argument("--json", action="store_true", help="emit the read-only inventory as JSON and exit")
+    parser.add_argument(
+        "--edit",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="PATH",
+        help="edit a previously generated workflow (choose project/user/custom path when PATH is omitted)",
+    )
     parser.add_argument("--project-dir", type=Path, default=Path.cwd(), help="project directory for .goals-tmux.yaml")
     parser.add_argument(
         "--probe-timeout",
@@ -924,10 +1493,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.edit is not None and (args.scan or args.json):
+        parser.error("--edit cannot be combined with --scan or --json")
     if not args.project_dir.expanduser().exists() or not args.project_dir.expanduser().is_dir():
         parser.error(f"project directory does not exist or is not a directory: {args.project_dir}")
     wizard = SetupWizard(project_dir=args.project_dir, probe_timeout=args.probe_timeout)
     try:
+        if args.edit is not None:
+            destination = Path(args.edit) if args.edit else None
+            return wizard.run_edit(destination)
         if args.scan or args.json:
             clis = wizard.scan()
             if args.json:

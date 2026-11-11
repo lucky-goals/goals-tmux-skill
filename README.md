@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill version: [v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
+Skill version: [v0.3.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.2.6 includes the standalone `scripts/tmuxctl` runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
+`goals-tmux-skill` is a general-purpose agent skill for coordinating coding CLIs through tmux. Version 0.3.0 adds complete cross-CLI model batch selection and partial editing of generated workflow preferences, including ordered Review fallbacks. It also includes the standalone runner, task and resource registration, private decision-file dispatch, bounded inline watch, CLI launch and recovery adapters, and audit records. It requires neither an MCP service nor third-party Python runtime packages.
 
 The coordinator understands the goal, observes progress, makes routine decisions, and verifies acceptance. The controlled coding CLI performs project edits, tests, builds, and other work that changes project state. Read [SKILL.md](SKILL.md) for the execution boundary and workflow.
 
@@ -21,9 +21,9 @@ The **execution CLI** runs inside tmux. The `claude`, `cursor`, `codex`, `agy`, 
 Copy this prompt to a coding agent with local filesystem access. Replace the placeholders with your target client and the coding CLI you intend to use. Installation prepares the skill; it does not start a coding task.
 
 ```text
-Please install goals-tmux-skill v0.2.6 for [target client].
+Please install goals-tmux-skill v0.3.0 for [target client].
 Repository: https://github.com/lucky-goals/goals-tmux-skill
-Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+Release: https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0
 Intended execution CLI: [Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. Inspect the target client's supported skill mechanism, actual search paths, and
@@ -123,7 +123,7 @@ There is no universal skill installation directory. Inspect the target client's 
 
 ### 3. Download and install the complete package
 
-Download **goals-tmux-skill.zip** from [v0.2.6 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
+Download **goals-tmux-skill.zip** from [v0.3.0 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0). Use the named installation asset, not GitHub's automatically generated source archive. You do not need a source checkout or a local package build.
 
 For a new user-scoped Codex installation, with the asset saved in `~/Downloads/`:
 
@@ -152,7 +152,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-Use your actual installed path if different. `--version` should report `0.2.6`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
+Use your actual installed path if different. `--version` should report `0.3.0`. Bootstrap checks Python and the minimum tmux version without installing anything or starting a server. The legacy `--apply` flag is explicitly a check-only alias, not an installer.
 
 `doctor --cli-check` checks installed CLI executables and versions without starting model requests. Install and sign in to the coding CLI you intend to use; installing every supported CLI is unnecessary. The verified default visible workflow uses ordinary iTerm2/tmux. `terminal=auto` can fall back to launching Terminal.app, but that viewer cannot provide the required mapped GUI proof and dispatch/input will be blocked. Headless operation requires explicit user approval. GUI launch can require macOS automation permission. SSH use additionally requires a local SSH client and the runtime dependencies on the remote host; see [SSH setup](references/ssh.md).
 
@@ -202,13 +202,25 @@ sh scripts/setup-workflow.sh --scan --json
 ```
 
 The wizard scans supported installed CLIs, offers discovered models or explicitly
-unverified manual entries, and lets you configure each scenario's model/effort,
-fallbacks and per-CLI concurrency limit. It previews the YAML before saving to
+unverified manual entries. First choose the CLIs and model/effort combinations
+you need; then configure scenarios using only that pool. Fallbacks accept ordered
+comma-separated choices: `2,3,1` preserves that priority. You can also set per-CLI
+concurrency limits. All selected CLI model tables appear before the first model
+prompt, with global numbering, CLI names, exact IDs and literal effort values.
+Enter `1-high, 28-xhigh, 306-max` using the printed numbers to select across CLIs. Claude
+shows only three versioned documentation references such as `claude-opus-5-5`
+when discovery is unavailable, explicitly labeled as an incomplete, unverified list. Permission preferences follow the batch. It previews the YAML before saving to
 the user configuration directory or the selected project's `.goals-tmux.yaml`.
 Existing files require overwrite confirmation and are backed up. It requires
 Python 3.12+ but no tmux, extra Python package, or model turn.
 
-**Generator only:** the current runner does not automatically load or enforce
+To update a file without rebuilding every scenario, run
+`sh scripts/setup-workflow.sh --edit /absolute/path/to/workflow.yaml`.
+Use `--edit` alone to choose a project/user file. The edit menu adds combinations
+or changes selected scenarios, previews a diff and backs up the original before
+saving. It supports the wizard's generated YAML format; untouched settings remain.
+
+**Configuration authoring only:** the current runner does not automatically load or enforce
 workflow YAML. The wizard does not activate task permissions or change host rules.
 See the [setup guide](references/workflow-setup.md).
 

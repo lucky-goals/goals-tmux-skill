@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill バージョン：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
+Skill バージョン：[v0.3.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.2.6 には、独立した実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開の指示ファイルによる依頼、時間制限付きのインライン watch、CLI の起動・復元アダプター、監査記録が含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
+`goals-tmux-skill` は、tmux を通じて Coding CLI を連携させる汎用 agent skill です。0.3.0 では、複数 CLI のモデル一括選択と既存ワークフロー設定の部分編集を追加し、Review でも順序付き fallback を設定できます。独立実行ツール `scripts/tmuxctl`、タスクとリソースの登録、非公開指示ファイルによる依頼、時間制限付きインライン watch、CLI 起動・復元アダプター、監査記録も含まれます。MCP サービスやサードパーティ製 Python ランタイムパッケージは不要です。
 
 調整役は目標の理解、進捗の観察、通常の判断、完了条件の確認を担当します。プロジェクトの編集、テスト、ビルドなど、状態を変更する作業は制御対象の Coding CLI が行います。実行境界と手順の詳細は [SKILL.md](SKILL.md) を参照してください。
 
@@ -21,9 +21,9 @@ Skill バージョン：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill
 以下のプロンプトをローカルファイルシステムにアクセスできるコーディングエージェントにコピーし、対象クライアントと使用予定の coding CLI のプレースホルダーを置き換えてください。インストールでは skill を準備するだけで、コーディングタスクは開始しません。
 
 ```text
-[対象クライアント] に goals-tmux-skill v0.2.6 をインストールしてください。
+[対象クライアント] に goals-tmux-skill v0.3.0 をインストールしてください。
 リポジトリ：https://github.com/lucky-goals/goals-tmux-skill
-リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+リリース：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0
 使用予定の実行 CLI：[Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. 対象クライアントがサポートする skill の仕組み、実際の検索パス、既存のインストールを確認してくださ
@@ -124,7 +124,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. パッケージ一式をダウンロードしてインストールする
 
-[v0.2.6 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
+[v0.3.0 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0) から **goals-tmux-skill.zip** をダウンロードしてください。GitHub が自動生成するソースアーカイブではなく、名前が指定されたインストール用アセットを使ってください。ソースチェックアウトやローカルでのパッケージビルドは不要です。
 
 新しい Codex ユーザー範囲のインストールで、アセットを `~/Downloads/` に保存した場合は、次のようにします。
 
@@ -153,7 +153,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.2.6` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
+インストール先が異なる場合は実際のパスを使用してください。`--version` は `0.3.0` を返すはずです。Bootstrap は Python と tmux の最低バージョンを確認するだけで、何もインストールせず、サーバーも起動しません。`--apply` フラグは旧来の使い方との互換性のために残された確認専用のエイリアスであり、インストーラーではありません。
 
 `doctor --cli-check` はインストール済み CLI の実行ファイルとバージョンを確認し、モデルリクエストは開始しません。使用する coding CLI をインストールしてサインインしてください。すべての対応 CLI をそろえる必要はありません。検証済みの既定の可視ワークフローは通常の iTerm2/tmux を使用します。`terminal=auto` は Terminal.app の起動にフォールバックできますが、必要な mapped GUI proof を提供できず、dispatch/input はブロックされます。ヘッドレス実行にはユーザーの明示的な承認が必要です。GUI の起動には macOS のオートメーション権限が必要な場合があります。SSH を使う場合は、ローカルの SSH クライアントとリモートホスト上のランタイム依存関係も必要です。[SSH の設定](references/ssh.md)を参照してください。
 
@@ -203,13 +203,21 @@ sh scripts/setup-workflow.sh --scan --json
 ```
 
 対応するインストール済み CLI を検出し、取得したモデル一覧または「未検証」と明示した
-手動入力を使って、シナリオごとの CLI・モデル・effort・フォールバックと CLI 別の同時
-実行上限を設定できます。シナリオはスキップ可能です。YAML のプレビュー後、ユーザー
+手動入力を使います。まず必要な CLI とモデル・effort の組み合わせを選び、次にその
+組み合わせだけを使って各シナリオを設定します。フォールバックは `2,3,1` のように
+カンマ区切りで複数選択でき、入力順が優先順位になります。CLI 別の同時実行上限も設定でき、
+シナリオはスキップ可能です。選んだ全 CLI のモデル一覧を先に表示してから、一度だけ入力を求めます。
+全体で一意の番号、CLI、モデル ID、effort を確認し、`1-high, 28-xhigh, 306-max` の形式で CLI をまたいで選択できます。Claude の一覧取得ができない場合は
+`claude-opus-5-5` など三つの公式資料に基づく参考モデルだけを提示し、完全な一覧ではなく、アカウントでの利用可否も未検証と明示します。権限設定は一括選択後です。YAML のプレビュー後、ユーザー
 設定ディレクトリまたはプロジェクトの `.goals-tmux.yaml` に保存します。既存ファイルの
 上書きには追加確認が必要で、バックアップを残します。Python 3.12+ が必要ですが、tmux、
 追加 Python パッケージ、モデルへのタスク送信は不要です。
 
-**現時点では設定の生成のみです。runner は workflow YAML を自動読込・適用しません。**
+既存設定の部分更新には `sh scripts/setup-workflow.sh --edit /absolute/path/workflow.yaml`
+を使用します。`--edit` のみなら対象ファイルを選べます。組み合わせの追加や指定したシナリオだけの変更を行い、
+差分を確認してバックアップ付きで保存します。対象はこのウィザードが生成した YAML 形式です。
+
+**現時点では設定の作成・編集のみです。runner は workflow YAML を自動読込・適用しません。**
 タスクの権限付与やホストのルール変更も行いません。[ガイド](references/workflow-setup.md)を参照してください。
 
 ## ターミナル表示とウィンドウの保持

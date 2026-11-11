@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill 版本：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
+Skill 版本：[v0.3.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的通用 agent skill。0.2.6 包含可执行的独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、有限时长的内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
+`goals-tmux-skill` 是通过 tmux 协调 Coding CLI 的通用 agent skill。0.3.0 新增跨 CLI 模型组合批量选择和已有工作流配置的局部编辑，Review 也支持有序 fallback；并包含独立运行器 `scripts/tmuxctl`、任务/资源登记、私有文件派发、内联 watch、CLI 启动与恢复适配器及审计记录。它不依赖 MCP 服务或第三方 Python 运行时包。
 
 协调者负责理解目标、观察、常规决策和验收；项目修改、测试、构建及其他改变项目状态的工作由受控 Coding CLI 完成。先读 [SKILL.md](SKILL.md) 了解完整执行边界和流程。
 
@@ -21,9 +21,9 @@ Skill 版本：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases
 将下面的提示词复制给可以访问本机文件系统的 coding agent。替换目标客户端和准备使用的 Coding CLI。安装只准备 skill，不会启动编程任务。
 
 ```text
-请将 goals-tmux-skill v0.2.6 安装到 [目标客户端]。
+请将 goals-tmux-skill v0.3.0 安装到 [目标客户端]。
 仓库：https://github.com/lucky-goals/goals-tmux-skill
-发布版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+发布版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0
 计划使用的执行 CLI：[Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. 检查目标客户端支持的 skill 机制、实际搜索路径和已有安装。按指定范围安装；
@@ -116,7 +116,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. 下载并安装完整包
 
-从 [v0.2.6 Release](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6) 下载 **goals-tmux-skill.zip**。选择这个具名安装附件，而非 GitHub 自动生成的源码压缩包；无需先克隆仓库或本地打包。
+从 [v0.3.0 Release](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0) 下载 **goals-tmux-skill.zip**。选择这个具名安装附件，而非 GitHub 自动生成的源码压缩包；无需先克隆仓库或本地打包。
 
 以下以新建 Codex 用户级安装为例，假设附件保存在 `~/Downloads/`：
 
@@ -145,7 +145,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-目录不同时使用实际安装路径。`--version` 应返回 `0.2.6`。Bootstrap 会检查 Python 和 tmux 最低版本，不安装软件、不启动 server。旧的 `--apply` 参数明确作为仅检查的兼容别名，不是安装器。
+目录不同时使用实际安装路径。`--version` 应返回 `0.3.0`。Bootstrap 会检查 Python 和 tmux 最低版本，不安装软件、不启动 server。旧的 `--apply` 参数明确作为仅检查的兼容别名，不是安装器。
 
 `doctor --cli-check` 只检查已安装 CLI 的执行文件和版本，不会发起模型请求。安装并登录准备使用的 Coding CLI 即可，无需安装全部受支持的 CLI。已验证的默认可见工作流使用普通 iTerm2/tmux。`terminal=auto` 可回退启动 Terminal.app，但它不能提供必需的映射 GUI 证明，派发／输入会被阻止。无头运行须经用户明确批准。GUI 启动可能需要 macOS 自动化权限。SSH 还要求本机 SSH 客户端和远端运行依赖，详见 [SSH 配置](references/ssh.md)。
 
@@ -195,11 +195,20 @@ sh scripts/setup-workflow.sh --scan --json
 ```
 
 向导检测已安装的受支持 CLI，列出查询得到的模型，或提供明确标注“未验证”的手动输入。
-可以逐场景选择 CLI、模型、effort、降级组合和同 CLI 并发上限，也可以跳过暂不使用的场景。
-最后预览 YAML，选择保存到用户配置目录或项目的 `.goals-tmux.yaml`；覆盖已有文件需要
+先挑选需要的 CLI 及模型／effort 组合，再逐场景从这些组合中选择，或跳过暂不使用的场景。
+fallback 支持逗号多选：`1,2,3` 选择三项，`2,3,1` 按此顺序安排优先级；另可设置同 CLI 并发上限。
+选完 CLI 后，先展示所有已选 CLI 的模型表，再出现唯一的统一输入框。模型使用全局编号，每行显示 CLI、具体模型 ID 和 effort。
+按表中编号输入 `1-high, 28-xhigh, 306-max`，一次跨 CLI 选择；输入 `l` 可重新查看整表，编号不变。
+Claude 未取得完整目录时，仅提供 `claude-opus-5-5` 等三个文档参考模型，明确标注“并非全部模型、账号可用性未验证”。
+批量选择完成后，再以中文编号菜单选择权限偏好。最后预览 YAML，选择保存到用户配置目录或项目的 `.goals-tmux.yaml`；覆盖已有文件需要
 额外确认，并保留备份。需要 Python 3.12+，不要求 tmux 或额外 Python 包，不发起模型任务。
 
-**当前只生成配置：runner 尚未自动加载或执行 workflow YAML。** 向导不会授予任务权限，
+局部修改已有配置：`sh scripts/setup-workflow.sh --edit /绝对路径/workflow.yaml`。
+只加 `--edit` 可选择项目级、用户级文件或其他路径。进入后可新增组合、修改指定场景，
+预览差异后确认保存并备份；未修改的场景、并发及 TUI 设置保持原值。
+当前支持本向导生成的 YAML 格式，暂不支持任意手写 YAML。
+
+**当前只编写配置：runner 尚未自动加载或执行 workflow YAML。** 向导不会授予任务权限，
 也不会修改 TRAE/Cursor Rule 或 AGENTS.md。详见[向导指南](references/workflow-setup.md)。
 
 ## 配置与诊断

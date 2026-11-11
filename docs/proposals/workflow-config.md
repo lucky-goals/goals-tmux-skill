@@ -72,7 +72,8 @@ Specific migration decisions:
   the primary agy profile's effort. This is a visible example default, not a
   verified CLI capability or a launched choice.
 - Unspecified fallback model/effort values resolve to explicit named default
-  profiles. Review has an empty fallback list and `allow_fallback: false`.
+  profiles. Review defaults to an empty fallback list and `allow_fallback: false`,
+  but users can explicitly configure ordered fallbacks as with other scenarios.
 - A user-specified fast mode is interpreted only through verified adapter
   capabilities. Do not invent a universal `--fast` argument or approximate model
   name. A request that cannot be represented must stop with an explanation.
@@ -262,10 +263,13 @@ guarantee that a provider will never rate-limit or flag an account.
 
 The independent `scripts/setup-workflow.sh` generator is implemented separately
 from this resolver plan. It constructs a known document from answers and emits
-quoted YAML with only the Python standard library. It neither parses arbitrary
-existing YAML nor enforces workflow rules; the parser/distribution decision
-below still applies to future YAML loading. Its defaults contain no selected
-model presets: all ten routes remain unconfigured until the user chooses them.
+quoted YAML with only the Python standard library. Its separate `--edit` mode
+reads only the restricted format emitted by that generator and patches new
+profiles or selected scenario fields while preserving untouched text. It neither
+parses arbitrary YAML nor enforces workflow rules; the established-parser and
+distribution decision below still applies to future runtime YAML loading. Its
+defaults contain no selected model presets: all ten routes remain unconfigured
+until the user chooses them.
 
 1. Define a versioned typed schema and resolver with provenance; preserve JSON
    compatibility. Distinguish complete resolved files from partial overlays.

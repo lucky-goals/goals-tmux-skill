@@ -3,11 +3,14 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: setup-workflow.sh [--scan] [--json] [--project-dir PATH] [--probe-timeout SECONDS] [--help]
+Usage: setup-workflow.sh [--scan] [--json] [--edit [PATH]] [--project-dir PATH] [--probe-timeout SECONDS] [--help]
 
-Interactively generate a proposed workflow YAML file. --scan and --json only
-inspect supported CLI installations/model catalogs; they never enter prompts or
-write configuration. Python 3.12+ is required. tmux is not required.
+Choose CLIs, view all model tables with global numbers, then select one cross-CLI
+batch such as 1-high,28-xhigh,306-max using the displayed numbers.
+Assign scenarios from that pool and select ordered comma-separated fallbacks. Generates a proposed workflow YAML file.
+--edit [PATH] partially updates a wizard-generated file with diff preview and backup.
+--scan and --json only inspect CLI installations/model catalogs; they never
+enter prompts or write configuration. Python 3.12+ is required; tmux is not.
 
 Set GOALS_TMUX_PYTHON to choose the Python interpreter (paths may contain spaces).
 EOF

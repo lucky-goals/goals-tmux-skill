@@ -20,6 +20,7 @@ from goals_tmux.setup_wizard import (  # noqa: E402
     ConcurrentModificationError,
     SetupWizard,
     UnsafeTargetError,
+    WizardCancelled,
     atomic_save,
     dump_yaml,
     inspect_destination,
@@ -59,20 +60,81 @@ def _scan_fixture() -> list[dict[str, object]]:
     ]
 
 
+def _catalog_fixture() -> list[dict[str, object]]:
+    return [
+        {
+            "cli": "codex",
+            "executable": "/usr/local/bin/codex",
+            "version": "codex 1.0",
+            "installed": True,
+            "models": [
+                {"id": "codex-alpha", "efforts": ["low", "high"]},
+                {"id": "codex-beta", "efforts": ["medium"]},
+            ],
+            "models_status": "available",
+            "models_source": "fixture",
+            "efforts": [],
+            "efforts_status": "available",
+            "efforts_scope": "model",
+            "diagnostics": [],
+        },
+        {
+            "cli": "agy",
+            "executable": "/usr/local/bin/agy",
+            "version": "agy 1.0",
+            "installed": True,
+            "models": [{"id": "agy-model"}],
+            "models_status": "available",
+            "models_source": "fixture",
+            "efforts": [],
+            "efforts_status": "unavailable",
+            "efforts_scope": "model",
+            "diagnostics": [],
+        },
+        {
+            "cli": "kiro",
+            "executable": None,
+            "version": None,
+            "installed": False,
+            "models": [{"id": "kiro-model"}],
+            "models_status": "available",
+            "models_source": "fixture",
+            "efforts": [],
+            "efforts_status": "unavailable",
+            "efforts_scope": "model",
+            "diagnostics": [],
+        },
+    ]
+
+
+class _InspectingInput:
+    """Run assertions immediately before each answer is consumed."""
+
+    def __init__(self, answers: list[str], inspect) -> None:
+        self.answers = iter(answer + "\n" for answer in answers)
+        self.inspect = inspect
+        self.read_count = 0
+
+    def readline(self) -> str:
+        self.inspect(self.read_count)
+        self.read_count += 1
+        return next(self.answers, "")
+
+
 class SetupWizardTests(unittest.TestCase):
     def test_manual_profile_skip_reuse_and_project_save(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             odd_model_id = 'model: "quoted" # exact'
             answers = [
-                "n",  # research: create
                 "1",  # choose installed codex
-                odd_model_id,  # no catalog; explicit manual model
-                "0",  # no effort flag
-                "d",  # default permission mode
-                "d",  # no research fallback
-                "1",  # design: reuse research profile
-                "d",  # no design fallback
+                "m",  # add an explicit manual entry to the numbered table
+                "1",  # select the target CLI in the separate numbered menu
+                odd_model_id,  # exact model ID, intentionally unverified
+                "1-null",  # leave effort to the CLI/model default
+                "1",  # permission mode is asked after model combinations
+                "1",  # research uses codex_1
+                "1",  # design reuses codex_1
                 *("s" for _ in range(8)),  # leave the remaining routes unconfigured
                 "",  # default per-CLI concurrency = 4
                 "2",  # project destination
@@ -93,7 +155,7 @@ class SetupWizardTests(unittest.TestCase):
             self.assertTrue(target.is_file())
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
             text = target.read_text(encoding="utf-8")
-            self.assertIn("#   profiles.research_codex.model", text)
+            self.assertIn("#   profiles.codex_1.model", text)
             self.assertIn("current runner does not automatically load or enforce", text)
             self.assertIn('"model: \\"quoted\\" # exact"', text)
             self.assertIn("current runner does not automatically load", stdout.getvalue())
@@ -105,14 +167,14 @@ class SetupWizardTests(unittest.TestCase):
             generated = yaml.safe_load(text)
             baseline = new_workflow()
             self.assertEqual(generated["schema_version"], baseline["schema_version"])
-            self.assertEqual(generated["profiles"]["research_codex"], {
+            self.assertEqual(generated["profiles"]["codex_1"], {
                 "cli": "codex",
                 "model": odd_model_id,
                 "effort": None,
                 "permission_mode": "default",
             })
-            self.assertEqual(generated["scenarios"]["research"]["profile"], "research_codex")
-            self.assertEqual(generated["scenarios"]["design"]["profile"], "research_codex")
+            self.assertEqual(generated["scenarios"]["research"]["profile"], "codex_1")
+            self.assertEqual(generated["scenarios"]["design"]["profile"], "codex_1")
             self.assertIsNone(generated["scenarios"]["ui_automation"]["profile"])
             self.assertEqual(generated["scenarios"]["ui_automation"]["fallbacks"], [])
             self.assertFalse(generated["scenarios"]["ui_automation"]["allow_fallback"])
@@ -127,7 +189,7 @@ class SetupWizardTests(unittest.TestCase):
             target = project / ".goals-tmux.yaml"
             original = b"existing workflow that must remain intact\n"
             target.write_bytes(original)
-            answers = [*("s" for _ in range(10)), "2", "y", "n"]
+            answers = ["0", "2", "y", "n"]
             wizard = SetupWizard(
                 scanner=lambda timeout: _scan_fixture(),
                 stdin=StringIO("\n".join(answers) + "\n"),
@@ -144,7 +206,7 @@ class SetupWizardTests(unittest.TestCase):
     def test_cancel_final_new_file_save_leaves_no_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
-            answers = [*("s" for _ in range(10)), "2", ""]  # final save defaults to no
+            answers = ["0", "2", ""]  # final save defaults to no
             wizard = SetupWizard(
                 scanner=lambda timeout: _scan_fixture(),
                 stdin=StringIO("\n".join(answers) + "\n"),
@@ -211,7 +273,7 @@ class SetupWizardTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsafeTargetError, "安全检查上限"):
                 inspect_destination(huge)
 
-    def test_yaml_strings_are_json_quoted_and_review_has_no_fallback(self) -> None:
+    def test_yaml_strings_are_json_quoted_and_review_defaults_to_no_fallback(self) -> None:
         workflow = new_workflow()
         workflow["profiles"]["sample"] = {
             "cli": "codex",
@@ -228,10 +290,10 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('"review":', output)
         self.assertIn('"fallbacks": []', output)
 
-    def test_fallbacks_keep_user_order_and_review_is_hard_disabled(self) -> None:
+    def test_fallbacks_keep_user_order_including_review(self) -> None:
         wizard = SetupWizard(
             scanner=lambda timeout: _scan_fixture(),
-            stdin=StringIO("2\nd\n"),
+            stdin=StringIO("2\n2\n"),
             stdout=StringIO(),
         )
         wizard.profiles.update({
@@ -239,18 +301,409 @@ class SetupWizardTests(unittest.TestCase):
             "first_choice": {"cli": "agy", "model": "m2", "effort": "high", "permission_mode": "default"},
         })
         self.assertEqual(wizard._add_fallbacks("implementation", "primary"), ["first_choice"])
-        self.assertEqual(wizard._add_fallbacks("review", "primary"), [])
+        self.assertEqual(wizard._add_fallbacks("review", "primary"), ["first_choice"])
 
-    def test_cli_global_effort_value_is_marked_unverified_for_model(self) -> None:
-        wizard = SetupWizard(stdin=StringIO("1\n"), stdout=StringIO())
+    def test_create_review_with_ordered_fallbacks(self) -> None:
+        wizard = SetupWizard(
+            stdin=StringIO("s\n" * 8 + "1\n3,2\ns\n"), stdout=StringIO(),
+        )
+        wizard.profiles.update({
+            f"pool_{number}": {
+                "cli": "codex", "model": f"m{number}",
+                "effort": None, "permission_mode": "default",
+            }
+            for number in range(1, 4)
+        })
+        wizard.configure_scenarios()
+        review = wizard.workflow["scenarios"]["review"]
+        self.assertEqual(review["profile"], "pool_1")
+        self.assertEqual(review["fallbacks"], ["pool_3", "pool_2"])
+        self.assertTrue(review["allow_fallback"])
+
+    def test_fallback_order_whitespace_primary_and_invalid_lists_are_atomic(self) -> None:
+        profiles = {
+            f"pool_{number}": {
+                "cli": "codex", "model": f"m{number}", "effort": None, "permission_mode": "default"
+            }
+            for number in range(1, 5)
+        }
+        wizard = SetupWizard(stdin=StringIO("2, 3, 1\n"), stdout=StringIO())
+        wizard.profiles.update(profiles)
+        self.assertEqual(
+            wizard._add_fallbacks("implementation", "pool_4"),
+            ["pool_2", "pool_3", "pool_1"],
+        )
+
+        wizard = SetupWizard(
+            stdin=StringIO("1, 2, 99\n2,2,3\n2,4,1\n2,,3\n2,x,3\n2,3,\n2,3,1\n"),
+            stdout=StringIO(),
+        )
+        wizard.profiles.update(profiles)
+        self.assertEqual(
+            wizard._add_fallbacks("implementation", "pool_4"),
+            ["pool_2", "pool_3", "pool_1"],
+        )
+        output = wizard.stdout.getvalue()
+        self.assertIn("超出范围", output)
+        self.assertIn("重复编号", output)
+        self.assertIn("包含 primary", output)
+        self.assertIn("格式无效", output)
+        self.assertNotIn("已添加第", output)
+
+    def test_selected_cli_pool_allows_multiple_model_effort_combinations(self) -> None:
+        wizard = SetupWizard(
+            scanner=lambda timeout: _catalog_fixture(),
+            stdin=StringIO(
+                "2, 1\n"  # preserve requested CLI order; kiro is not selectable
+                "3-medium, 1-null, 2-low\n"  # one global batch, interleaved agy/codex rows
+                "2\n1\n"  # one permission choice per used CLI, in selected-CLI order
+            ),
+            stdout=StringIO(),
+        )
+        wizard.clis = wizard.scan()
+        wizard.clis.append({"cli": "claude", "installed": True, "models": [{"id": "unused"}]})
+        wizard.clis[0]["models"].append({"id": "codex-unused", "efforts": ["low"]})
+        wizard.configure_pool()
+
+        self.assertEqual([entry["cli"] for entry in wizard.selected_clis], ["agy", "codex"])
+        self.assertEqual(list(wizard.profiles), ["codex_1", "agy_1", "codex_2"])
+        self.assertEqual(
+            [(profile["cli"], profile["model"], profile["effort"]) for profile in wizard.profiles.values()],
+            [
+                ("codex", "codex-beta", "medium"),
+                ("agy", "agy-model", None),
+                ("codex", "codex-alpha", "low"),
+            ],
+        )
+        self.assertEqual(wizard.profiles["codex_1"]["permission_mode"], "default")
+        self.assertEqual(wizard.profiles["agy_1"]["permission_mode"], "bypass")
+        self.assertEqual(wizard.profiles["codex_2"]["permission_mode"], "default")
+        self.assertNotIn("kiro", {profile["cli"] for profile in wizard.profiles.values()})
+        self.assertNotIn("claude", {profile["cli"] for profile in wizard.profiles.values()})
+        self.assertNotIn("codex-unused", {profile["model"] for profile in wizard.profiles.values()})
+        self.assertNotIn("再添加一个模型", wizard.stdout.getvalue())
+        self.assertNotIn("选择 effort 编号", wizard.stdout.getvalue())
+        output = wizard.stdout.getvalue()
+        self.assertLess(output.index("CLI=agy | effort"), output.index("跨 CLI 全局模型-effort 批次"))
+        self.assertLess(output.index("CLI=codex | effort"), output.index("跨 CLI 全局模型-effort 批次"))
+        self.assertEqual(output.count("权限偏好（1/2"), 2)
+        self.assertIn("全局编号 3 → CLI=codex → ID=codex-beta → effort=medium", output)
+        self.assertIn("全局编号 1 → CLI=agy → ID=agy-model → effort=null", output)
+
+        before = dict(wizard.profiles)
+        wizard.stdin = StringIO("n\n99\n1\n0\n" + "s\n" * 9)
+        wizard.configure_scenarios()
+        self.assertEqual(wizard.profiles, before)
+        self.assertEqual(wizard.workflow["scenarios"]["research"]["profile"], "codex_1")
+        self.assertFalse(wizard.workflow["scenarios"]["research"]["allow_fallback"])
+
+    def test_all_selected_catalogs_are_printed_before_first_global_batch_input(self) -> None:
+        def catalog_entry(cli: str, count: int) -> dict[str, object]:
+            return {
+                "cli": cli,
+                "installed": True,
+                "models": [
+                    {"id": f"{cli}-model-{number:03d}", "efforts": ["low", "high"]}
+                    for number in range(1, count + 1)
+                ],
+                "models_status": "available",
+                "models_source": f"fixture-{cli}",
+            }
+
+        clis = [
+            {**catalog_entry("claude", 0), "models": [], "models_status": "unavailable"},
+            catalog_entry("cursor", 270),
+            catalog_entry("codex", 8),
+            catalog_entry("agy", 13),
+            catalog_entry("kiro", 22),
+        ]
+        stdout = StringIO()
+
+        def inspect(read_number: int) -> None:
+            if read_number != 1:  # first answer chooses CLIs; second is the global batch
+                return
+            rendered = stdout.getvalue()
+            self.assertIn("完整目录未取得；以下仅3个官方文档参考模型，并非全部模型", rendered)
+            self.assertIn("本次扫描返回 270 项，全部列出", rendered)
+            self.assertIn("本次扫描返回 8 项，全部列出", rendered)
+            self.assertIn("本次扫描返回 13 项，全部列出", rendered)
+            self.assertIn("本次扫描返回 22 项，全部列出", rendered)
+            printed_rows = [
+                line for line in rendered.splitlines()
+                if line.startswith("  ") and line[2:].partition(")")[0].isdigit() and "| CLI=" in line
+            ]
+            self.assertEqual(len(printed_rows), 316)
+            self.assertEqual(
+                [int(line[2:].partition(")")[0]) for line in printed_rows],
+                list(range(1, 317)),
+            )
+            self.assertEqual(
+                {
+                    cli: sum(f"| CLI={cli} |" in line for line in printed_rows)
+                    for cli in ("claude", "cursor", "codex", "agy", "kiro")
+                },
+                {"claude": 3, "cursor": 270, "codex": 8, "agy": 13, "kiro": 22},
+            )
+            self.assertIn("  3) claude-haiku-5-5", rendered)
+            self.assertIn("  273) cursor-model-270", rendered)
+            self.assertIn("  281) codex-model-008", rendered)
+            self.assertIn("  294) agy-model-013", rendered)
+            self.assertIn("  316) kiro-model-022", rendered)
+            self.assertIn("跨 CLI 全局模型-effort 批次", rendered)
+            self.assertNotIn("权限偏好（1/2", rendered)
+
+        wizard = SetupWizard(
+            scanner=lambda timeout: clis,
+            stdin=_InspectingInput(["1,2,3,4,5", "316-high", "1"], inspect),
+            stdout=stdout,
+        )
+        wizard.clis = wizard.scan()
+        wizard.configure_pool()
+
+        self.assertEqual(list(wizard.profiles), ["kiro_1"])
+        self.assertEqual(wizard.profiles["kiro_1"]["model"], "kiro-model-022")
+
+    def test_cross_cli_batch_order_permissions_and_duplicate_identity(self) -> None:
+        clis = [
+            {
+                "cli": cli,
+                "installed": True,
+                "models": [{"id": "shared-model", "efforts": ["low", "high"]}],
+                "models_status": "available",
+                "models_source": "fixture",
+            }
+            for cli in ("codex", "agy")
+        ]
+        stdout = StringIO()
+        snapshots: list[str] = []
+
+        def inspect(read_number: int) -> None:
+            if read_number == 3:  # after valid global batch, before first permission choice
+                snapshots.append(stdout.getvalue())
+
+        wizard = SetupWizard(
+            scanner=lambda timeout: clis,
+            stdin=_InspectingInput(
+                ["1,2", "1-high,1-high", "1-high,2-high", "1", "2"],
+                inspect,
+            ),
+            stdout=stdout,
+        )
+        wizard.clis = wizard.scan()
+        wizard.configure_pool()
+
+        self.assertEqual(list(wizard.profiles), ["codex_1", "agy_1"])
+        self.assertEqual(
+            [(profile["cli"], profile["model"], profile["effort"]) for profile in wizard.profiles.values()],
+            [("codex", "shared-model", "high"), ("agy", "shared-model", "high")],
+        )
+        output = stdout.getvalue()
+        self.assertIn("包含重复组合：CLI=codex / shared-model / effort=high；整行未添加。", output)
+        self.assertIn("全局编号 1 → CLI=codex → ID=shared-model → effort=high", output)
+        self.assertIn("全局编号 2 → CLI=agy → ID=shared-model → effort=high", output)
+        self.assertEqual(output.count("权限偏好（1/2"), 2)
+        self.assertIn("所有已选 CLI 的模型表均已显示", snapshots[0])
+        self.assertLess(snapshots[0].index("CLI=codex | effort"), snapshots[0].index("CLI=agy | effort"))
+        self.assertLess(snapshots[0].index("已选组合（按输入顺序）"), snapshots[0].index("权限偏好（1/2"))
+
+    def test_manual_model_appends_stable_global_row_and_relist_keeps_identity(self) -> None:
+        clis = [
+            {
+                "cli": "codex",
+                "installed": True,
+                "models": [{"id": "codex-first", "efforts": ["low"]}],
+                "models_source": "fixture-codex",
+            },
+            {
+                "cli": "agy",
+                "installed": True,
+                "models": [{"id": "agy-second", "efforts": ["low"]}],
+                "models_source": "fixture-agy",
+            },
+        ]
+        wizard = SetupWizard(
+            scanner=lambda timeout: self.fail("global model table must not rescan after initial discovery"),
+            stdin=StringIO("1,2\nm\n1\nmanual-model\nl\n3-low\n1\n"),
+            stdout=StringIO(),
+        )
+        wizard.clis = clis
+        wizard.configure_pool()
+
+        self.assertEqual(list(wizard.profiles), ["codex_1"])
+        self.assertEqual(wizard.profiles["codex_1"]["model"], "manual-model")
+        self.assertEqual(wizard.profiles["codex_1"]["effort"], "low")
+        self.assertIn(("codex_1", "model"), wizard.unverified)
+        self.assertIn(("codex_1", "effort"), wizard.unverified)
+        output = wizard.stdout.getvalue()
+        self.assertIn("来源=fixture-codex；全局编号范围 1-1", output)
+        self.assertIn("来源=fixture-agy；全局编号范围 2-2", output)
+        self.assertIn("已将手动模型追加到全局编号 3；原有编号保持不变", output)
+        self.assertIn("  3) manual-model | CLI=codex", output)
+        self.assertIn("模型表完整重列（全局编号保持不变；不会重新扫描）", output)
+        self.assertIn("  1) codex-first | CLI=codex", output)
+        self.assertIn("  2) agy-second | CLI=agy", output)
+        self.assertIn("  全局编号 3 → CLI=codex → ID=manual-model → effort=low", output)
+
+    def test_cli_global_efforts_are_shown_but_unverified_for_model(self) -> None:
+        wizard = SetupWizard(stdin=StringIO("1-low\n"), stdout=StringIO())
         entry = {
+            "cli": "agy",
+            "models": [{"id": "agy-model"}],
             "efforts": ["low", "high"],
             "efforts_status": "cli_flag_values",
             "efforts_scope": "cli",
         }
-        self.assertEqual(wizard._select_effort(entry, {"id": "agy-model"}, "research_agy"), "low")
-        self.assertEqual(wizard.unverified, [("research_agy", "effort")])
-        self.assertIn("没有证据确认适用于刚选的模型", wizard.stdout.getvalue())
+        self.assertEqual(
+            wizard._select_model_effort_batch(entry),
+            [{
+                "model": "agy-model",
+                "effort": "low",
+                "model_unverified": False,
+                "effort_unverified": True,
+            }],
+        )
+        self.assertIn("CLI 级提示；未确认此模型支持", wizard.stdout.getvalue())
+
+    def test_catalog_over_twenty_models_is_printed_once_with_stable_global_numbers(self) -> None:
+        models = [
+            {"id": f"cursor-model-{number:03d}", "name": f"Cursor Model {number}", "efforts": ["low", "high"]}
+            for number in range(1, 271)
+        ]
+        wizard = SetupWizard(stdin=StringIO("270-high\n"), stdout=StringIO())
+        choices = wizard._select_model_effort_batch({"cli": "cursor", "models": models})
+
+        self.assertEqual(choices[0]["model"], "cursor-model-270")
+        output = wizard.stdout.getvalue()
+        rows = [line for line in output.splitlines() if ") cursor-model-" in line]
+        self.assertEqual(len(rows), 270)
+        self.assertIn("  1) cursor-model-001 — Cursor Model 1", output)
+        self.assertIn("  21) cursor-model-021 — Cursor Model 21", output)
+        self.assertIn("  270) cursor-model-270 — Cursor Model 270", output)
+        self.assertNotIn("下一页", output)
+        self.assertNotIn("翻页", output)
+
+    def test_invalid_batch_is_atomic_and_reprompts_as_a_whole(self) -> None:
+        wizard = SetupWizard(
+            stdin=StringIO("1-low, nope\n1-low, 2-high\n1-low, 1-medium\n1-low, 1-low\n1-low, 1-high\n"),
+            stdout=StringIO(),
+        )
+        choices = wizard._select_model_effort_batch({
+            "cli": "cursor",
+            "models": [{"id": "cursor-model", "efforts": ["low", "high"]}],
+        })
+
+        self.assertEqual(
+            [(item["model"], item["effort"]) for item in choices],
+            [("cursor-model", "low"), ("cursor-model", "high")],
+        )
+        output = wizard.stdout.getvalue()
+        self.assertIn("组合格式无效", output)
+        self.assertIn("模型编号超出范围", output)
+        self.assertIn("不在全局编号 1 的选项中", output)
+        self.assertIn("包含重复组合", output)
+        self.assertEqual(wizard.profiles, {})
+
+    def test_bare_model_number_and_null_suffix_both_omit_effort(self) -> None:
+        for answer in ("1\n", "1-null\n"):
+            with self.subTest(answer=answer):
+                wizard = SetupWizard(stdin=StringIO(answer), stdout=StringIO())
+                choices = wizard._select_model_effort_batch({
+                    "cli": "codex",
+                    "models": [{"id": "codex-model", "efforts": ["low"]}],
+                })
+                self.assertEqual(choices[0]["effort"], None)
+
+    def test_claude_without_catalog_can_select_a_later_global_row(self) -> None:
+        clis = [
+            {
+                "cli": "claude",
+                "executable": "/usr/local/bin/claude",
+                "version": "claude 1.0",
+                "installed": True,
+                "models": [],
+                "models_status": "unavailable",
+                "models_source": None,
+                "efforts": [],
+                "efforts_status": "unavailable",
+                "diagnostics": [],
+            },
+            {
+                "cli": "codex",
+                "executable": "/usr/local/bin/codex",
+                "version": "codex 1.0",
+                "installed": True,
+                "models": [{"id": "codex-model"}],
+                "models_status": "available",
+                "models_source": "fixture",
+                "efforts": [],
+                "efforts_status": "unavailable",
+                "efforts_scope": "model",
+                "diagnostics": [],
+            },
+        ]
+        wizard = SetupWizard(
+            scanner=lambda timeout: clis,
+            stdin=StringIO("1,2\n4-null\n1\n"),
+            stdout=StringIO(),
+        )
+        wizard.clis = wizard.scan()
+        wizard.configure_pool()
+
+        self.assertEqual(list(wizard.profiles), ["codex_1"])
+        self.assertEqual(wizard.profiles["codex_1"]["model"], "codex-model")
+        self.assertNotIn("claude", {profile["cli"] for profile in wizard.profiles.values()})
+        output = wizard.stdout.getvalue()
+        self.assertIn("Claude Code (CLI=claude)", output)
+        self.assertIn("Codex (CLI=codex)", output)
+        self.assertIn("claude-opus-5-5", output)
+        self.assertIn("claude-haiku-5-5", output)
+        self.assertIn("完整目录未取得；以下仅3个官方文档参考模型，并非全部模型", output)
+        self.assertLess(output.index("4) codex-model"), output.index("跨 CLI 全局模型-effort 批次"))
+        self.assertLess(output.index("所有已选 CLI 的模型表均已显示"), output.index("权限偏好（1/2"))
+
+    def test_claude_versioned_models_and_effort_enums_are_offered_without_aliases(self) -> None:
+        entry = {
+            "cli": "claude",
+            "installed": True,
+            "models": [],
+            "models_status": "unavailable",
+            "efforts": [],
+            "efforts_status": "unavailable",
+        }
+        wizard = SetupWizard(stdin=StringIO("1\n1-xhigh\n1\n"), stdout=StringIO())
+        wizard.clis = [entry]
+        wizard.configure_pool()
+
+        self.assertEqual(wizard.profiles["claude_1"]["model"], "claude-opus-5-5")
+        self.assertEqual(wizard.profiles["claude_1"]["effort"], "xhigh")
+        self.assertIn(("claude_1", "model"), wizard.unverified)
+        self.assertIn(("claude_1", "effort"), wizard.unverified)
+        output = dump_yaml(wizard.workflow, wizard.unverified)
+        self.assertIn("#   profiles.claude_1.model", output)
+        self.assertIn("claude-sonnet-5-5", wizard.stdout.getvalue())
+        self.assertIn("claude-haiku-5-5", wizard.stdout.getvalue())
+        self.assertIn("low, medium, high, xhigh, max", wizard.stdout.getvalue())
+        self.assertIn("本机 CLI/账号支持未验证", wizard.stdout.getvalue())
+        self.assertIn("例如 1-high, 2-xhigh, 3-max", wizard.stdout.getvalue())
+        self.assertNotIn("  1) sonnet", wizard.stdout.getvalue())
+
+    def test_manual_model_blank_and_b_return_to_model_menu(self) -> None:
+        wizard = SetupWizard(
+            stdin=StringIO("m\n1\n\nm\n1\nb\nm\n1\nmanual-model-id\n1-null\n"),
+            stdout=StringIO(),
+        )
+        choices = wizard._select_model_effort_batch({"cli": "codex", "models": []})
+
+        self.assertEqual(choices[0]["model"], "manual-model-id")
+        self.assertTrue(choices[0]["model_unverified"])
+        self.assertGreaterEqual(wizard.stdout.getvalue().count("的精确模型 ID"), 3)
+        self.assertGreaterEqual(wizard.stdout.getvalue().count("手动模型的目标 CLI"), 3)
+        self.assertIn("low, medium, high, xhigh, max", wizard.stdout.getvalue())
+
+    def test_model_effort_batch_q_cancels_wizard(self) -> None:
+        wizard = SetupWizard(stdin=StringIO("q\n"), stdout=StringIO())
+        with self.assertRaises(WizardCancelled):
+            wizard._select_model_effort_batch({"cli": "claude", "models": []})
 
     def test_wrapper_help_works_without_tmux(self) -> None:
         wrapper = Path(__file__).resolve().parents[1] / "scripts" / "setup-workflow.sh"
@@ -263,6 +716,8 @@ class SetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--probe-timeout", result.stdout)
+        self.assertIn("shortlist installed CLIs", result.stdout)
+        self.assertIn("fallback profiles accept comma-separated priority", result.stdout)
         self.assertNotIn("tmux was not found", result.stderr)
 
     def test_scan_json_is_read_only_json_without_prompt_text(self) -> None:

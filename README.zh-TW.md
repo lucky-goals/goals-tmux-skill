@@ -1,10 +1,10 @@
 # goals-tmux-skill
 
-Skill 版本：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6)
+Skill 版本：[v0.3.0](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-`goals-tmux-skill` 是透過 tmux 協調 Coding CLI 的通用 agent skill。0.2.6 包含可執行的獨立執行器 `scripts/tmuxctl`、任務與資源登記、私有決策檔案派發、限時內聯 watch、CLI 啟動與恢復介面，以及稽核紀錄。它不依賴 MCP 服務或第三方 Python 執行階段套件。
+`goals-tmux-skill` 是透過 tmux 協調 Coding CLI 的通用 agent skill。0.3.0 新增跨 CLI 模型組合批次選擇與既有工作流程設定的局部編輯，Review 也支援有序 fallback；並包含獨立執行器 `scripts/tmuxctl`、任務與資源登記、私有決策檔案派發、內聯 watch、CLI 啟動與恢復介面及稽核紀錄。它不依賴 MCP 服務或第三方 Python 執行階段套件。
 
 協調者負責理解目標、觀察進度、處理一般決策及驗收；專案修改、測試、建置及其他會改變專案狀態的工作，由受控 Coding CLI 執行。請先閱讀 [SKILL.md](SKILL.md)，了解完整執行邊界與流程。
 
@@ -21,9 +21,9 @@ Skill 版本：[v0.2.6](https://github.com/lucky-goals/goals-tmux-skill/releases
 將以下提示詞複製給可存取本機檔案系統的 coding agent，並替換目標用戶端與預計使用的 coding CLI 佔位文字。安裝只會準備 skill，不會啟動 coding 任務。
 
 ```text
-請為 [目標用戶端] 安裝 goals-tmux-skill v0.2.6。
+請為 [目標用戶端] 安裝 goals-tmux-skill v0.3.0。
 儲存庫：https://github.com/lucky-goals/goals-tmux-skill
-發行版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6
+發行版本：https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0
 預計使用的執行 CLI：[Claude Code / Codex / Cursor / Antigravity / Kiro CLI]
 
 1. 檢查目標用戶端支援的 skill 安裝機制、實際搜尋路徑與既有安裝。依指定範圍操作；若支援，預設使用使用
@@ -109,7 +109,7 @@ export GOALS_TMUX_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 
 ### 3. 下載並安裝完整套件
 
-從 [v0.2.6 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.2.6) 下載 **goals-tmux-skill.zip**。請使用具名的安裝套件，而非 GitHub 自動產生的原始碼封存檔。不需要原始碼 checkout 或本機套件建置。
+從 [v0.3.0 Releases](https://github.com/lucky-goals/goals-tmux-skill/releases/tag/v0.3.0) 下載 **goals-tmux-skill.zip**。請使用具名的安裝套件，而非 GitHub 自動產生的原始碼封存檔。不需要原始碼 checkout 或本機套件建置。
 
 在全新的 Codex 使用者範圍安裝中，若套件已儲存於 `~/Downloads/`：
 
@@ -138,7 +138,7 @@ scripts/tmuxctl doctor --json
 scripts/tmuxctl doctor --cli-check --json
 ```
 
-若安裝路徑不同，請使用實際路徑。`--version` 應回報 `0.2.6`。Bootstrap 會檢查 Python 與最低 tmux 版本，不會安裝任何內容或啟動伺服器。`--apply` 旗標是為相容舊用法保留的僅檢查別名，並非安裝器。
+若安裝路徑不同，請使用實際路徑。`--version` 應回報 `0.3.0`。Bootstrap 會檢查 Python 與最低 tmux 版本，不會安裝任何內容或啟動伺服器。`--apply` 旗標是為相容舊用法保留的僅檢查別名，並非安裝器。
 
 `doctor --cli-check` 會檢查已安裝的 CLI 執行檔與版本，不會啟動模型請求。請安裝並登入預計使用的 coding CLI；不需要安裝所有支援的 CLI。已驗證的預設可見工作流程使用一般 iTerm2/tmux。`terminal=auto` 可回退啟動 Terminal.app，但它無法提供必要的映射 GUI 證明，派發／輸入會被阻止。使用無頭模式須取得使用者明確核准。啟動 GUI 可能需要 macOS 自動化權限。使用 SSH 另需本機 SSH 用戶端及遠端主機上的執行階段相依項目；請參閱 [SSH 設定](references/ssh.md)。
 
@@ -188,11 +188,20 @@ sh scripts/setup-workflow.sh --scan --json
 ```
 
 精靈偵測已安裝的支援 CLI，提供查詢到的模型或明確標示「未驗證」的手動輸入。
-可逐情境選擇 CLI、模型、effort、降級組合及同一 CLI 的並行上限，也可略過情境。
-預覽 YAML 後，選擇存至使用者設定目錄或專案的 `.goals-tmux.yaml`；覆寫須額外確認，
+先選取需要的 CLI 及模型／effort 組合，再逐情境從這些組合中選擇，也可略過情境。
+fallback 支援逗號多選：`2,3,1` 依此順序安排優先級；另可設定同一 CLI 的並行上限。
+先展示所有已選 CLI 的模型表，再顯示唯一的統一輸入框。每列包含全域編號、CLI、模型 ID 與 effort。
+按表中編號輸入 `1-high, 28-xhigh, 306-max`，一次跨 CLI 選擇；`l` 可重列全表，編號不變。
+Claude 未取得完整目錄時，僅提供 `claude-opus-5-5` 等三個文件參考模型，標示「並非全部模型、帳號可用性未驗證」。
+批次選完後再以編號選單選擇權限偏好。預覽 YAML 後，選擇存至使用者設定目錄或專案的 `.goals-tmux.yaml`；覆寫須額外確認，
 並保留備份。需要 Python 3.12+，不需要 tmux 或額外 Python 套件，不發起模型任務。
 
-**目前僅產生設定：runner 尚未自動載入或執行 workflow YAML。** 不會授予任務權限或
+局部修改既有設定：`sh scripts/setup-workflow.sh --edit /絕對路徑/workflow.yaml`。
+僅加 `--edit` 可選擇專案、使用者設定檔或其他路徑。可新增組合、修改指定情境，
+預覽差異後確認儲存並備份；其他情境、並行與 TUI 設定保持原值。
+目前支援本精靈產生的 YAML 格式，不支援任意手寫 YAML。
+
+**目前僅編寫設定：runner 尚未自動載入或執行 workflow YAML。** 不會授予任務權限或
 修改宿主規則。詳見[精靈指南](references/workflow-setup.md)。
 
 ## 終端顯示與視窗保留
