@@ -23,10 +23,13 @@ from goals_tmux.setup_wizard import (  # noqa: E402
     WizardCancelled,
     atomic_save,
     dump_yaml,
+    host_config_destination,
     inspect_destination,
+    is_skill_installation_dir,
     main,
     project_destination,
     user_config_destination,
+    validate_host_name,
 )
 from goals_tmux.workflow_template import new_workflow  # noqa: E402
 
@@ -234,6 +237,246 @@ class SetupWizardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "绝对路径"):
                 user_config_destination({"XDG_CONFIG_HOME": "relative/config"}, root)
             self.assertEqual(project_destination(root), root.resolve() / ".goals-tmux.yaml")
+
+    def test_host_config_destination_paths_and_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            xdg = root / "xdg"
+            self.assertEqual(
+                host_config_destination({"XDG_CONFIG_HOME": str(xdg)}, root),
+                xdg / "goals-tmux-skill" / "hosts" / "trae-cn.yaml",
+            )
+            self.assertEqual(
+                host_config_destination({"XDG_CONFIG_HOME": str(xdg)}, root, host_name="custom-host"),
+                xdg / "goals-tmux-skill" / "hosts" / "custom-host.yaml",
+            )
+            self.assertEqual(
+                host_config_destination({}, root),
+                root / ".config" / "goals-tmux-skill" / "hosts" / "trae-cn.yaml",
+            )
+            self.assertEqual(
+                host_config_destination({}, root, host_name="custom_1.0"),
+                root / ".config" / "goals-tmux-skill" / "hosts" / "custom_1.0.yaml",
+            )
+            with self.assertRaisesRegex(ValueError, "绝对路径"):
+                host_config_destination({"XDG_CONFIG_HOME": "relative/config"}, root)
+
+            for invalid in ["", "   ", "bad/name", "bad\\name", "../escape", ".dot", "-dash", "_underscore", "a" * 65, "trae..cn"]:
+                with self.assertRaises(ValueError):
+                    validate_host_name(invalid)
+                with self.assertRaises(ValueError):
+                    host_config_destination({}, root, host_name=invalid)
+
+    def test_choose_destination_host_option_and_invalid_name_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Default host name "trae-cn"
+            wizard = SetupWizard(
+                stdin=StringIO("3\n\n"),
+                stdout=StringIO(),
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(
+                wizard.choose_destination(),
+                root / ".config" / "goals-tmux-skill" / "hosts" / "trae-cn.yaml",
+            )
+
+            # Custom host name
+            wizard = SetupWizard(
+                stdin=StringIO("3\ncustom-host\n"),
+                stdout=StringIO(),
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(
+                wizard.choose_destination(),
+                root / ".config" / "goals-tmux-skill" / "hosts" / "custom-host.yaml",
+            )
+
+            # Aliases "h" and "host"
+            for alias in ["h", "host", "3/host"]:
+                wizard = SetupWizard(
+                    stdin=StringIO(f"{alias}\nmy-alias-host\n"),
+                    stdout=StringIO(),
+                    project_dir=root,
+                    environ={},
+                    home=root,
+                )
+                self.assertEqual(
+                    wizard.choose_destination(),
+                    root / ".config" / "goals-tmux-skill" / "hosts" / "my-alias-host.yaml",
+                )
+
+            # Invalid host names rejected, error printed, re-prompted, and no file written
+            stdout = StringIO()
+            answers = ["3", "bad/name", "../escape", ".dot", "valid_host-1"]
+            wizard = SetupWizard(
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=stdout,
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            dest = wizard.choose_destination()
+            self.assertEqual(
+                dest,
+                root / ".config" / "goals-tmux-skill" / "hosts" / "valid_host-1.yaml",
+            )
+            self.assertFalse(dest.exists())
+            output = stdout.getvalue()
+            self.assertIn("Host 名称", output)
+            self.assertIn("user < host < project", output)
+
+    def test_choose_destination_default_remains_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Blank input selects default option 2 (project)
+            wizard = SetupWizard(
+                stdin=StringIO("\n"),
+                stdout=StringIO(),
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(wizard.choose_destination(), root.resolve() / ".goals-tmux.yaml")
+
+            # Explicit option 2 and aliases
+            for ans in ["2", "p", "project", "2/project"]:
+                wizard = SetupWizard(
+                    stdin=StringIO(f"{ans}\n"),
+                    stdout=StringIO(),
+                    project_dir=root,
+                    environ={},
+                    home=root,
+                )
+                self.assertEqual(wizard.choose_destination(), root.resolve() / ".goals-tmux.yaml")
+
+    def test_skill_installation_dir_warning_and_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            # 1. Test is_skill_installation_dir helper directly
+            normal_dir = root / "normal_project"
+            normal_dir.mkdir()
+            self.assertFalse(is_skill_installation_dir(normal_dir))
+
+            named_dir = root / "goals-tmux-skill"
+            named_dir.mkdir()
+            self.assertTrue(is_skill_installation_dir(named_dir))
+
+            with_files = root / "with_files"
+            with_files.mkdir()
+            (with_files / "SKILL.md").write_text("dummy")
+            (with_files / "scripts").mkdir()
+            (with_files / "scripts" / "tmuxctl").write_text("dummy")
+            self.assertTrue(is_skill_installation_dir(with_files))
+
+            # Symlink should not count as regular file
+            symlink_dir = root / "symlink_skill"
+            symlink_dir.mkdir()
+            (symlink_dir / "scripts").mkdir()
+            (symlink_dir / "real_skill.md").write_text("dummy")
+            (symlink_dir / "SKILL.md").symlink_to(symlink_dir / "real_skill.md")
+            (symlink_dir / "scripts" / "tmuxctl").write_text("dummy")
+            self.assertFalse(is_skill_installation_dir(symlink_dir))
+
+            # 2. Test wizard interaction: declining confirmation loops back, accepting proceeds
+            # In directory with SKILL.md and scripts/tmuxctl:
+            # Decline confirmation (answer "n"), then select option 1 (user)
+            stdout = StringIO()
+            answers = ["2", "n", "1"]
+            wizard = SetupWizard(
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=stdout,
+                project_dir=with_files,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(
+                wizard.choose_destination(),
+                root / ".config" / "goals-tmux-skill" / "workflow.yaml",
+            )
+            output = stdout.getvalue()
+            self.assertIn("警告：当前目录似乎是 skill 安装目录", output)
+            self.assertIn("确认保存到 skill 安装目录？", output)
+            self.assertFalse((with_files / ".goals-tmux.yaml").exists())
+
+            # Accept confirmation (answer "y")
+            stdout = StringIO()
+            answers = ["2", "y"]
+            wizard = SetupWizard(
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=stdout,
+                project_dir=with_files,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(wizard.choose_destination(), with_files.resolve() / ".goals-tmux.yaml")
+
+            # In directory named "goals-tmux-skill":
+            # Decline confirmation with default n (empty line), then select option 3 (host)
+            stdout = StringIO()
+            answers = ["2", "", "3", "trae-cn"]
+            wizard = SetupWizard(
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=stdout,
+                project_dir=named_dir,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(
+                wizard.choose_destination(),
+                root / ".config" / "goals-tmux-skill" / "hosts" / "trae-cn.yaml",
+            )
+            output = stdout.getvalue()
+            self.assertIn("警告：当前目录似乎是 skill 安装目录", output)
+            self.assertFalse((named_dir / ".goals-tmux.yaml").exists())
+
+            # Accept confirmation with "y"
+            wizard = SetupWizard(
+                stdin=StringIO("2\ny\n"),
+                stdout=StringIO(),
+                project_dir=named_dir,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(wizard.choose_destination(), named_dir.resolve() / ".goals-tmux.yaml")
+
+    def test_host_destination_save_creates_directory_and_backs_up_on_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            answers = ["0", "3", "my-host", "y"]
+            wizard = SetupWizard(
+                scanner=lambda timeout: _scan_fixture(),
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=StringIO(),
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(wizard.run(), 0)
+            target = root / ".config" / "goals-tmux-skill" / "hosts" / "my-host.yaml"
+            self.assertTrue(target.is_file())
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+            first_content = target.read_bytes()
+
+            # Overwrite requires two confirmations and creates backup
+            answers = ["0", "3", "my-host", "y", "y"]
+            wizard = SetupWizard(
+                scanner=lambda timeout: _scan_fixture(),
+                stdin=StringIO("\n".join(answers) + "\n"),
+                stdout=StringIO(),
+                project_dir=root,
+                environ={},
+                home=root,
+            )
+            self.assertEqual(wizard.run(), 0)
+            backup = root / ".config" / "goals-tmux-skill" / "hosts" / "my-host.yaml.bak"
+            self.assertTrue(backup.is_file())
+            self.assertEqual(backup.read_bytes(), first_content)
 
     def test_atomic_save_backs_up_and_rejects_concurrent_changes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

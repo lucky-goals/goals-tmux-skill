@@ -57,10 +57,16 @@ options. Run this in an interactive terminal for the step-by-step prompts.
 5. Set independent same-CLI concurrency limits. The default is four per CLI;
    there is no aggregate tmux task/session/window cap. These are generated
    preferences, not an already-active scheduler or limiter.
-6. Preview the YAML, choose the destination, inspect the exact path and
-   explicitly confirm saving. Existing files require a separate overwrite
-   confirmation and are backed up. This creation flow replaces the target; use
-   `--edit` for a partial update. Cancelling before save leaves files unchanged.
+6. Preview the YAML, choose the destination layer, inspect the exact path and
+   explicitly confirm saving. Destinations display their fully resolved absolute
+   paths with layer precedence guidance (`user < host < project`): user
+   configuration, current project, or host-layer configuration with a validated
+   host name (default `trae-cn`). If the selected project directory appears to
+   be the skill installation directory, a warning is printed and saving there
+   requires a second explicit confirmation. Existing files require a separate
+   overwrite confirmation and are backed up. This creation flow replaces the
+   target; use `--edit` for a partial update. Cancelling before save leaves
+   files unchanged.
 
 ## Partially update an existing configuration
 
@@ -71,6 +77,8 @@ sh scripts/setup-workflow.sh --edit /absolute/path/to/.goals-tmux.yaml
 # Choose an existing project/user configuration, or enter its path:
 sh scripts/setup-workflow.sh --edit
 ```
+
+A host configuration file (such as `~/.config/goals-tmux-skill/hosts/<host-name>.yaml` or `$XDG_CONFIG_HOME/...`) can be edited with `--edit` by passing its path explicitly or by choosing the custom-path option in the interactive edit menu.
 
 Edit mode loads the selected file before any CLI scan. Its menu lets you:
 
@@ -157,12 +165,26 @@ current-task authorization.
 | --- | --- |
 | User | `$XDG_CONFIG_HOME/goals-tmux-skill/workflow.yaml`, or `~/.config/goals-tmux-skill/workflow.yaml` when XDG is unset |
 | Project | `<project-directory>/.goals-tmux.yaml` |
+| Host | `$XDG_CONFIG_HOME/goals-tmux-skill/hosts/<host-name>.yaml` (same XDG fallback; default host name `trae-cn`) |
+
+Configuration layer precedence (evaluated low to high): `user < host < project`.
+User configuration sets personal global defaults, host configuration sets
+client/host-specific defaults, and project configuration overrides both.
 
 The project directory defaults to the directory **where the script was invoked**,
-not the skill directory. `--project-dir` selects it explicitly. A configured
-`XDG_CONFIG_HOME` must be absolute. The wizard does not modify TRAE/Cursor rules,
-AGENTS.md, current TUI JSON settings or existing tasks. Generated files contain
-preferences and no task-specific commit or bypass grant.
+not the skill directory. `--project-dir` selects it explicitly. When the project
+directory contains both `SKILL.md` and `scripts/tmuxctl` as regular files, or is
+named `goals-tmux-skill`, the wizard displays a clear warning that saving a
+project workflow in the skill installation directory will not be discovered when
+working on other projects and will be overwritten when reinstalling or upgrading
+the skill. Saving there requires a second explicit confirmation (default `n`).
+
+For host configurations, the wizard prompts for a host name (default `trae-cn`).
+Host names are validated against `^[A-Za-z0-9][A-Za-z0-9._-]*$` (rejecting empty
+input, path separators, `..`, leading dots, and names longer than 64 characters).
+A configured `XDG_CONFIG_HOME` must be absolute. The wizard does not modify
+TRAE/Cursor rules, AGENTS.md, current TUI JSON settings or existing tasks.
+Generated files contain preferences and no task-specific commit or bypass grant.
 
 ## Inspect without saving
 

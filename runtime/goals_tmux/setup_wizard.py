@@ -101,9 +101,28 @@ def _absolute(path: Path) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
 
 
-def user_config_destination(environ: dict[str, str] | None = None, home: Path | None = None) -> Path:
-    """Return the XDG user workflow path, requiring an absolute XDG base."""
+HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+MAX_HOST_NAME_LENGTH = 64
 
+
+def validate_host_name(name: str) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Host 名称不能为空。")
+    if len(cleaned) > MAX_HOST_NAME_LENGTH:
+        raise ValueError(f"Host 名称长度不能超过 {MAX_HOST_NAME_LENGTH} 个字符。")
+    if cleaned.startswith("."):
+        raise ValueError("Host 名称不能以点开头。")
+    if ".." in cleaned or "/" in cleaned or "\\" in cleaned:
+        raise ValueError("Host 名称不能包含路径分隔符或 \"..\"。")
+    if not HOST_NAME_PATTERN.fullmatch(cleaned):
+        raise ValueError(
+            "Host 名称无效：必须以字母或数字开头，且仅包含字母、数字、点、下划线或连字符。"
+        )
+    return cleaned
+
+
+def _xdg_config_base(environ: dict[str, str] | None = None, home: Path | None = None) -> Path:
     environment = os.environ if environ is None else environ
     configured = environment.get("XDG_CONFIG_HOME")
     if configured:
@@ -112,7 +131,26 @@ def user_config_destination(environ: dict[str, str] | None = None, home: Path | 
             raise ValueError("XDG_CONFIG_HOME 必须是绝对路径；请改正环境变量或选择项目配置。")
     else:
         base = (Path.home() if home is None else Path(home)) / ".config"
+    return base
+
+
+def user_config_destination(environ: dict[str, str] | None = None, home: Path | None = None) -> Path:
+    """Return the XDG user workflow path, requiring an absolute XDG base."""
+
+    base = _xdg_config_base(environ, home)
     return _absolute(base / "goals-tmux-skill" / "workflow.yaml")
+
+
+def host_config_destination(
+    environ: dict[str, str] | None = None,
+    home: Path | None = None,
+    host_name: str = "trae-cn",
+) -> Path:
+    """Return the XDG host workflow path, requiring an absolute XDG base and valid host name."""
+
+    valid_name = validate_host_name(host_name)
+    base = _xdg_config_base(environ, home)
+    return _absolute(base / "goals-tmux-skill" / "hosts" / f"{valid_name}.yaml")
 
 
 def project_destination(project_dir: Path) -> Path:
@@ -122,6 +160,27 @@ def project_destination(project_dir: Path) -> Path:
     if not root.exists() or not root.is_dir():
         raise ValueError(f"项目目录不存在或不是目录：{root}")
     return root / ".goals-tmux.yaml"
+
+
+def is_skill_installation_dir(project_dir: Path) -> bool:
+    """Detect whether project_dir appears to be the skill installation directory."""
+
+    try:
+        resolved = Path(project_dir).expanduser().resolve()
+    except Exception:
+        resolved = Path(project_dir)
+    if resolved.name == "goals-tmux-skill" or Path(project_dir).name == "goals-tmux-skill":
+        return True
+    skill_file = resolved / "SKILL.md"
+    tmuxctl_file = resolved / "scripts" / "tmuxctl"
+    try:
+        skill_stat = os.lstat(skill_file)
+        tmuxctl_stat = os.lstat(tmuxctl_file)
+        if stat.S_ISREG(skill_stat.st_mode) and stat.S_ISREG(tmuxctl_stat.st_mode):
+            return True
+    except OSError:
+        pass
+    return False
 
 
 def _read_regular_target(path: Path) -> FileSnapshot:
@@ -1089,19 +1148,61 @@ class SetupWizard:
 
     def choose_destination(self) -> Path:
         while True:
-            self.write("\n选择保存位置：")
-            self.write("  1) 用户配置：$XDG_CONFIG_HOME/goals-tmux-skill/workflow.yaml（未设置时 ~/.config/...）")
-            self.write(f"  2) 当前项目：{self.project_dir / '.goals-tmux.yaml'}")
-            answer = self.ask("输入 1/user 或 2/project", "2").lower()
             try:
-                if answer in {"1", "u", "user"}:
+                user_path = str(user_config_destination(self.environ, self.home))
+            except ValueError:
+                user_path = "$XDG_CONFIG_HOME/goals-tmux-skill/workflow.yaml（XDG_CONFIG_HOME 必须是绝对路径）"
+
+            try:
+                project_path = str(project_destination(self.project_dir))
+            except ValueError:
+                project_path = str(_absolute(self.project_dir / ".goals-tmux.yaml"))
+
+            try:
+                base = _xdg_config_base(self.environ, self.home)
+                host_template = str(_absolute(base / "goals-tmux-skill" / "hosts" / "<host-name>.yaml"))
+            except ValueError:
+                host_template = "$XDG_CONFIG_HOME/goals-tmux-skill/hosts/<host-name>.yaml（XDG_CONFIG_HOME 必须是绝对路径）"
+
+            is_skill_dir = is_skill_installation_dir(self.project_dir)
+            if is_skill_dir:
+                self.write(
+                    "\n警告：当前目录似乎是 skill 安装目录；保存在此处的项目配置在其他项目中不会被发现，且重新安装或升级 skill 时会被覆盖。"
+                )
+
+            self.write("\n配置层级说明（优先级低到高：user < host < project）：")
+            self.write("  - user（用户层）：个人全局偏好")
+            self.write("  - host（宿主层）：特定宿主客户端环境偏好")
+            self.write("  - project（项目层）：当前项目专用偏好，优先级最高")
+            self.write("选择保存位置：")
+            self.write(f"  1) 用户配置 (user)：{user_path}")
+            self.write(f"  2) 当前项目 (project)：{project_path}")
+            self.write(f"  3) 宿主配置 (host)：{host_template}")
+            answer = self.ask("输入 1/user、2/project 或 3/host", "2").lower()
+            try:
+                if answer in {"1", "u", "user", "1/user"}:
                     return user_config_destination(self.environ, self.home)
-                if answer in {"2", "p", "project"}:
+                if answer in {"2", "p", "project", "2/project"}:
+                    if is_skill_dir:
+                        self.write(
+                            "警告：当前目录似乎是 skill 安装目录；保存在此处的项目配置在其他项目中不会被发现，且重新安装或升级 skill 时会被覆盖。"
+                        )
+                        if not self.ask_yes_no("确认保存到 skill 安装目录？", default=False):
+                            continue
                     return project_destination(self.project_dir)
+                if answer in {"3", "h", "host", "3/host"}:
+                    while True:
+                        raw_name = self.ask("输入 host 名称", "trae-cn")
+                        try:
+                            valid_name = validate_host_name(raw_name)
+                            return host_config_destination(self.environ, self.home, valid_name)
+                        except ValueError as exc:
+                            self.write(str(exc))
+                            continue
             except ValueError as exc:
                 self.write(str(exc))
                 continue
-            self.write("请输入 1 或 2。")
+            self.write("请输入 1/user、2/project 或 3/host。")
 
     def choose_edit_destination(self) -> Path:
         """Ask which existing project/user file or custom path to edit."""

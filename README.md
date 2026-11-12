@@ -210,7 +210,7 @@ prompt, with global numbering, CLI names, exact IDs and literal effort values.
 Enter `1-high, 28-xhigh, 306-max` using the printed numbers to select across CLIs. Claude
 shows only three versioned documentation references such as `claude-opus-5-5`
 when discovery is unavailable, explicitly labeled as an incomplete, unverified list. Permission preferences follow the batch. It previews the YAML before saving to
-the user configuration directory or the selected project's `.goals-tmux.yaml`.
+the user configuration directory, host configuration directory (`hosts/<host-name>.yaml`), or the selected project's `.goals-tmux.yaml`.
 Existing files require overwrite confirmation and are backed up. It requires
 Python 3.12+ but no tmux, extra Python package, or model turn.
 
