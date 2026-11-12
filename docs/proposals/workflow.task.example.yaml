@@ -1,7 +1,7 @@
 # PROPOSAL ONLY: an illustration of a private, task-bound authorization record.
 # Field types and authorization semantics: ./workflow-fields.zh-CN.md
 # This file is not an active grant and must not be copied into global defaults.
-schema_version: 1
+schema_version: 2
 kind: goals-tmux-task-overlay
 task_id: REPLACE_WITH_ACTUAL_TASK_ID
 project_root: /absolute/path/to/project
@@ -9,9 +9,7 @@ project_root: /absolute/path/to/project
 # Include these selections only when the user explicitly overrides the route.
 # selection:
 #   scenario: design
-#   cli: codex
-#   model: gpt-6-astra
-#   effort: high
+#   target: codex/gpt-6-astra/high
 #   allow_fallback: false
 
 authorization:

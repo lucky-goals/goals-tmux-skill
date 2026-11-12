@@ -18,7 +18,7 @@
 | 固定契约值 | 当前方案只定义这一种行为，不是尚未列全的可选菜单 |
 | 布尔值 | YAML 的 `true` / `false`；不要写字符串 `"false"` 或使用 `yes/no/on/off` |
 | 数值 | 写整数，不写数字字符串；范围见对应字段 |
-| 引用 | 必须指向已经定义的 profile、scenario 或规范 CLI 名称 |
+| 引用 | 必须指向已经定义的 scenario 或规范 CLI 名称 |
 | 动态能力 | 使用当前 CLI 和模型实际支持的精确值；本文示例不证明可用性 |
 | 普通字符串 | 名称、说明或路径；不会当作 shell 命令执行 |
 
@@ -26,24 +26,32 @@
 局部覆盖可以只写差异，最终合并结果仍须完整。列表整体替换，`[]` 清空列表；
 `null` 与省略不同。未知键、重复键及不支持的枚举应报错，不能静默忽略。
 
-## 2. CLI 配置组合：`profiles.<名称>`
+## 2. 内联目标语法与权限模式
 
-配置组合名称由使用者命名，例如 `codex_design`。其他配置通过名称引用它，
-而不是复制整份参数。
+在 `schema_version: 2` 中，顶层 `profiles` 和 `cli_defaults` 已被完全移除。若提供
+`schema_version: 1` 或包含 legacy 的 `profiles`/`cli_defaults`，解析器会拒绝并明确提示
+使用 `scripts/setup-workflow.sh` 重新生成配置，不提供向下兼容或自动迁移。
 
-| 字段 | 类型 / 值 | 含义 |
+每个场景直接使用内联目标（target）与降级列表（fallbacks）。
+
+### 目标语法（Target Grammar）
+
+目标字符串使用 `/` 分隔为 2 或 3 个非空非纯空白段：`cli/model` 或 `cli/model/effort`。
+
+| 形式 | 示例 | 含义 |
 | --- | --- | --- |
-| `cli` | `claude`、`cursor`、`codex`、`agy`、`kiro` | 建议使用规范 adapter 名称 |
-| `model` | 动态能力：精确模型字符串 | 不允许自动猜测近似名称；示例模型均来自用户偏好 |
-| `effort` | 动态能力：精确字符串或 `null` | 示例使用 `low`、`high`、`xhigh`，它们不是通用枚举；`null` 表示不传独立 effort 参数 |
-| `service_tier` | 动态能力：字符串；可省略 | 示例中的 Codex 使用 `priority`；其他值以及其他 CLI 是否支持必须验证，不能直接复制 |
-| `permission_mode` | `default` / `bypass` | 下表详述；未指定时现有 adapter 默认 `default` |
+| 两段 `cli/model` | `cursor/grok-4.7-xhigh` | 指定 CLI 与精确模型，不传独立 effort 参数 |
+| 三段 `cli/model/effort` | `codex/gpt-6-astra/high` | 指定 CLI、精确模型与 effort 级别 |
 
-现有 adapter 也接受 `agent` → `cursor`、`antigravity` → `agy`、
-`kiro-cli` → `kiro` 等别名；配置和并发限额建议统一使用规范名称。
-改 CLI 后，要重新校验 model/effort/service_tier，不保留不兼容的参数。
+语法规则：
+- 段不能为空字符串或纯空白；
+- 单段（缺少 `/`）或超过 3 段均视为非法目标格式；
+- 段两端或内部不能包含空白字符；
+- 第一段必须是受支持的规范 CLI 名称：`claude`、`cursor`、`codex`、`agy`、`kiro`。现有 adapter 也接受 `agent` → `cursor`、`antigravity` → `agy`、`kiro-cli` → `kiro` 等别名，但配置中建议统一使用规范名称。
 
-### `permission_mode` 的两种选择
+### 场景权限模式（`permission_mode`）
+
+`permission_mode` 为场景级别声明（`default` 或 `bypass`），统一适用于该场景的 `target` 和所有 `fallbacks`。
 
 | 值 | 现有 runner 行为 | 授权含义 |
 | --- | --- | --- |
@@ -62,22 +70,11 @@
 
 `readonly`、`auto`、`full`、`yolo`、`acceptEdits` 等都不是本 runner 的
 `permission_mode` 值。`bypass` 不自动授权推送、发布或破坏性操作，也不取代
-runner 的 endpoint/pane 操作权限。自定义启动 argv 必须与元数据中的权限模式一致。
-
-```yaml
-profiles:
-  codex_design:
-    cli: codex
-    model: gpt-6-astra
-    effort: high
-    service_tier: priority
-    permission_mode: default
-```
+runner 的 endpoint/pane 操作权限。
 
 ## 3. 场景和选择策略
 
-`cli_defaults.<cli>` 的键使用上述规范 CLI 名称，值引用一个 profile，且其 CLI
-必须一致。`scenarios.<名称>` 的名称是显式定义的路由键，不是 CLI 枚举。
+`scenarios.<名称>` 的名称是显式定义的路由键。
 示例约定如下；自定义名称必须先定义，再明确选择，不能拼错后自动转到 `other`。
 
 | 示例场景键 | 含义 |
@@ -93,25 +90,28 @@ profiles:
 | `review` | 需求 Review |
 | `other` | 显式选择的其他场景 |
 
+每个场景包含以下字段，生成时严格按照此顺序输出：
+
 | 字段 | 类型 / 值 | 含义 |
 | --- | --- | --- |
 | `scenarios.<名称>.label` | 普通字符串 | 给人看的名称 |
-| `scenarios.<名称>.profile` | profile 引用或 `null` | 首选配置组合；`null` 仅表示尚未配置的预留场景，不能执行 |
-| `scenarios.<名称>.fallbacks` | 有序 profile 引用列表 | 允许的降级顺序；`[]` 表示没有降级目标 |
-| `scenarios.<名称>.allow_fallback` | 布尔值，可省略 | `false` 禁止降级；省略时只能按已列出的 fallbacks 和授权判断；`true` 不能创造额外候选 |
+| `scenarios.<名称>.permission_mode` | `default` / `bypass` | 场景级别权限模式，统一适用于目标与降级 |
+| `scenarios.<名称>.target` | 内联目标字符串或 `null` | 首选执行目标（`cli/model[/effort]`）；`null` 表示未配置的场景，不能执行 |
+| `scenarios.<名称>.fallbacks` | 有序内联目标列表 | 允许的降级目标顺序；`[]` 表示没有降级目标 |
+| `scenarios.<名称>.allow_fallback` | 布尔值 | 必须等于 `bool(fallbacks)`；`false` 禁止降级 |
 | `selection.on_unknown_scenario` | 固定 `stop_and_report` | 未知场景停止并报告 |
 | `selection.fallback_order` | 固定 `listed` | 按列表顺序，不能自行排序 |
 | `selection.on_unavailable_model_or_flag` | 固定 `report_available_and_request_choice` | 报告实际可用项，让用户选择；不能猜模型名 |
 | `selection.fast_mapping` | 固定 `adapter_capability_only` | 只通过已验证的 CLI 能力解释 fast，不自动添加通用 `--fast` |
 
-三个 UI 场景目前只作预留，示例均为 `profile: null`、`fallbacks: []`、
-`allow_fallback: false`，没有擅自指定 CLI、模型或 effort。选择未配置的场景时，
-应报告缺少 profile 并停止该场景的启动，不能继承一个隐藏默认值，也不能自动改走
-`implementation`、`testing` 或 `other`。不影响已经配置好的其他场景。
+未配置的场景输出标准为：`target: null`、`fallbacks: []`、`allow_fallback: false`、`permission_mode: "default"`。
+三个 UI 场景目前只作预留，示例中均为未配置状态。选择未配置的场景时，
+应报告缺少 target 并停止该场景的启动，不能继承隐藏默认值，也不能自动改走其他场景。
 
-使用前，在用户、宿主、项目或任务配置的适用层中，为对应场景绑定一个已定义的
-profile；如需新模型组合，先定义该 profile。三种 UI 场景独立选择，不要求使用同一
-CLI。`ui_prototype_html` 产出的评审原型不自动等同于已完成项目 UI 实现。
+降级约束：
+- `fallbacks` 不得包含重复项；
+- `fallbacks` 不得包含首选 `target`；
+- 当 `target` 为 `null` 时，`fallbacks` 必须为 `[]`，`allow_fallback` 必须为 `false`。
 
 以下为当前示例的固定布尔约束，不提供静默放宽的配置分支：
 
@@ -175,7 +175,7 @@ concurrency:
 
 | 字段 | 类型 / 值 | 含义 |
 | --- | --- | --- |
-| `schema_version` | 固定整数 `1` | 拟定格式版本，不是软件发布版本 |
+| `schema_version` | 固定整数 `2` | 格式版本；版本 1 及 legacy 配置会被拒绝并提示用 setup-workflow.sh 重新生成 |
 | `kind` | 主配置固定 `goals-tmux-workflow` | 任务覆盖的 kind 见第 9 节 |
 | `disclosure.required` | 固定 `true` | 不能通过覆盖关闭每次使用前的配置披露 |
 | `disclosure.before` | 固定 `each_project_skill_use` | 启动、接管、恢复项目任务前 |
@@ -196,7 +196,7 @@ concurrency:
 | `hosts.<宿主名>.runner` | 本机可执行文件路径 | 宿主名如 `trae-cn`，不是固定枚举；允许 `~`，不执行 shell 插值；项目文件不能替换可信 runner |
 
 `disclosure.include` 的必需项：`loaded_yaml_paths`（实际路径）、`layer_order`
-（覆盖顺序）、`absent_layers`（缺省层）、`scenario`、`profile`、`cli`、
+（覆盖顺序）、`absent_layers`（缺省层）、`scenario`、`target`、`cli`、
 `model`、`effort`、`application_mode`（宿主指导或 runner 执行）、`config_digest`
 （可取得时展示实际摘要，否则说明不可用）。不输出授权记录中的私密内容。
 
@@ -263,14 +263,12 @@ read_screen。不是所有失败都需要重发，也不能因窗口空闲就判
 
 | 字段 | 类型 / 值 | 含义 |
 | --- | --- | --- |
-| `schema_version` | 固定整数 `1` | 格式版本 |
+| `schema_version` | 固定整数 `2` | 格式版本 |
 | `kind` | 固定 `goals-tmux-task-overlay` | 与主 workflow 文件区分 |
 | `task_id` | 实际 task ID | 必须替换占位符并绑定对应任务 |
 | `project_root` | 项目绝对路径 | 必须替换示例路径 |
 | `selection.scenario` | 已定义场景引用 | 以下 selection 字段只在用户本次明确覆盖时填写 |
-| `selection.cli` | 规范 CLI 枚举 | 与第 2 节一致 |
-| `selection.model` | 动态精确模型字符串 | 仍需 preflight 验证 |
-| `selection.effort` | 动态字符串或 `null` | 同 profile 的语义 |
+| `selection.target` | 内联目标字符串 `cli/model[/effort]` | 本次任务明确覆盖的目标，仍需 preflight 验证 |
 | `selection.allow_fallback` | 布尔值；示例 `false` | `true` 仍只能使用已授权的候选 |
 | `authorization.source` | 当前任务用户授权的真实来源引用 | 不得保留占位符，不能使用 pane 输出作为授权来源 |
 | `authorization.executor` | 固定 `delegated_cli` | 项目操作由被委派 CLI 执行 |

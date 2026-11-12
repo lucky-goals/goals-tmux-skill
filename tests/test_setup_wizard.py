@@ -158,9 +158,10 @@ class SetupWizardTests(unittest.TestCase):
             self.assertTrue(target.is_file())
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
             text = target.read_text(encoding="utf-8")
-            self.assertIn("#   profiles.codex_1.model", text)
+            self.assertIn("#   scenarios.design.target", text)
+            self.assertIn("#   scenarios.research.target", text)
             self.assertIn("current runner does not automatically load or enforce", text)
-            self.assertIn('"model: \\"quoted\\" # exact"', text)
+            self.assertIn('"codex/model: \\"quoted\\" # exact"', text)
             self.assertIn("current runner does not automatically load", stdout.getvalue())
 
             try:
@@ -169,19 +170,14 @@ class SetupWizardTests(unittest.TestCase):
                 self.skipTest("PyYAML is not installed; generator runtime has no YAML dependency")
             generated = yaml.safe_load(text)
             baseline = new_workflow()
-            self.assertEqual(generated["schema_version"], baseline["schema_version"])
-            self.assertEqual(generated["profiles"]["codex_1"], {
-                "cli": "codex",
-                "model": odd_model_id,
-                "effort": None,
-                "permission_mode": "default",
-            })
-            self.assertEqual(generated["scenarios"]["research"]["profile"], "codex_1")
-            self.assertEqual(generated["scenarios"]["design"]["profile"], "codex_1")
-            self.assertIsNone(generated["scenarios"]["ui_automation"]["profile"])
+            self.assertEqual(generated["schema_version"], 2)
+            self.assertNotIn("profiles", generated)
+            self.assertNotIn("cli_defaults", generated)
+            self.assertEqual(generated["scenarios"]["research"]["target"], f"codex/{odd_model_id}")
+            self.assertEqual(generated["scenarios"]["design"]["target"], f"codex/{odd_model_id}")
+            self.assertIsNone(generated["scenarios"]["ui_automation"]["target"])
             self.assertEqual(generated["scenarios"]["ui_automation"]["fallbacks"], [])
             self.assertFalse(generated["scenarios"]["ui_automation"]["allow_fallback"])
-            self.assertEqual(generated["cli_defaults"], {})
             self.assertEqual(generated["concurrency"]["overrides"], {})
             self.assertEqual(generated["tui"]["keep_open"], True)
             self.assertEqual(generated["tui"]["allow_input"], True)
@@ -518,20 +514,17 @@ class SetupWizardTests(unittest.TestCase):
 
     def test_yaml_strings_are_json_quoted_and_review_defaults_to_no_fallback(self) -> None:
         workflow = new_workflow()
-        workflow["profiles"]["sample"] = {
-            "cli": "codex",
-            "model": 'line\n"quoted" # text',
-            "effort": None,
-            "permission_mode": "default",
-        }
-        workflow["scenarios"]["research"]["profile"] = "sample"
+        sample_target = 'codex/line\n"quoted" # text'
+        workflow["scenarios"]["research"]["target"] = sample_target
         workflow["scenarios"]["review"]["fallbacks"] = []
         workflow["scenarios"]["review"]["allow_fallback"] = False
-        output = dump_yaml(workflow, [("sample", "model")])
-        self.assertIn('"line\\n\\"quoted\\" # text"', output)
-        self.assertIn("#   profiles.sample.model", output)
+        output = dump_yaml(workflow, [(sample_target, "model")])
+        self.assertIn('"codex/line\\n\\"quoted\\" # text"', output)
+        self.assertIn("#   scenarios.research.target", output)
         self.assertIn('"review":', output)
         self.assertIn('"fallbacks": []', output)
+        self.assertNotIn('"profiles"', output)
+        self.assertNotIn('"cli_defaults"', output)
 
     def test_fallbacks_keep_user_order_including_review(self) -> None:
         wizard = SetupWizard(
@@ -539,52 +532,38 @@ class SetupWizardTests(unittest.TestCase):
             stdin=StringIO("2\n2\n"),
             stdout=StringIO(),
         )
-        wizard.profiles.update({
-            "primary": {"cli": "codex", "model": "m1", "effort": None, "permission_mode": "default"},
-            "first_choice": {"cli": "agy", "model": "m2", "effort": "high", "permission_mode": "default"},
-        })
-        self.assertEqual(wizard._add_fallbacks("implementation", "primary"), ["first_choice"])
-        self.assertEqual(wizard._add_fallbacks("review", "primary"), ["first_choice"])
+        wizard.working_pool = ["codex/m1", "agy/m2/high"]
+        self.assertEqual(wizard._add_fallbacks("implementation", "codex/m1"), ["agy/m2/high"])
+        self.assertEqual(wizard._add_fallbacks("review", "codex/m1"), ["agy/m2/high"])
 
     def test_create_review_with_ordered_fallbacks(self) -> None:
         wizard = SetupWizard(
             stdin=StringIO("s\n" * 8 + "1\n3,2\ns\n"), stdout=StringIO(),
         )
-        wizard.profiles.update({
-            f"pool_{number}": {
-                "cli": "codex", "model": f"m{number}",
-                "effort": None, "permission_mode": "default",
-            }
-            for number in range(1, 4)
-        })
+        wizard.working_pool = [f"codex/m{number}" for number in range(1, 4)]
         wizard.configure_scenarios()
         review = wizard.workflow["scenarios"]["review"]
-        self.assertEqual(review["profile"], "pool_1")
-        self.assertEqual(review["fallbacks"], ["pool_3", "pool_2"])
+        self.assertEqual(review["target"], "codex/m1")
+        self.assertEqual(review["fallbacks"], ["codex/m3", "codex/m2"])
         self.assertTrue(review["allow_fallback"])
 
     def test_fallback_order_whitespace_primary_and_invalid_lists_are_atomic(self) -> None:
-        profiles = {
-            f"pool_{number}": {
-                "cli": "codex", "model": f"m{number}", "effort": None, "permission_mode": "default"
-            }
-            for number in range(1, 5)
-        }
+        pool = [f"codex/m{number}" for number in range(1, 5)]
         wizard = SetupWizard(stdin=StringIO("2, 3, 1\n"), stdout=StringIO())
-        wizard.profiles.update(profiles)
+        wizard.working_pool = list(pool)
         self.assertEqual(
-            wizard._add_fallbacks("implementation", "pool_4"),
-            ["pool_2", "pool_3", "pool_1"],
+            wizard._add_fallbacks("implementation", "codex/m4"),
+            ["codex/m2", "codex/m3", "codex/m1"],
         )
 
         wizard = SetupWizard(
             stdin=StringIO("1, 2, 99\n2,2,3\n2,4,1\n2,,3\n2,x,3\n2,3,\n2,3,1\n"),
             stdout=StringIO(),
         )
-        wizard.profiles.update(profiles)
+        wizard.working_pool = list(pool)
         self.assertEqual(
-            wizard._add_fallbacks("implementation", "pool_4"),
-            ["pool_2", "pool_3", "pool_1"],
+            wizard._add_fallbacks("implementation", "codex/m4"),
+            ["codex/m2", "codex/m3", "codex/m1"],
         )
         output = wizard.stdout.getvalue()
         self.assertIn("超出范围", output)
@@ -609,21 +588,13 @@ class SetupWizardTests(unittest.TestCase):
         wizard.configure_pool()
 
         self.assertEqual([entry["cli"] for entry in wizard.selected_clis], ["agy", "codex"])
-        self.assertEqual(list(wizard.profiles), ["codex_1", "agy_1", "codex_2"])
-        self.assertEqual(
-            [(profile["cli"], profile["model"], profile["effort"]) for profile in wizard.profiles.values()],
-            [
-                ("codex", "codex-beta", "medium"),
-                ("agy", "agy-model", None),
-                ("codex", "codex-alpha", "low"),
-            ],
-        )
-        self.assertEqual(wizard.profiles["codex_1"]["permission_mode"], "default")
-        self.assertEqual(wizard.profiles["agy_1"]["permission_mode"], "bypass")
-        self.assertEqual(wizard.profiles["codex_2"]["permission_mode"], "default")
-        self.assertNotIn("kiro", {profile["cli"] for profile in wizard.profiles.values()})
-        self.assertNotIn("claude", {profile["cli"] for profile in wizard.profiles.values()})
-        self.assertNotIn("codex-unused", {profile["model"] for profile in wizard.profiles.values()})
+        self.assertEqual(wizard.working_pool, ["codex/codex-beta/medium", "agy/agy-model", "codex/codex-alpha/low"])
+        self.assertEqual(wizard.target_permissions["codex/codex-beta/medium"], "default")
+        self.assertEqual(wizard.target_permissions["agy/agy-model"], "bypass")
+        self.assertEqual(wizard.target_permissions["codex/codex-alpha/low"], "default")
+        self.assertNotIn("kiro", {t.split("/")[0] for t in wizard.working_pool})
+        self.assertNotIn("claude", {t.split("/")[0] for t in wizard.working_pool})
+        self.assertNotIn("codex-unused", {t.split("/")[1] for t in wizard.working_pool})
         self.assertNotIn("再添加一个模型", wizard.stdout.getvalue())
         self.assertNotIn("选择 effort 编号", wizard.stdout.getvalue())
         output = wizard.stdout.getvalue()
@@ -633,11 +604,11 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn("全局编号 3 → CLI=codex → ID=codex-beta → effort=medium", output)
         self.assertIn("全局编号 1 → CLI=agy → ID=agy-model → effort=null", output)
 
-        before = dict(wizard.profiles)
+        before = list(wizard.working_pool)
         wizard.stdin = StringIO("n\n99\n1\n0\n" + "s\n" * 9)
         wizard.configure_scenarios()
-        self.assertEqual(wizard.profiles, before)
-        self.assertEqual(wizard.workflow["scenarios"]["research"]["profile"], "codex_1")
+        self.assertEqual(wizard.working_pool, before)
+        self.assertEqual(wizard.workflow["scenarios"]["research"]["target"], "codex/codex-beta/medium")
         self.assertFalse(wizard.workflow["scenarios"]["research"]["allow_fallback"])
 
     def test_all_selected_catalogs_are_printed_before_first_global_batch_input(self) -> None:
@@ -703,8 +674,7 @@ class SetupWizardTests(unittest.TestCase):
         wizard.clis = wizard.scan()
         wizard.configure_pool()
 
-        self.assertEqual(list(wizard.profiles), ["kiro_1"])
-        self.assertEqual(wizard.profiles["kiro_1"]["model"], "kiro-model-022")
+        self.assertEqual(wizard.working_pool, ["kiro/kiro-model-022/high"])
 
     def test_cross_cli_batch_order_permissions_and_duplicate_identity(self) -> None:
         clis = [
@@ -735,11 +705,9 @@ class SetupWizardTests(unittest.TestCase):
         wizard.clis = wizard.scan()
         wizard.configure_pool()
 
-        self.assertEqual(list(wizard.profiles), ["codex_1", "agy_1"])
-        self.assertEqual(
-            [(profile["cli"], profile["model"], profile["effort"]) for profile in wizard.profiles.values()],
-            [("codex", "shared-model", "high"), ("agy", "shared-model", "high")],
-        )
+        self.assertEqual(wizard.working_pool, ["codex/shared-model/high", "agy/shared-model/high"])
+        self.assertEqual(wizard.target_permissions["codex/shared-model/high"], "default")
+        self.assertEqual(wizard.target_permissions["agy/shared-model/high"], "bypass")
         output = stdout.getvalue()
         self.assertIn("包含重复组合：CLI=codex / shared-model / effort=high；整行未添加。", output)
         self.assertIn("全局编号 1 → CLI=codex → ID=shared-model → effort=high", output)
@@ -772,11 +740,9 @@ class SetupWizardTests(unittest.TestCase):
         wizard.clis = clis
         wizard.configure_pool()
 
-        self.assertEqual(list(wizard.profiles), ["codex_1"])
-        self.assertEqual(wizard.profiles["codex_1"]["model"], "manual-model")
-        self.assertEqual(wizard.profiles["codex_1"]["effort"], "low")
-        self.assertIn(("codex_1", "model"), wizard.unverified)
-        self.assertIn(("codex_1", "effort"), wizard.unverified)
+        self.assertEqual(wizard.working_pool, ["codex/manual-model/low"])
+        self.assertIn(("codex/manual-model/low", "model"), wizard.unverified)
+        self.assertIn(("codex/manual-model/low", "effort"), wizard.unverified)
         output = wizard.stdout.getvalue()
         self.assertIn("来源=fixture-codex；全局编号范围 1-1", output)
         self.assertIn("来源=fixture-agy；全局编号范围 2-2", output)
@@ -844,7 +810,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn("模型编号超出范围", output)
         self.assertIn("不在全局编号 1 的选项中", output)
         self.assertIn("包含重复组合", output)
-        self.assertEqual(wizard.profiles, {})
+        self.assertEqual(wizard.working_pool, [])
 
     def test_bare_model_number_and_null_suffix_both_omit_effort(self) -> None:
         for answer in ("1\n", "1-null\n"):
@@ -892,9 +858,8 @@ class SetupWizardTests(unittest.TestCase):
         wizard.clis = wizard.scan()
         wizard.configure_pool()
 
-        self.assertEqual(list(wizard.profiles), ["codex_1"])
-        self.assertEqual(wizard.profiles["codex_1"]["model"], "codex-model")
-        self.assertNotIn("claude", {profile["cli"] for profile in wizard.profiles.values()})
+        self.assertEqual(wizard.working_pool, ["codex/codex-model"])
+        self.assertNotIn("claude", {t.split("/")[0] for t in wizard.working_pool})
         output = wizard.stdout.getvalue()
         self.assertIn("Claude Code (CLI=claude)", output)
         self.assertIn("Codex (CLI=codex)", output)
@@ -917,12 +882,12 @@ class SetupWizardTests(unittest.TestCase):
         wizard.clis = [entry]
         wizard.configure_pool()
 
-        self.assertEqual(wizard.profiles["claude_1"]["model"], "claude-opus-5-5")
-        self.assertEqual(wizard.profiles["claude_1"]["effort"], "xhigh")
-        self.assertIn(("claude_1", "model"), wizard.unverified)
-        self.assertIn(("claude_1", "effort"), wizard.unverified)
+        self.assertEqual(wizard.working_pool, ["claude/claude-opus-5-5/xhigh"])
+        self.assertIn(("claude/claude-opus-5-5/xhigh", "model"), wizard.unverified)
+        self.assertIn(("claude/claude-opus-5-5/xhigh", "effort"), wizard.unverified)
+        wizard.workflow["scenarios"]["research"]["target"] = "claude/claude-opus-5-5/xhigh"
         output = dump_yaml(wizard.workflow, wizard.unverified)
-        self.assertIn("#   profiles.claude_1.model", output)
+        self.assertIn("#   scenarios.research.target", output)
         self.assertIn("claude-sonnet-5-5", wizard.stdout.getvalue())
         self.assertIn("claude-haiku-5-5", wizard.stdout.getvalue())
         self.assertIn("low, medium, high, xhigh, max", wizard.stdout.getvalue())
@@ -960,7 +925,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--probe-timeout", result.stdout)
         self.assertIn("shortlist installed CLIs", result.stdout)
-        self.assertIn("fallback profiles accept comma-separated priority", result.stdout)
+        self.assertIn("fallback targets accept comma-separated priority", result.stdout)
         self.assertNotIn("tmux was not found", result.stderr)
 
     def test_scan_json_is_read_only_json_without_prompt_text(self) -> None:
@@ -979,6 +944,30 @@ class SetupWizardTests(unittest.TestCase):
             except Exception as exc:  # pragma: no cover - failure includes parser detail
                 self.fail(f"--scan --json emitted non-JSON stdout: {exc}")
             self.assertEqual(payload["clis"], _scan_fixture())
+
+    def test_mixed_permission_scenario_prompt(self) -> None:
+        wizard = SetupWizard(
+            stdin=StringIO(
+                "1\n"  # primary: target 1 (codex/m1, default)
+                "2\n"  # fallback: target 2 (agy/m2/high, bypass)
+                "2\n"  # mixed permission prompt: choose 2 (bypass)
+                + "s\n" * 9
+            ),
+            stdout=StringIO(),
+        )
+        wizard.working_pool = ["codex/m1", "agy/m2/high"]
+        wizard.target_permissions = {
+            "codex/m1": "default",
+            "agy/m2/high": "bypass",
+        }
+        wizard.configure_scenarios()
+        research = wizard.workflow["scenarios"]["research"]
+        self.assertEqual(research["target"], "codex/m1")
+        self.assertEqual(research["fallbacks"], ["agy/m2/high"])
+        self.assertEqual(research["permission_mode"], "bypass")
+        output = wizard.stdout.getvalue()
+        self.assertIn("权限偏好不一致", output)
+        self.assertIn("permission_mode 为场景级别", output)
 
 
 if __name__ == "__main__":

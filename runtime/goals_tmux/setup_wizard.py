@@ -394,13 +394,25 @@ def _yaml_scalar(value: Any) -> str:
     raise TypeError(f"workflow contains unsupported YAML value: {type(value).__name__}")
 
 
+_SCENARIO_FIELD_ORDER = ("label", "permission_mode", "target", "fallbacks", "allow_fallback")
+
+
+def _ordered_keys(d: dict[str, Any]) -> list[str]:
+    if "label" in d and ("target" in d or "permission_mode" in d):
+        ordered = [k for k in _SCENARIO_FIELD_ORDER if k in d]
+        remaining = [k for k in d if k not in _SCENARIO_FIELD_ORDER]
+        return ordered + remaining
+    return list(d.keys())
+
+
 def _yaml_lines(value: Any, indent: int = 0) -> list[str]:
     pad = " " * indent
     if isinstance(value, dict):
         if not value:
             return [pad + "{}"]
         lines: list[str] = []
-        for key, child in value.items():
+        for key in _ordered_keys(value):
+            child = value[key]
             key_text = _yaml_scalar(key) if isinstance(key, str) else _yaml_scalar(key)
             if isinstance(child, dict):
                 if child:
@@ -440,7 +452,7 @@ def _yaml_lines(value: Any, indent: int = 0) -> list[str]:
     return [pad + _yaml_scalar(value)]
 
 
-def dump_yaml(workflow: dict[str, Any], unverified: list[tuple[str, str]] | None = None) -> str:
+def dump_yaml(workflow: dict[str, Any], unverified: Any = None) -> str:
     """Emit the workflow as safe block YAML using only JSON-quoted strings."""
 
     comments = [
@@ -450,17 +462,51 @@ def dump_yaml(workflow: dict[str, Any], unverified: list[tuple[str, str]] | None
         "# Model catalog checks may use a CLI's existing login; listed IDs do not prove quota or success.",
         "# This file contains no task-specific commit or permission-bypass authorization.",
     ]
-    manual_fields = sorted(set(unverified or []))
-    if manual_fields:
+    unverified_targets = set()
+    direct_refs = set()
+    if unverified:
+        for item in unverified:
+            if isinstance(item, (tuple, list)):
+                target_str = item[0]
+            elif isinstance(item, str):
+                target_str = item.split("#")[0]
+            else:
+                continue
+            if target_str.startswith("scenarios."):
+                direct_refs.add(target_str)
+            else:
+                unverified_targets.add(target_str)
+
+    unverified_bullets = list(direct_refs)
+    for scenario_name, route in workflow.get("scenarios", {}).items():
+        if not isinstance(route, dict):
+            continue
+        target = route.get("target")
+        if target and target in unverified_targets:
+            bullet = f"scenarios.{scenario_name}.target"
+            if bullet not in unverified_bullets:
+                unverified_bullets.append(bullet)
+        fallbacks = route.get("fallbacks", [])
+        if isinstance(fallbacks, list):
+            for fb in fallbacks:
+                if fb in unverified_targets:
+                    bullet = f"scenarios.{scenario_name}.fallbacks"
+                    if bullet not in unverified_bullets:
+                        unverified_bullets.append(bullet)
+
+    if unverified_bullets:
         comments.append("# Unverified selection(s); check them before any real launch:")
-        comments.extend(f"#   profiles.{profile}.{field}" for profile, field in manual_fields)
-    bypass_profiles = [
-        name for name, profile in workflow.get("profiles", {}).items()
-        if isinstance(profile, dict) and profile.get("permission_mode") == "bypass"
+        for ref in sorted(unverified_bullets):
+            comments.append(f"#   {ref}")
+
+    bypass_scenarios = [
+        name for name, route in workflow.get("scenarios", {}).items()
+        if isinstance(route, dict) and route.get("permission_mode") == "bypass"
     ]
-    if bypass_profiles:
+    if bypass_scenarios:
         comments.append("# permission_mode: bypass is a preference and does not grant current-task authorization.")
-        comments.extend(f"#   profiles.{name}.permission_mode" for name in bypass_profiles)
+        comments.extend(f"#   scenarios.{name}.permission_mode" for name in sorted(bypass_scenarios))
+
     return "\n".join(comments + _yaml_lines(workflow)) + "\n"
 
 
@@ -590,7 +636,8 @@ class SetupWizard:
         self.probe_timeout = probe_timeout
         self.workflow = new_workflow()
         self.clis: list[dict[str, Any]] = []
-        self.profiles: dict[str, dict[str, Any]] = self.workflow["profiles"]
+        self.working_pool: list[str] = []
+        self.target_permissions: dict[str, str] = {}
         self.selected_clis: list[dict[str, Any]] = []
         self.unverified: list[tuple[str, str]] = []
         self.save_started = False
@@ -635,22 +682,20 @@ class SetupWizard:
     def installed_clis(self) -> list[dict[str, Any]]:
         return [entry for entry in self.clis if entry.get("installed") is True]
 
-    def _profile_summary(self, name: str) -> str:
-        profile = self.profiles[name]
-        model = profile.get("model")
-        effort = profile.get("effort")
-        text = f"{name} — {profile.get('cli')} / {model} / effort={effort if effort is not None else 'null'}"
-        if profile.get("permission_mode") == "bypass":
-            text += " / permission_mode=bypass"
+    def _target_summary(self, target: str) -> str:
+        perm = self.target_permissions.get(target, "default")
+        text = target
+        if perm == "bypass":
+            text += " (permission_mode=bypass)"
         return text
 
-    def choose_profile_reference(self, prompt: str, excluded: set[str] | None = None) -> str | None:
+    def choose_target_reference(self, prompt: str, excluded: set[str] | None = None) -> str | None:
         excluded = excluded or set()
-        candidates = [name for name in self.profiles if name not in excluded]
+        candidates = [t for t in self.working_pool if t not in excluded]
         if not candidates:
             return None
-        for number, name in enumerate(candidates, 1):
-            self.write(f"  {number}) {self._profile_summary(name)}")
+        for number, t in enumerate(candidates, 1):
+            self.write(f"  {number}) {self._target_summary(t)}")
         while True:
             choice = self.ask(prompt)
             if choice.isdecimal() and 1 <= int(choice) <= len(candidates):
@@ -833,10 +878,10 @@ class SetupWizard:
         by_number = {int(row["number"]): row for row in rows}
         result: list[dict[str, Any]] = []
         seen: set[tuple[str, str, str | None]] = set()
-        existing = {
-            (str(profile.get("cli")), str(profile.get("model")), profile.get("effort"))
-            for profile in self.profiles.values()
-        }
+        existing = set()
+        for t in self.working_pool:
+            seg = t.split("/")
+            existing.add((seg[0], seg[1], seg[2] if len(seg) == 3 else None))
         for part in parts:
             match = re.fullmatch(r"(\d+)(?:\s*-\s*(.*))?", part.strip())
             if match is None:
@@ -995,12 +1040,6 @@ class SetupWizard:
             if parsed is not None:
                 return parsed
 
-    def _new_profile_name(self, cli: str) -> str:
-        number = 1
-        while f"{cli}_{number}" in self.profiles:
-            number += 1
-        return f"{cli}_{number}"
-
     def _select_permission_mode(self, cli: str) -> str:
         self.write(f"为 {_cli_label({'cli': cli})} 本次加入的全部组合选择权限偏好：")
         self.write("  1) default（推荐）：沿用 CLI 当前权限设置，不额外添加绕过参数。")
@@ -1017,7 +1056,7 @@ class SetupWizard:
             self.write("请输入 1/default 或 2/bypass。")
 
     def configure_pool(self) -> None:
-        """Build the reusable CLI/model/effort profile pool before scenarios."""
+        """Build the reusable CLI/model/effort target pool before scenarios."""
 
         self.write("\n=== 阶段 1/2：选择 CLI 并建立配置池 ===")
         self.selected_clis = self._select_clis()
@@ -1038,53 +1077,52 @@ class SetupWizard:
                 if cli in used_clis and cli not in permissions:
                     permissions[cli] = self._select_permission_mode(cli)
 
-            # Insert profiles in the user's global batch order, even when CLIs interleave.
+            # Insert targets in the user's global batch order, even when CLIs interleave.
             for item in pending:
                 cli = item["cli"]
-                name = self._new_profile_name(cli)
-                self.profiles[name] = {
-                    "cli": cli,
-                    "model": item["model"],
-                    "effort": item["effort"],
-                    "permission_mode": permissions[cli],
-                }
+                model = item["model"]
+                effort = item["effort"]
+                target_str = f"{cli}/{model}/{effort}" if effort is not None else f"{cli}/{model}"
+                perm = permissions[cli]
+                if target_str not in self.working_pool:
+                    self.working_pool.append(target_str)
+                self.target_permissions[target_str] = perm
                 if item["model_unverified"]:
-                    self.unverified.append((name, "model"))
+                    self.unverified.append((target_str, "model"))
                 if item["effort_unverified"]:
-                    self.unverified.append((name, "effort"))
-                self.write(f"已加入配置池 {name}：{self._profile_summary(name)}。")
+                    self.unverified.append((target_str, "effort"))
+                self.write(f"已加入配置池：{self._target_summary(target_str)}。")
         elif self.selected_clis:
             self.write("已跳过整个配置池；所选 CLI 的组合均未更改。")
-        if self.profiles:
+        if self.working_pool:
             self.write("配置池完成；场景阶段只能选择以下组合：")
-            for number, name in enumerate(self.profiles, 1):
-                self.write(f"  {number}) {self._profile_summary(name)}")
+            for number, target_str in enumerate(self.working_pool, 1):
+                self.write(f"  {number}) {self._target_summary(target_str)}")
         else:
-            self.write("配置池为空；可直接生成所有场景 profile=null 的模板。")
+            self.write("配置池为空；可直接生成所有场景 target=null 的模板。")
 
     def _choose_primary(self, scenario: str, label: str) -> str | None:
         self.write(f"\n=== {label}（{scenario}）===")
-        for number, name in enumerate(self.profiles, 1):
-            self.write(f"  {number}) {self._profile_summary(name)}")
-        self.write("  s) 跳过，保持 profile: null")
+        for number, target_str in enumerate(self.working_pool, 1):
+            self.write(f"  {number}) {self._target_summary(target_str)}")
+        self.write("  s) 跳过，保持 target: null")
         while True:
             answer = self.ask("选择配置池编号或 s 跳过", "s").lower()
-            names = list(self.profiles)
-            if answer.isdecimal() and 1 <= int(answer) <= len(names):
-                return names[int(answer) - 1]
+            if answer.isdecimal() and 1 <= int(answer) <= len(self.working_pool):
+                return self.working_pool[int(answer) - 1]
             if answer == "s":
                 return None
             self.write("请输入配置池编号或 s。")
 
     def _add_fallbacks(self, scenario: str, primary: str) -> list[str]:
-        candidates = list(self.profiles)
+        candidates = list(self.working_pool)
         if len(candidates) < 2:
             return []
         while True:
             self.write("选择 fallback 配置池编号并用逗号排列优先级；回车、d 或 0 表示无 fallback。")
-            for number, name in enumerate(candidates, 1):
-                marker = "（primary，不能选作 fallback）" if name == primary else ""
-                self.write(f"  {number}) {self._profile_summary(name)}{marker}")
+            for number, target_str in enumerate(candidates, 1):
+                marker = "（primary，不能选作 fallback）" if target_str == primary else ""
+                self.write(f"  {number}) {self._target_summary(target_str)}{marker}")
             answer = self.ask("fallback 编号（逗号分隔，按尝试顺序）", "d").lower()
             if answer in {"d", "done"}:
                 return []
@@ -1093,31 +1131,75 @@ class SetupWizard:
                 continue
             if not numbers:
                 return []
-            names = [candidates[number - 1] for number in numbers]
-            if primary in names:
+            selected = [candidates[number - 1] for number in numbers]
+            if primary in selected:
                 self.write("fallback 列表包含 primary；整组选择均未添加，请重新输入。")
                 continue
-            return names
+            return selected
+
+    def _resolve_scenario_permission(
+        self,
+        scenario: str,
+        label: str,
+        primary: str,
+        fallbacks: list[str],
+    ) -> str:
+        selected_targets = [primary] + fallbacks
+        perms = {self.target_permissions.get(t, "default") for t in selected_targets}
+        if len(perms) <= 1:
+            return list(perms)[0] if perms else "default"
+        # Mixed permission modes: prompt the user for scenario-level permission mode
+        primary_perm = self.target_permissions.get(primary, "default")
+        default_choice = "1" if primary_perm == "default" else "2"
+        self.write(f"\n场景 {label}（{scenario}）所选 target 与 fallback 的权限偏好不一致（包含 default 和 bypass）。")
+        self.write("permission_mode 为场景级别，将统一应用于 primary 和全部 fallback。")
+        self.write("  1) default：沿用 CLI 当前权限设置")
+        self.write("  2) bypass：请求 CLI 绕过权限确认")
+        while True:
+            ans = self.ask(f"选择该场景的 permission_mode（1/2；默认 primary 的偏好 {primary_perm}）", default_choice).lower()
+            if ans == "q":
+                raise WizardCancelled("用户选择退出")
+            if ans in {"1", "d", "default"}:
+                return "default"
+            if ans in {"2", "b", "bypass"}:
+                self.write("警告：YAML 中的 bypass 不能授权当前任务；执行时仍需当前任务明确授权。")
+                return "bypass"
+            self.write("请输入 1/default 或 2/bypass。")
 
     def configure_scenarios(self) -> None:
         self.write("\n=== 阶段 2/2：为场景选择配置池组合 ===")
-        if not self.profiles:
-            self.write("配置池为空；十个场景均保持 profile: null，未配置 fallback。")
+        if not self.working_pool:
+            self.write("配置池为空；十个场景均保持 target: null，未配置 fallback。")
+            for scenario, _ in SCENARIOS:
+                route = self.workflow["scenarios"][scenario]
+                route["target"] = None
+                route["fallbacks"] = []
+                route["allow_fallback"] = False
+                route["permission_mode"] = "default"
             return
         for scenario, label in SCENARIOS:
             primary = self._choose_primary(scenario, label)
             route = self.workflow["scenarios"][scenario]
-            route["profile"] = primary
             if primary is None:
+                route["target"] = None
                 route["fallbacks"] = []
                 route["allow_fallback"] = False
+                route["permission_mode"] = "default"
                 continue
             fallbacks = self._add_fallbacks(scenario, primary)
+            route["target"] = primary
             route["fallbacks"] = fallbacks
             route["allow_fallback"] = bool(fallbacks)
+            route["permission_mode"] = self._resolve_scenario_permission(
+                scenario, label, primary, fallbacks
+            )
 
     def configure_concurrency(self) -> None:
-        used = {profile.get("cli") for profile in self.profiles.values() if profile.get("cli")}
+        used = set()
+        for t in self.working_pool:
+            cli = t.split("/")[0]
+            if cli:
+                used.add(cli)
         if not used:
             self.write("没有已选择的 CLI；并发默认值保持为每 CLI 4，无总量上限。")
             return
@@ -1136,12 +1218,17 @@ class SetupWizard:
     def _print_selection_summary(self) -> None:
         if self.unverified:
             self.write("未验证的手动输入、文档建议或模型支持不明的 effort（只作为偏好写入）：")
-            for profile_name, field in sorted(set(self.unverified)):
-                value = self.profiles[profile_name].get(field)
-                self.write(f"  profiles.{profile_name}.{field} = {json.dumps(value, ensure_ascii=False)}")
+            for item in sorted(set(self.unverified)):
+                if isinstance(item, (tuple, list)):
+                    target_str, field = item
+                elif "#" in item:
+                    target_str, field = item.split("#", 1)
+                else:
+                    target_str, field = item, ""
+                self.write(f"  {target_str} ({field})")
         bypass = [
-            name for name, profile in self.profiles.items()
-            if profile.get("permission_mode") == "bypass"
+            name for name, route in self.workflow.get("scenarios", {}).items()
+            if isinstance(route, dict) and route.get("permission_mode") == "bypass"
         ]
         if bypass:
             self.write("permission_mode=bypass 是偏好，不授予当前任务权限：" + ", ".join(bypass))
@@ -1243,26 +1330,36 @@ class SetupWizard:
             raise ValueError(f"编辑目标不存在或无法读取：{destination}")
         document = parse_generated_yaml(snapshot.content)
         workflow = copy.deepcopy(document.workflow)
-        profiles = workflow.get("profiles")
         scenarios = workflow.get("scenarios")
-        if not isinstance(profiles, dict) or not isinstance(scenarios, dict):
-            raise ValueError("生成的工作流缺少可编辑的 profiles 或 scenarios。")
+        if not isinstance(scenarios, dict):
+            raise ValueError("生成的工作流缺少可编辑的 scenarios。")
 
         self._edit_document = document
         self._edit_snapshot = snapshot
         self._edit_destination = destination
         self._edit_original_workflow = copy.deepcopy(workflow)
         self.workflow = workflow
-        self.profiles = self.workflow["profiles"]
         self.unverified = []
 
-    def _edit_profiles_to_add(self) -> dict[str, dict[str, Any]]:
-        original = (self._edit_original_workflow or {}).get("profiles", {})
-        return {
-            name: profile
-            for name, profile in self.profiles.items()
-            if name not in original
-        }
+        # Seed working pool from existing scenarios (dedupe, preserve order)
+        self.working_pool = []
+        self.target_permissions = {}
+        for route in self.workflow.get("scenarios", {}).values():
+            if not isinstance(route, dict):
+                continue
+            perm = route.get("permission_mode", "default")
+            target = route.get("target")
+            if target and isinstance(target, str):
+                if target not in self.working_pool:
+                    self.working_pool.append(target)
+                if target not in self.target_permissions:
+                    self.target_permissions[target] = perm
+            for fb in route.get("fallbacks", []):
+                if fb and isinstance(fb, str):
+                    if fb not in self.working_pool:
+                        self.working_pool.append(fb)
+                    if fb not in self.target_permissions:
+                        self.target_permissions[fb] = perm
 
     def _edit_scenario_updates(self) -> dict[str, dict[str, Any]]:
         original_scenarios = (self._edit_original_workflow or {}).get("scenarios", {})
@@ -1273,7 +1370,7 @@ class SetupWizard:
                 continue
             changed = {
                 key: copy.deepcopy(route[key])
-                for key in ("profile", "fallbacks", "allow_fallback")
+                for key in ("permission_mode", "target", "fallbacks", "allow_fallback")
                 if key in route and route.get(key) != original.get(key)
             }
             if changed:
@@ -1285,11 +1382,8 @@ class SetupWizard:
 
         if self._edit_document is None or self._edit_snapshot is None or self._edit_destination is None:
             raise RuntimeError("编辑目标尚未加载。")
-        added = self._edit_profiles_to_add()
         updates = self._edit_scenario_updates()
-        added_names = set(added)
-        unverified = [item for item in self.unverified if item[0] in added_names]
-        output = patch_generated_yaml(self._edit_document, added, updates, unverified)
+        output = patch_generated_yaml(self._edit_document, updates)
         original = self._edit_snapshot.content
         if original is None:
             raise RuntimeError("编辑目标快照缺少原始内容。")
@@ -1315,7 +1409,7 @@ class SetupWizard:
         self.write("========== 差异结束 ==========")
         return output, diff
 
-    def _edit_add_profiles(self) -> None:
+    def _edit_add_targets(self) -> None:
         if not self._edit_scan_complete:
             self.write("新增模型需要一次只读 CLI/模型目录扫描；场景编辑无需扫描。")
             self.clis = self.scan()
@@ -1351,18 +1445,19 @@ class SetupWizard:
             self.write(f"场景 {scenario} 的配置格式不可编辑。")
             return
         label = route.get("label") if isinstance(route.get("label"), str) else scenario
-        current_profile = route.get("profile")
+        current_target = route.get("target")
         current_fallbacks = route.get("fallbacks", [])
         current_allow = route.get("allow_fallback", False)
+        current_perm = route.get("permission_mode", "default")
         self.write(f"\n{label} ({scenario}) 当前配置：")
-        self.write(f"  primary: {current_profile if current_profile is not None else 'null'}")
+        self.write(f"  primary: {current_target if current_target is not None else 'null'}")
         self.write(f"  fallbacks: {', '.join(current_fallbacks) if current_fallbacks else '无'}")
         self.write(f"  allow_fallback: {current_allow}")
-        names = list(self.profiles)
+        self.write(f"  permission_mode: {current_perm}")
         self.write("可选配置池组合：")
-        if names:
-            for number, name in enumerate(names, 1):
-                self.write(f"  {number}) {self._profile_summary(name)}")
+        if self.working_pool:
+            for number, target_str in enumerate(self.working_pool, 1):
+                self.write(f"  {number}) {self._target_summary(target_str)}")
         else:
             self.write("  （配置池为空；可清除 primary，或保留现状。）")
 
@@ -1372,21 +1467,22 @@ class SetupWizard:
             if answer == "q":
                 raise WizardCancelled("用户取消编辑")
             if answer == "":
-                primary = current_profile
+                primary = current_target
                 break
             if answer == "0":
                 primary = None
                 primary_cleared = True
                 break
-            number = self._choice_number(answer, len(names))
+            number = self._choice_number(answer, len(self.working_pool))
             if number is not None:
-                primary = names[number - 1]
+                primary = self.working_pool[number - 1]
                 break
-            self.write(f"请输入空行、0 或 1-{len(names)}。")
+            self.write(f"请输入空行、0 或 1-{len(self.working_pool)}。")
 
         if primary_cleared:
             fallbacks = []
             allow_fallback = False
+            perm_mode = "default"
             self.write("primary 已清除；该场景的 fallbacks 和 allow_fallback 也会清除。")
         else:
             while True:
@@ -1400,10 +1496,10 @@ class SetupWizard:
                     fallbacks = []
                     allow_fallback = False
                 else:
-                    numbers = self._parse_number_list(answer, len(names), context="fallback 列表")
+                    numbers = self._parse_number_list(answer, len(self.working_pool), context="fallback 列表")
                     if numbers is None:
                         continue
-                    fallbacks = [names[number - 1] for number in numbers]
+                    fallbacks = [self.working_pool[number - 1] for number in numbers]
                     allow_fallback = bool(fallbacks)
                     if primary is None and fallbacks:
                         self.write("该场景没有 primary；请先设置 primary，或输入 0 清除 fallbacks。")
@@ -1413,9 +1509,15 @@ class SetupWizard:
                     continue
                 break
 
-        route["profile"] = primary
+            if primary is not None:
+                perm_mode = self._resolve_scenario_permission(scenario, label, primary, fallbacks)
+            else:
+                perm_mode = "default"
+
+        route["target"] = primary
         route["fallbacks"] = fallbacks
         route["allow_fallback"] = allow_fallback
+        route["permission_mode"] = perm_mode
         self.write(f"已更新内存中的 {scenario} 场景；写入会等到保存确认后进行。")
 
     def _edit_save(self) -> int:
@@ -1482,7 +1584,7 @@ class SetupWizard:
             if choice in {"q", "quit", "cancel"}:
                 raise WizardCancelled("用户取消编辑")
             if choice == "1":
-                self._edit_add_profiles()
+                self._edit_add_targets()
                 continue
             if choice == "2":
                 scenario = self._edit_choose_scenario()
@@ -1565,8 +1667,8 @@ def _probe_timeout(value: str) -> float:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "First shortlist installed CLIs and model/effort profiles, then assign scenarios from that pool; "
-            "fallback profiles accept comma-separated priority order. Generate a proposed workflow YAML only; "
+            "First shortlist installed CLIs and model/effort targets, then assign scenarios from that pool; "
+            "fallback targets accept comma-separated priority order. Generate a proposed workflow YAML only; "
             "the current runner does not automatically load or enforce it.\n"
             "Model batch example: 1-high, 3-xhigh, 5-max; a bare model number or 1-null omits effort."
         )

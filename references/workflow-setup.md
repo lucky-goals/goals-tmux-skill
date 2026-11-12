@@ -36,24 +36,28 @@ options. Run this in an interactive terminal for the step-by-step prompts.
    effort values. No model or permission prompt interrupts these tables.
    Once all groups are displayed, submit one cross-CLI batch such as
    `1-high, 28-xhigh, 306-max`, using the actual printed numbers. Token order
-   becomes profile order, including interleaved CLIs. Different effort levels
+   becomes target pool order, including interleaved CLIs. Different effort levels
    for the same model are separate choices. `1` or `1-null` omits effort.
    Empty input or `s` skips the entire pool; `q` cancels. `l` lists the same
    table again without rescanning or changing numbers. `m` selects a CLI and
    adds an unverified exact model at the next global number. Only after a valid
    batch does the wizard ask for a permission preference for each used CLI.
-3. **Configure scenarios from that pool only.** Choose a primary profile by
-   number, or skip the scenario. No new CLI/model combinations are added here.
+3. **Configure scenarios from that pool only.** Choose a primary target by
+   number, or skip the scenario. If targets selected for a scenario have mixed
+   permission modes, the wizard prompts for a scenario-level permission mode
+   (default: primary target's mode) applying uniformly to target and all fallbacks.
+   No new CLI/model combinations are added here.
    The ten scenarios include research, design, test design, implementation,
    testing, HTML UI prototyping, UI implementation, UI automation, review and
    other work.
 4. Select optional fallbacks in one comma-separated input. `1,2,3` selects
-   those three profiles in that order; `2,3,1` gives profile 2 first priority,
-   then 3, then 1. Use the displayed profile numbers; blank, `d` or `0` means
+   those three targets in that order; `2,3,1` gives target 2 first priority,
+   then 3, then 1. Use the displayed target numbers; blank, `d` or `0` means
    no fallbacks. Spaces around commas are accepted. Duplicate, out-of-range,
    malformed or primary-containing selections are rejected as a whole so you
    can retry. Review also supports explicitly selected fallbacks. A skipped scenario has
-   `profile: null` and cannot silently inherit a model or the `other` scenario.
+   `target: null`, `fallbacks: []`, `allow_fallback: false` and cannot silently inherit
+   a model or the `other` scenario.
 5. Set independent same-CLI concurrency limits. The default is four per CLI;
    there is no aggregate tmux task/session/window cap. These are generated
    preferences, not an already-active scheduler or limiter.
@@ -80,37 +84,41 @@ sh scripts/setup-workflow.sh --edit
 
 A host configuration file (such as `~/.config/goals-tmux-skill/hosts/<host-name>.yaml` or `$XDG_CONFIG_HOME/...`) can be edited with `--edit` by passing its path explicitly or by choosing the custom-path option in the interactive edit menu.
 
-Edit mode loads the selected file before any CLI scan. Its menu lets you:
+Edit mode loads the selected file before any CLI scan. In schema version 2,
+files with `schema_version: 1` or legacy `profiles`/`cli_defaults` are rejected
+with an explicit error directing you to regenerate with `scripts/setup-workflow.sh`.
+Its menu lets you:
 
-1. **Add model/effort combinations.** Scan only when this action is requested,
-   select installed CLIs and use the global numbered model table. Existing
-   profiles remain intact; a duplicate combination is not added again.
+1. **Add targets to working pool.** Scan only when this action is requested,
+   select installed CLIs and use the global numbered model table to add target strings
+   (`cli/model[/effort]`) to the working pool. Added targets that are not assigned to
+   any scenario are transient and will never be persisted to the file.
 2. **Modify a selected scenario.** See the current primary and ordered fallbacks,
-   then select from the existing and newly added profiles. Blank input keeps
-   the current choice; `0` explicitly clears it. Other scenarios are untouched.
-   Review defaults to no fallback but supports the same ordered selection.
-3. **Inspect the diff.** Preview the additions and changed scenario fields.
+   then select from the working pool targets. Blank input keeps the current choice;
+   `0` explicitly clears it (setting `target: null`, `fallbacks: []`, `allow_fallback: false`).
+   If selected targets have mixed permission modes, the wizard prompts for a scenario-level mode.
+   Other scenarios are untouched. Review defaults to no fallback but supports the same ordered selection.
+3. **Inspect the diff.** Preview the changed scenario fields.
 4. **Save and exit.** Review the diff, exact path and backup path, then confirm.
    `q`, EOF or Ctrl+C before saving cancels without changing the file.
 
 You can repeat actions before saving. Changing only a scenario does not scan
 CLIs and does not require them to be installed. Edit mode does not reapply
-concurrency, TUI or template defaults. It preserves existing profile names,
-unknown fields and untouched comments/text. Changed fields may be reformatted;
-their inline comments are retained as standalone comments. New values use the
-generator's quoted format. The original snapshot is checked
-again at save time; a changed target aborts rather than accepting stale edits.
-The sibling `.bak` (or next available numbered backup) contains the exact old
-bytes. A no-op edit creates neither a backup nor a rewritten file.
+concurrency, TUI or template defaults. It preserves unknown fields and untouched
+comments/text. Changed fields may be reformatted; their inline comments are retained
+as standalone comments. New values use the generator's quoted format. The original
+snapshot is checked again at save time; a changed target aborts rather than
+accepting stale edits. The sibling `.bak` (or next available numbered backup)
+contains the exact old bytes. A no-op edit creates neither a backup nor a rewritten file.
 
-For the common “add a model and change Review” case: add the new combination,
-choose **modify scenario → Review**, select that new profile, inspect the diff,
+For the common “add a model and change Review” case: add the new combination to the pool,
+choose **modify scenario → Review**, select that new target, inspect the diff,
 and save. Use the current table's model numbers: scan numbers are not durable
 identifiers across runs.
 
 This mode supports the restricted YAML format emitted by this wizard. It is
 not a general-purpose YAML loader: unsupported constructs, duplicate keys,
-invalid references or unsupported schema versions are rejected without writes.
+invalid references or unsupported schema versions (including v1) are rejected without writes.
 Files using anchors, tags, multiline scalars or other unsupported handwritten
 YAML syntax must not be silently normalized or overwritten. Runtime automatic
 workflow loading and execution remain unimplemented. `--edit` cannot be combined
@@ -124,7 +132,7 @@ not reset for each CLI. Every row identifies its CLI, exact ID and effort values
 The group headings state their count and global number range. Tables cover all
 rows returned by this scan; this does not prove the provider returned its entire
 account catalog.
-Input order becomes profile order. Invalid numbers, malformed entries,
+Input order becomes target pool order. Invalid numbers, malformed entries,
 unsupported known effort values or duplicate identical combinations reject the
 whole line; no partial choices are retained. Different effort levels for the
 same model are separate valid combinations.
@@ -228,8 +236,8 @@ wizard; the CLIs use their existing configuration and login state.
 | `model` | Exact catalog ID, a versioned documented Claude ID marked unverified, or an explicitly unverified manual entry; not a universal fixed enum |
 | `effort` | Reported or documented effort values, explicitly unverified quick entries, or `null` to omit an independent effort flag |
 | `permission_mode` | `default` adds no runner bypass flag; `bypass` requests the adapter-specific flag but still needs current-task authorization |
-| scenario `profile` | Name of a configured profile; `null` means skipped/unconfigured |
-| `fallbacks` | Ordered references to profiles, or `[]`; they do not authorize switching during an uncertain write or an active retry |
+| scenario `target` | Inline target string `cli/model[/effort]`; `null` means skipped/unconfigured |
+| `fallbacks` | Ordered list of inline target strings, or `[]`; they do not authorize switching during an uncertain write or an active retry |
 | per-CLI concurrency | Positive integer N; it applies to one CLI across managed projects on the local user/host scope |
 
 `default` does not mean read-only: the CLI's own configuration still applies.

@@ -3,7 +3,7 @@
 # permission_mode: default | bypass (bypass requires current-task authorization).
 # User-supplied model names are preferences, not availability claims.
 # Validate them against the installed CLI/account before any launch.
-schema_version: 1
+schema_version: 2
 kind: goals-tmux-workflow
 
 # Required contract, not an optional preference. The proposed resolver must
@@ -12,7 +12,7 @@ disclosure:
   required: true
   before: each_project_skill_use
   channel: user_reply
-  include: [loaded_yaml_paths, layer_order, absent_layers, scenario, profile, cli, model, effort, application_mode, config_digest]
+  include: [loaded_yaml_paths, layer_order, absent_layers, scenario, target, cli, model, effort, application_mode, config_digest]
   repeat_on_configuration_change: true
   on_no_yaml: explicitly_report_no_yaml_loaded
   on_pinned_task: report_snapshot_and_current_file_difference
@@ -39,115 +39,75 @@ tui:
   on_missing_proof: stop_and_report
   show_after_registry_adoption: true
 
-# Named profiles describe intent; adapters compile exact launch/resume argv.
-# Do not also maintain a manually synchronized program_argv in each profile.
-profiles:
-  claude_default:
-    cli: claude
-    model: opus
-    effort: high
-    permission_mode: default
-  cursor_default:
-    cli: cursor
-    model: grok-4.7-xhigh
-    effort: null  # No separate effort flag requested; model name remains exact.
-    permission_mode: default
-  codex_default:
-    cli: codex
-    model: gpt-6-astra
-    effort: xhigh
-    service_tier: priority
-    permission_mode: default
-  codex_design:
-    cli: codex
-    model: gpt-6-astra
-    effort: high
-    service_tier: priority
-    permission_mode: default
-  codex_other:
-    cli: codex
-    model: gpt-6-astra
-    effort: low
-    service_tier: priority
-    permission_mode: default
-  codex_sol_fallback:
-    cli: codex
-    model: gpt-6.1-sol
-    # Proposed: the research fallback inherits the declared Codex default effort.
-    effort: xhigh
-    service_tier: priority
-    permission_mode: default
-  agy_default:
-    cli: agy
-    model: gemini-4-argon-high
-    effort: high
-    permission_mode: default
-  agy_flash:
-    cli: agy
-    model: gemini-3.8-flash-high
-    effort: high
-    permission_mode: default
-  kiro_default:
-    cli: kiro
-    model: claude-opus-5.5
-    effort: high
-    # --trust-all-tools requires task-specific bypass authorization.
-    permission_mode: default
-
-cli_defaults:
-  claude: claude_default
-  cursor: cursor_default
-  codex: codex_default
-  agy: agy_default
-  kiro: kiro_default
-
 scenarios:
   research:
     label: 需求调研
-    profile: agy_flash
-    fallbacks: [cursor_default, codex_sol_fallback]
+    permission_mode: default
+    target: agy/gemini-3.8-flash-high/high
+    fallbacks:
+      - cursor/grok-4.7-xhigh
+      - codex/gpt-6.1-sol/xhigh
+    allow_fallback: true
   design:
     label: 需求设计
-    profile: codex_design
-    fallbacks: [agy_default]
+    permission_mode: default
+    target: codex/gpt-6-astra/high
+    fallbacks:
+      - agy/gemini-4-argon-high/high
+    allow_fallback: true
   test_design:
     label: 测试设计
-    profile: agy_default
+    permission_mode: default
+    target: agy/gemini-4-argon-high/high
     fallbacks: []
+    allow_fallback: false
   implementation:
     label: 需求实现
-    profile: agy_flash
+    permission_mode: default
+    target: agy/gemini-3.8-flash-high/high
     fallbacks: []
+    allow_fallback: false
   testing:
     label: 需求测试
-    profile: agy_flash
+    permission_mode: default
+    target: agy/gemini-3.8-flash-high/high
     fallbacks: []
-  # Reserved UI routes: select a named profile before using these scenarios.
+    allow_fallback: false
+  # Reserved UI routes: configure target before using these scenarios.
   # null means unconfigured, not inheritance or automatic use of "other".
   ui_prototype_html:
     label: UI 原型设计（HTML）
-    profile: null
+    permission_mode: default
+    target: null
     fallbacks: []
     allow_fallback: false
   ui_implementation:
     label: UI 实现
-    profile: null
+    permission_mode: default
+    target: null
     fallbacks: []
     allow_fallback: false
   ui_automation:
     label: UI 自动化
-    profile: null
+    permission_mode: default
+    target: null
     fallbacks: []
     allow_fallback: false
   review:
     label: 需求 Review
-    profile: codex_design
+    permission_mode: default
+    target: codex/gpt-6-astra/high
     fallbacks: []
     allow_fallback: false
   other:
     label: 其他场景
-    profile: codex_other
-    fallbacks: [cursor_default, agy_default, claude_default]
+    permission_mode: default
+    target: codex/gpt-6-astra/low
+    fallbacks:
+      - cursor/grok-4.7-xhigh
+      - agy/gemini-4-argon-high/high
+      - claude/opus/high
+    allow_fallback: true
 
 selection:
   on_unknown_scenario: stop_and_report

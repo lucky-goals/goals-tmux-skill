@@ -44,7 +44,7 @@ arbitrary shell scripts into YAML or treat YAML prose as an enforcement engine.
 - [字段、枚举与填写指南（中文）](workflow-fields.zh-CN.md): allowed values,
   fixed contract values, dynamic CLI capabilities and task authorization fields.
 - [Full workflow example](workflow.example.yaml): the supplied rules normalized
-  into execution policy, named CLI profiles, scenario routes and lifecycle rules.
+  into execution policy, inline scenario targets, scenario routes and lifecycle rules.
 - [Private task overlay example](workflow.task.example.yaml): illustrates the
   quoted task-specific commit authorization, without making it a global grant.
 
@@ -57,23 +57,24 @@ Specific migration decisions:
 - `keep_open: true` wins over the duplicated sentence saying the viewer closes
   by default. Closing task-owned tmux resources and retaining a GUI display are
   separate outcomes.
-- The working tree now has a Kiro adapter. A Kiro profile can declare its model
+- The working tree now has a Kiro adapter. A Kiro target can declare its model
   and effort; it need not pretend Kiro is an unknown raw executable.
 - The requested personal Codex default is Astra/xhigh. The existing built-in
   Sol/xhigh preset remains a compatibility default until a workflow explicitly
-  selects another profile.
+  selects another target.
 - Permission mode defaults to `default`. Kiro's quoted `--trust-all-tools`
   belongs to explicitly authorized task bypass, not every Kiro launch.
 - The user clarified that concurrency limits protect each CLI from excessive
   parallel use. There is **no total tmux task/session/window cap**. The example
   retains the original per-CLI default of 4, configurable independently.
 - The research fallback to Sol did not specify effort. The example explicitly
-  proposes xhigh from the declared Codex default, rather than silently inheriting
-  the primary agy profile's effort. This is a visible example default, not a
+  proposes xhigh from the Codex default, rather than silently inheriting
+  the primary agy target's effort. This is a visible example default, not a
   verified CLI capability or a launched choice.
-- Unspecified fallback model/effort values resolve to explicit named default
-  profiles. Review defaults to an empty fallback list and `allow_fallback: false`,
-  but users can explicitly configure ordered fallbacks as with other scenarios.
+- Schema version 2 replaces named profiles with inline scenario targets (`cli/model[/effort]`).
+  Top-level `profiles` and `cli_defaults` are removed; `schema_version: 1` configs are rejected
+  and must be regenerated via `scripts/setup-workflow.sh`. Review defaults to an empty fallback
+  list and `allow_fallback: false`, but users can explicitly configure ordered fallbacks as with other scenarios.
 - A user-specified fast mode is interpreted only through verified adapter
   capabilities. Do not invent a universal `--fast` argument or approximate model
   name. A request that cannot be represented must stop with an explanation.
@@ -97,14 +98,14 @@ substitution, remote includes or arbitrary parent-directory discovery.
 
 Maps merge by typed key; lists replace rather than append. An empty fallback
 list clears inherited fallbacks. A null effort means no separate effort
-argument, not "inherit a hidden preset". A profile must pass complete adapter
+argument, not "inherit a hidden preset". Target strings (`cli/model[/effort]`) must pass complete adapter
 validation after merging. Changing CLI cannot accidentally retain another CLI's
 incompatible options. Scenario names are explicit; an unknown scenario fails
 rather than silently taking the `other` route.
 
 The example also reserves `ui_prototype_html`, `ui_implementation` and
-`ui_automation` as independent routes. Their `profile: null` means unconfigured,
-not inherited: they cannot launch until bound to a defined profile in an
+`ui_automation` as independent routes. Their `target: null` means unconfigured,
+not inherited: they cannot launch until bound to a valid target in an
 applicable configuration layer. Resolution must report the missing selection
 instead of falling through to another scenario. Empty fallbacks and disabled
 fallback remain in effect until explicitly configured; unrelated configured
@@ -133,7 +134,7 @@ task record is insufficient. Repeated watch calls within the same unchanged
 invocation do not need duplicate notices.
 
 The notice must list actual loaded paths by layer and override order, mark
-absent layers, name the selected scenario/profile and effective CLI/model/effort,
+absent layers, name the selected scenario, effective target and CLI/model/effort,
 and distinguish runner-enforced configuration from host-read guidance. Show the
 resolved digest when available. Use actual resolved paths, not merely the
 recommended default filenames. Do not display secret values or the contents of
@@ -148,7 +149,7 @@ Illustrative reply, not evidence of files currently loaded:
 - 宿主：/Users/example/.config/goals-tmux-skill/hosts/trae-cn.yaml
 - 项目：/work/example/.goals-tmux.yaml
 - 任务覆盖：无
-场景：design；配置组合：codex_design；Codex / gpt-6-astra / high。
+场景：design；目标：codex/gpt-6-astra/high。
 应用方式：runner 已解析并校验；配置摘要：<实际摘要>。
 ```
 
@@ -160,7 +161,7 @@ unreadable or invalid must be disclosed as a blocker, not silently replaced.
 
 For a resumed task, report the pinned snapshot/digest and original source paths;
 if current files differ, explain that the task is still bound to the snapshot.
-Reannounce before a configuration/profile change, including an authorized
+Reannounce before a configuration or target change, including an authorized
 fallback. Persist provenance/digest for audit, while acknowledging that the
 runner cannot prove that a host actually rendered a reply to the user.
 
@@ -193,12 +194,12 @@ tmuxctl workflow validate --file /path/to/workflow.yaml --json
 tmuxctl workflow resolve --host trae-cn --cwd /absolute/project --scenario design --json
 ```
 
-`resolve` should return the selected profile, exact CLI/model/effort/permission
+`resolve` should return the selected scenario target, exact CLI/model/effort/permission
 intent, final argv, TUI policy, per-CLI limit, host instructions, field-level
 provenance, configuration digest, and verification/enforcement gaps. It makes
-no model request and launches nothing. For example, the design profile compiles
+no model request and launches nothing. For example, the design target `codex/gpt-6-astra/high` compiles
 to an argument array containing `codex -m gpt-6-astra -c
-model_reasoning_effort="high" -c service_tier="priority"`.
+model_reasoning_effort="high"`.
 
 Preflight inspects the installed adapter version/help and supported model
 listing without guessing names. CLI-specific probes belong in adapters, not
@@ -213,7 +214,7 @@ Creation resolves a scenario, verifies its capabilities and authorization,
 reserves a per-CLI slot, then passes a normalized `cli` object and full argv to
 the existing creation path. Once a task has a workflow binding, all launch and
 restore entry points must validate against it; raw argv cannot bypass that
-binding. Persist the effective workflow/digest, profile, argv, source and launch
+binding. Persist the effective workflow/digest, target, argv, source and launch
 evidence with the task/record. Subsequent dispatch and monitoring reuse it.
 
 Resume preserves the original verified model/effort and CLI semantics, instead
@@ -227,7 +228,7 @@ running CLI arguments or interrupting existing work.
 Each rule in TRAE/Cursor/AGENTS.md can then point to this mechanism, for example:
 
 > Use goals-tmux-skill. Before work, resolve the selected host/project workflow
-> and scenario, explicitly tell the user which YAML files and effective profile
+> and scenario, explicitly tell the user which YAML files and effective target
 > apply, follow the returned execution contract, and record the selected
 > CLI/model/effort and configuration digest. Explicit instructions for this task
 > take priority within existing authorization boundaries. Stop on unresolved
@@ -264,12 +265,13 @@ guarantee that a provider will never rate-limit or flag an account.
 The independent `scripts/setup-workflow.sh` generator is implemented separately
 from this resolver plan. It constructs a known document from answers and emits
 quoted YAML with only the Python standard library. Its separate `--edit` mode
-reads only the restricted format emitted by that generator and patches new
-profiles or selected scenario fields while preserving untouched text. It neither
+reads only the restricted format emitted by that generator and patches
+selected scenario fields while preserving untouched text. It neither
 parses arbitrary YAML nor enforces workflow rules; the established-parser and
-distribution decision below still applies to future runtime YAML loading. Its
-defaults contain no selected model presets: all ten routes remain unconfigured
-until the user chooses them.
+distribution decision below still applies to future runtime YAML loading. In schema version 2,
+top-level profiles and cli_defaults are removed, schema version 1 is rejected with a regeneration message,
+and unassigned pool targets are never persisted. Its defaults contain no selected model presets:
+all ten routes remain unconfigured until the user chooses them.
 
 1. Define a versioned typed schema and resolver with provenance; preserve JSON
    compatibility. Distinguish complete resolved files from partial overlays.
@@ -279,7 +281,7 @@ until the user chooses them.
    established parser with explicit scalar validation rather than hand-writing
    a YAML parser. This requires a dependency/distribution decision because the
    current runtime advertises standard-library-only installation.
-3. Refactor adapter presets into compatibility defaults; compile profile fields
+3. Refactor adapter presets into compatibility defaults; compile target fields
    to CLI-specific launch/resume argv. Keep protected `extra_args` protection.
 4. Integrate task binding, operational checks and shared per-CLI reservations.
 5. Update skill startup instructions, example packaging and four-language docs.

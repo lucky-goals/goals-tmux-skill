@@ -18,40 +18,32 @@ from goals_tmux.setup_wizard import (  # noqa: E402
     dump_yaml,
     main,
 )
-from goals_tmux.workflow_edit import parse_generated_yaml  # noqa: E402
+from goals_tmux.workflow_edit import WorkflowEditError, parse_generated_yaml  # noqa: E402
 from goals_tmux.workflow_template import new_workflow  # noqa: E402
 
 
-def _workflow_with_profiles() -> dict:
+def _workflow_with_targets() -> dict:
     workflow = new_workflow()
-    workflow["profiles"] = {
-        "codex_1": {
-            "cli": "codex",
-            "model": "model-one",
-            "effort": "high",
-            "permission_mode": "default",
-        },
-        "codex_2": {
-            "cli": "codex",
-            "model": "model-two",
-            "effort": None,
-            "permission_mode": "default",
-        },
-    }
     workflow["scenarios"]["research"].update({
-        "profile": "codex_1",
-        "fallbacks": ["codex_2"],
+        "permission_mode": "default",
+        "target": "codex/model-one/high",
+        "fallbacks": ["codex/model-two"],
         "allow_fallback": True,
         "route_extension": {"owner": "test", "preserve": True},
     })
-    workflow["scenarios"]["review"]["profile"] = "codex_2"
+    workflow["scenarios"]["review"].update({
+        "permission_mode": "default",
+        "target": "codex/model-two",
+        "fallbacks": [],
+        "allow_fallback": False,
+    })
     workflow["scenarios"]["other"]["route_extension"] = "untouched-route"
     workflow["hosts"]["local"] = {"note": "preserve this generated section"}
     return workflow
 
 
 def _write_generated(path: Path, workflow: dict | None = None) -> bytes:
-    content = dump_yaml(workflow or _workflow_with_profiles(), [("codex_1", "model")]).encode("utf-8")
+    content = dump_yaml(workflow or _workflow_with_targets(), [("codex/model-one/high", "model")]).encode("utf-8")
     path.write_bytes(content)
     return content
 
@@ -120,9 +112,10 @@ class SetupWizardEditTests(unittest.TestCase):
 
             self.assertEqual(wizard.run_edit(target), 0)
             route = _load_workflow(target)["scenarios"]["research"]
-            self.assertIsNone(route["profile"])
+            self.assertIsNone(route["target"])
             self.assertEqual(route["fallbacks"], [])
             self.assertFalse(route["allow_fallback"])
+            self.assertEqual(route["permission_mode"], "default")
             self.assertEqual(route["route_extension"], {"owner": "test", "preserve": True})
             self.assertTrue(Path(str(target) + ".bak").is_file())
 
@@ -130,30 +123,34 @@ class SetupWizardEditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "workflow.yaml"
             original = _write_generated(target)
+            # Working pool has:
+            # 1) codex/model-one/high
+            # 2) codex/model-two
+            # Select target 1 for review, keep empty fallbacks
             wizard = self._wizard(target, ["2", "9", "1", "", "4", "y"])
 
             self.assertEqual(wizard.run_edit(target), 0)
             edited = _load_workflow(target)
-            self.assertEqual(edited["scenarios"]["review"]["profile"], "codex_1")
+            self.assertEqual(edited["scenarios"]["review"]["target"], "codex/model-one/high")
             self.assertEqual(edited["scenarios"]["review"]["fallbacks"], [])
             self.assertFalse(edited["scenarios"]["review"]["allow_fallback"])
             self.assertEqual(edited["scenarios"]["research"], _load_workflow_from_bytes(original)["scenarios"]["research"])
             self.assertEqual(edited["scenarios"]["other"], _load_workflow_from_bytes(original)["scenarios"]["other"])
             self.assertEqual(edited["hosts"], _load_workflow_from_bytes(original)["hosts"])
 
-    def test_add_profile_then_change_review_preserves_other_generated_data(self) -> None:
+    def test_add_targets_then_change_review_preserves_other_data_and_omits_unassigned(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "workflow.yaml"
             original = _write_generated(target)
             answers = [
-                "1",  # edit menu: add a profile
+                "1",  # edit menu: add targets
                 "1",  # select Codex
-                "1-high",  # global model/effort batch
+                "1-high",  # global model/effort batch -> codex/new-model/high
                 "1",  # default permission mode
                 "2",  # edit menu: edit a scenario
                 "9",  # Review
-                "3",  # newly added codex_3
-                "2,1",  # ordered Review fallbacks
+                "3",  # newly added codex/new-model/high
+                "2,1",  # ordered Review fallbacks: codex/model-two, codex/model-one/high
                 "4",  # save
                 "y",
             ]
@@ -161,32 +158,48 @@ class SetupWizardEditTests(unittest.TestCase):
 
             self.assertEqual(wizard.run_edit(target), 0)
             edited = _load_workflow(target)
-            self.assertEqual(edited["profiles"]["codex_3"]["model"], "new-model")
-            self.assertEqual(edited["profiles"]["codex_3"]["effort"], "high")
-            self.assertEqual(edited["scenarios"]["review"]["profile"], "codex_3")
-            self.assertEqual(edited["scenarios"]["review"]["fallbacks"], ["codex_2", "codex_1"])
+            self.assertNotIn("profiles", edited)
+            self.assertNotIn("cli_defaults", edited)
+            self.assertEqual(edited["scenarios"]["review"]["target"], "codex/new-model/high")
+            self.assertEqual(edited["scenarios"]["review"]["fallbacks"], ["codex/model-two", "codex/model-one/high"])
             self.assertTrue(edited["scenarios"]["review"]["allow_fallback"])
             before = _load_workflow_from_bytes(original)
-            self.assertEqual(edited["profiles"]["codex_1"], before["profiles"]["codex_1"])
             self.assertEqual(edited["scenarios"]["research"], before["scenarios"]["research"])
             self.assertEqual(edited["scenarios"]["other"], before["scenarios"]["other"])
             self.assertEqual(edited["hosts"], before["hosts"])
             self.assertTrue((Path(str(target) + ".bak")).is_file())
 
+    def test_unassigned_added_targets_are_not_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "workflow.yaml"
+            original = _write_generated(target)
+            answers = [
+                "1",  # edit menu: add targets
+                "1",  # select Codex
+                "1-high",  # batch: add codex/new-model/high
+                "1",  # default permission mode
+                "4",  # save without assigning
+            ]
+            wizard = self._wizard(target, answers, scanner=_scanner_fixture)
+            self.assertEqual(wizard.run_edit(target), 0)
+            # Nothing modified because added target was not assigned to any scenario
+            self.assertEqual(target.read_bytes(), original)
+            self.assertIn("未修改", wizard.stdout.getvalue())
+
     def test_existing_review_fallback_can_be_kept_or_cleared(self) -> None:
         for answer in ("", "0"):
             with self.subTest(answer=answer), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory) / "workflow.yaml"
-                workflow = _workflow_with_profiles()
+                workflow = _workflow_with_targets()
                 workflow["scenarios"]["review"].update({
-                    "fallbacks": ["codex_1"], "allow_fallback": True,
+                    "fallbacks": ["codex/model-one/high"], "allow_fallback": True,
                 })
                 original = _write_generated(target, workflow)
                 wizard = self._wizard(target, ["2", "9", "", answer, "4", "y"])
                 self.assertEqual(wizard.run_edit(target), 0)
                 review = _load_workflow(target)["scenarios"]["review"]
-                self.assertEqual(review["profile"], "codex_2")
-                self.assertEqual(review["fallbacks"], ["codex_1"] if answer == "" else [])
+                self.assertEqual(review["target"], "codex/model-two")
+                self.assertEqual(review["fallbacks"], ["codex/model-one/high"] if answer == "" else [])
                 self.assertEqual(review["allow_fallback"], answer == "")
                 if answer == "":
                     self.assertEqual(target.read_bytes(), original)
@@ -247,6 +260,17 @@ class SetupWizardEditTests(unittest.TestCase):
             unsupported.write_bytes(b"ordinary user YAML\n")
             with self.assertRaises(ValueError):
                 wizard.run_edit(unsupported)
+
+    def test_v1_workflow_rejected_with_regeneration_message(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            v1_file = root / "v1.yaml"
+            v1_content = _write_generated(root / "temp.yaml").replace(b'"schema_version": 2', b'"schema_version": 1')
+            v1_file.write_bytes(v1_content)
+            wizard = self._wizard(v1_file, ["q"])
+
+            with self.assertRaisesRegex(WorkflowEditError, "scripts/setup-workflow.sh"):
+                wizard.run_edit(v1_file)
 
     def test_edit_flags_conflict_with_scan_and_json(self) -> None:
         for args in (["--edit", "--scan"], ["--edit", "file.yaml", "--json"]):

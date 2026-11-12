@@ -21,7 +21,30 @@ MAX_DEPTH = 32
 
 _PLAIN_KEY = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
-_SCENARIO_FIELDS = frozenset({"profile", "fallbacks", "allow_fallback"})
+_SCENARIO_FIELDS = frozenset({"permission_mode", "target", "fallbacks", "allow_fallback"})
+
+
+def validate_target(target: Any) -> tuple[str, str, str | None]:
+    """Validate a 2- or 3-segment target string: cli/model or cli/model/effort.
+
+    Returns (cli, model, effort) where effort is None for 2-segment targets.
+    """
+    if not isinstance(target, str):
+        raise WorkflowEditError(f"target must be a string, got {type(target).__name__}")
+    segments = target.split("/")
+    if len(segments) not in (2, 3):
+        raise WorkflowEditError(
+            f"invalid target format {target!r}; expected 'cli/model' or 'cli/model/effort'"
+        )
+    for seg in segments:
+        if not seg or not seg.strip() or seg != seg.strip():
+            raise WorkflowEditError(
+                f"invalid target format {target!r}; segments cannot be empty or whitespace"
+            )
+    cli = segments[0]
+    model = segments[1]
+    effort = segments[2] if len(segments) == 3 else None
+    return cli, model, effort
 
 
 class WorkflowEditError(ValueError):
@@ -333,11 +356,9 @@ def parse_generated_yaml(raw: bytes) -> EditDocument:
 
 def patch_generated_yaml(
     document: EditDocument,
-    profiles_to_add: dict[str, dict[str, Any]],
     scenario_updates: dict[str, dict[str, Any]],
-    unverified: list[tuple[str, str]] = (),
 ) -> bytes:
-    """Patch only requested profile and scenario source spans.
+    """Patch only requested scenario source spans.
 
     The input document is never mutated. Unsupported or invalid edits raise
     ``WorkflowEditError`` before returning any bytes to be written.
@@ -345,22 +366,8 @@ def patch_generated_yaml(
 
     if not isinstance(document, EditDocument):
         raise TypeError("document must be an EditDocument")
-    if not isinstance(profiles_to_add, dict) or not isinstance(scenario_updates, dict):
-        raise WorkflowEditError("profile and scenario edits must be mappings")
-    if not isinstance(unverified, (list, tuple)):
-        raise WorkflowEditError("unverified selections must be a list of (profile, field) pairs")
-
-    existing_profiles = document.workflow["profiles"]
-    new_profiles: dict[str, dict[str, Any]] = {}
-    for name, profile in profiles_to_add.items():
-        if not isinstance(name, str) or not name:
-            raise WorkflowEditError("new profile names must be nonempty strings")
-        if name in existing_profiles:
-            raise WorkflowEditError(f"profile {name!r} already exists")
-        if not isinstance(profile, dict):
-            raise WorkflowEditError(f"new profile {name!r} must be a mapping")
-        _validate_renderable(profile)
-        new_profiles[name] = profile
+    if not isinstance(scenario_updates, dict):
+        raise WorkflowEditError("scenario updates must be a mapping")
 
     updates: dict[str, dict[str, Any]] = {}
     for scenario, changes in scenario_updates.items():
@@ -376,23 +383,9 @@ def patch_generated_yaml(
         _validate_renderable(changes)
         updates[scenario] = changes
 
-    _validate_renderable({"profiles": new_profiles, "scenarios": updates})
-
-    unverified_items: list[tuple[str, str]] = []
-    for item in unverified:
-        if not isinstance(item, (tuple, list)) or len(item) != 2:
-            raise WorkflowEditError("unverified selections must be (profile, field) pairs")
-        profile_name, field_name = item
-        if not isinstance(profile_name, str) or not isinstance(field_name, str):
-            raise WorkflowEditError("unverified profile and field names must be strings")
-        if profile_name not in new_profiles:
-            raise WorkflowEditError(f"unverified field must belong to a newly added profile: {profile_name!r}")
-        if field_name not in new_profiles[profile_name]:
-            raise WorkflowEditError(f"unverified field {profile_name}.{field_name} does not exist")
-        unverified_items.append((profile_name, field_name))
+    _validate_renderable({"scenarios": updates})
 
     final_workflow = _deepcopy_workflow(document.workflow)
-    final_workflow["profiles"].update(new_profiles)
     for scenario, changes in updates.items():
         final_workflow["scenarios"][scenario].update(changes)
     _validate_workflow(final_workflow)
@@ -401,45 +394,6 @@ def patch_generated_yaml(
     line_starts = document._line_starts
     line_ends = document._line_ends
     newline_text = document._newline.decode("ascii")
-
-    profiles_entry = document._root.entries["profiles"]
-    profiles_node = profiles_entry.node
-    if new_profiles:
-        if profiles_node.kind != "map":
-            raise WorkflowEditError("profiles must be a mapping")
-        rendered_profiles = [
-            *_render_block(new_profiles, indent=2).splitlines(),
-        ]
-        if not profiles_node.entries:
-            entry_line = profiles_entry.line
-            line = document._lines[entry_line]
-            colon = _mapping_colon(line.lstrip(" "))
-            if colon < 0:
-                raise WorkflowEditError("profiles mapping source span is invalid")
-            prefix_end = len(line) - len(line.lstrip(" ")) + colon + 1
-            prefix = line[:prefix_end].rstrip()
-            replacement_text = prefix + newline_text + newline_text.join(rendered_profiles)
-            old_start = line_starts[entry_line]
-            old_end = line_ends[entry_line]
-            had_newline = old_end > old_start and document.raw[old_end - 1 : old_end] in (b"\n", b"\r")
-            trivia = _source_trivia(document, entry_line, entry_line + 1)
-            if had_newline or trivia:
-                replacement_text += newline_text
-            if trivia:
-                replacement_text += trivia.decode("utf-8")
-            elif had_newline:
-                replacement_text += newline_text
-            operations.append((old_start, old_end, replacement_text.encode("utf-8")))
-        else:
-            insert_line = profiles_node.end_line - 1
-            offset = line_ends[insert_line]
-            at_eof = offset == len(document.raw)
-            had_final_newline = bool(document.raw.endswith((b"\n", b"\r")))
-            prefix = b"" if offset == 0 or document.raw[offset - 1 : offset] in (b"\n", b"\r") else document._newline
-            insertion = prefix + (newline_text.join(rendered_profiles)).encode("utf-8")
-            if not at_eof or had_final_newline:
-                insertion += document._newline
-            operations.append((offset, offset, insertion))
 
     scenarios_entry = document._root.entries["scenarios"]
     scenarios_node = scenarios_entry.node
@@ -483,14 +437,6 @@ def patch_generated_yaml(
             if not at_eof or had_final_newline:
                 insertion += document._newline
             operations.append((offset, offset, insertion))
-
-    bypass_profiles = [name for name, profile in new_profiles.items() if profile.get("permission_mode") == "bypass"]
-    warning_lines = _new_warning_lines(document, unverified_items, bypass_profiles)
-    if warning_lines:
-        root_start = document._root.start_line
-        offset = line_starts[root_start]
-        warning_text = newline_text.join(warning_lines) + newline_text
-        operations.append((offset, offset, warning_text.encode("utf-8")))
 
     if not operations:
         return document.raw
@@ -659,50 +605,60 @@ def _validate_workflow(workflow: Any) -> None:
     if workflow.get("kind") != "goals-tmux-workflow":
         raise WorkflowEditError("workflow.kind must be 'goals-tmux-workflow'")
     version = workflow.get("schema_version")
-    if type(version) is not int or version != 1:
-        raise WorkflowEditError("workflow.schema_version must be integer 1")
-    profiles = workflow.get("profiles")
+    if type(version) is not int or version != 2:
+        raise WorkflowEditError(
+            f"workflow.schema_version {version!r} is unsupported; workflow schema version 2 is required. "
+            "Please regenerate your workflow configuration with scripts/setup-workflow.sh"
+        )
+    if "profiles" in workflow or "cli_defaults" in workflow:
+        raise WorkflowEditError(
+            "legacy format detected: top-level 'profiles' and 'cli_defaults' are not supported in schema version 2. "
+            "Please regenerate your workflow configuration with scripts/setup-workflow.sh"
+        )
     scenarios = workflow.get("scenarios")
-    if not isinstance(profiles, dict):
-        raise WorkflowEditError("workflow.profiles must be a mapping")
     if not isinstance(scenarios, dict):
         raise WorkflowEditError("workflow.scenarios must be a mapping")
-    for name, profile in profiles.items():
-        if not isinstance(name, str) or not name:
-            raise WorkflowEditError("profile names must be nonempty strings")
-        if not isinstance(profile, dict):
-            raise WorkflowEditError(f"profiles.{name} must be a mapping")
-        if not isinstance(profile.get("cli"), str) or not profile["cli"].strip():
-            raise WorkflowEditError(f"profiles.{name}.cli must be a nonempty string")
-        if not isinstance(profile.get("model"), str) or not profile["model"].strip():
-            raise WorkflowEditError(f"profiles.{name}.model must be a nonempty string")
-        if "effort" not in profile or (profile["effort"] is not None and not isinstance(profile["effort"], str)):
-            raise WorkflowEditError(f"profiles.{name}.effort must be a string or null")
-        if profile.get("permission_mode") not in ("default", "bypass"):
-            raise WorkflowEditError(f"profiles.{name}.permission_mode must be 'default' or 'bypass'")
 
     for scenario, route in scenarios.items():
         if not isinstance(scenario, str) or not scenario:
             raise WorkflowEditError("scenario names must be nonempty strings")
         if not isinstance(route, dict):
             raise WorkflowEditError(f"scenarios.{scenario} must be a mapping")
-        if "profile" not in route or "fallbacks" not in route or "allow_fallback" not in route:
-            raise WorkflowEditError(f"scenarios.{scenario} must define profile, fallbacks, and allow_fallback")
-        primary = route["profile"]
-        if primary is not None and (not isinstance(primary, str) or primary not in profiles):
-            raise WorkflowEditError(f"scenarios.{scenario}.profile must name an existing profile or be null")
+        for field_name in ("label", "permission_mode", "target", "fallbacks", "allow_fallback"):
+            if field_name not in route:
+                raise WorkflowEditError(f"scenarios.{scenario} missing required field {field_name!r}")
+        if not isinstance(route["label"], str) or not route["label"].strip():
+            raise WorkflowEditError(f"scenarios.{scenario}.label must be a nonempty string")
+        if route["permission_mode"] not in ("default", "bypass"):
+            raise WorkflowEditError(
+                f"scenarios.{scenario}.permission_mode must be 'default' or 'bypass'"
+            )
+        primary = route["target"]
         fallbacks = route["fallbacks"]
-        if not isinstance(fallbacks, list) or any(not isinstance(item, str) or item not in profiles for item in fallbacks):
-            raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must list existing profile names")
-        if len(set(fallbacks)) != len(fallbacks):
-            raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must not contain duplicates")
-        if primary is not None and primary in fallbacks:
-            raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must not repeat the primary profile")
-        if primary is None and fallbacks:
-            raise WorkflowEditError(f"scenarios.{scenario}.fallbacks require a primary profile")
         allowed = route["allow_fallback"]
-        if not isinstance(allowed, bool) or allowed != bool(fallbacks):
-            raise WorkflowEditError(f"scenarios.{scenario}.allow_fallback must match whether fallbacks are configured")
+        if primary is None:
+            if route["permission_mode"] != "default":
+                raise WorkflowEditError(
+                    f"scenarios.{scenario}.permission_mode must be 'default' when target is null"
+                )
+            if fallbacks != []:
+                raise WorkflowEditError(f"scenarios.{scenario}: target null requires empty fallbacks")
+            if allowed is not False:
+                raise WorkflowEditError(f"scenarios.{scenario}: target null requires allow_fallback false")
+        else:
+            validate_target(primary)
+            if not isinstance(fallbacks, list):
+                raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must be a list")
+            for fb in fallbacks:
+                validate_target(fb)
+            if len(set(fallbacks)) != len(fallbacks):
+                raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must not contain duplicates")
+            if primary in fallbacks:
+                raise WorkflowEditError(f"scenarios.{scenario}.fallbacks must not repeat the primary target")
+            if not isinstance(allowed, bool) or allowed != bool(fallbacks):
+                raise WorkflowEditError(
+                    f"scenarios.{scenario}.allow_fallback must match whether fallbacks are configured"
+                )
 
 
 def _source_trivia(document: EditDocument, first_line: int, end_line: int) -> bytes:
@@ -751,41 +707,4 @@ def _line_comment_start(line: str) -> int | None:
     return None
 
 
-def _new_warning_lines(
-    document: EditDocument,
-    unverified: list[tuple[str, str]],
-    bypass_profiles: list[str],
-) -> list[str]:
-    if not unverified and not bypass_profiles:
-        return []
-    existing = {line.strip() for line in document._lines if line.lstrip().startswith("#")}
-    lines: list[str] = []
-
-    unverified_heading = "# Unverified selection(s); check them before any real launch:"
-    unverified_bullets: list[str] = []
-    for profile, field_name in sorted(set(unverified)):
-        safe_profile = profile.replace("\r", "\\r").replace("\n", "\\n")
-        safe_field = field_name.replace("\r", "\\r").replace("\n", "\\n")
-        bullet = f"#   profiles.{safe_profile}.{safe_field}"
-        if bullet not in existing and bullet not in unverified_bullets:
-            unverified_bullets.append(bullet)
-    if unverified_bullets:
-        if unverified_heading not in existing:
-            lines.append(unverified_heading)
-        lines.extend(unverified_bullets)
-
-    bypass_heading = "# permission_mode: bypass is a preference and does not grant current-task authorization."
-    bypass_bullets: list[str] = []
-    for profile in bypass_profiles:
-        safe_profile = profile.replace("\r", "\\r").replace("\n", "\\n")
-        bullet = f"#   profiles.{safe_profile}.permission_mode"
-        if bullet not in existing and bullet not in bypass_bullets:
-            bypass_bullets.append(bullet)
-    if bypass_bullets:
-        if bypass_heading not in existing:
-            lines.append(bypass_heading)
-        lines.extend(bypass_bullets)
-    return lines
-
-
-__all__ = ["EditDocument", "WorkflowEditError", "parse_generated_yaml", "patch_generated_yaml"]
+__all__ = ["EditDocument", "WorkflowEditError", "parse_generated_yaml", "patch_generated_yaml", "validate_target"]
