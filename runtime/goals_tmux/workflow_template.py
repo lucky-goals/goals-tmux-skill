@@ -21,7 +21,7 @@ _DEFAULT_WORKFLOW = {
             "layer_order",
             "absent_layers",
             "scenario",
-            "profile",
+            "target",
             "cli",
             "model",
             "effort",
