@@ -135,9 +135,10 @@ class SetupWizardTests(unittest.TestCase):
                 "1",  # select the target CLI in the separate numbered menu
                 odd_model_id,  # exact model ID, intentionally unverified
                 "1-null",  # leave effort to the CLI/model default
-                "1",  # permission mode is asked after model combinations
-                "1",  # research uses codex_1
+                "1",  # research uses codex_1 (single-target pool: no fallback prompt)
+                "2",  # research scenario-level permission: bypass
                 "1",  # design reuses codex_1
+                "",  # design scenario-level permission: default
                 *("s" for _ in range(8)),  # leave the remaining routes unconfigured
                 "",  # default per-CLI concurrency = 4
                 "2",  # project destination
@@ -174,7 +175,10 @@ class SetupWizardTests(unittest.TestCase):
             self.assertNotIn("profiles", generated)
             self.assertNotIn("cli_defaults", generated)
             self.assertEqual(generated["scenarios"]["research"]["target"], f"codex/{odd_model_id}")
+            self.assertEqual(generated["scenarios"]["research"]["permission_mode"], "bypass")
             self.assertEqual(generated["scenarios"]["design"]["target"], f"codex/{odd_model_id}")
+            self.assertEqual(generated["scenarios"]["design"]["permission_mode"], "default")
+            self.assertEqual(generated["scenarios"]["ui_automation"]["permission_mode"], "default")
             self.assertIsNone(generated["scenarios"]["ui_automation"]["target"])
             self.assertEqual(generated["scenarios"]["ui_automation"]["fallbacks"], [])
             self.assertFalse(generated["scenarios"]["ui_automation"]["allow_fallback"])
@@ -538,7 +542,7 @@ class SetupWizardTests(unittest.TestCase):
 
     def test_create_review_with_ordered_fallbacks(self) -> None:
         wizard = SetupWizard(
-            stdin=StringIO("s\n" * 8 + "1\n3,2\ns\n"), stdout=StringIO(),
+            stdin=StringIO("s\n" * 8 + "1\n3,2\n\ns\n"), stdout=StringIO(),
         )
         wizard.working_pool = [f"codex/m{number}" for number in range(1, 4)]
         wizard.configure_scenarios()
@@ -546,6 +550,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(review["target"], "codex/m1")
         self.assertEqual(review["fallbacks"], ["codex/m3", "codex/m2"])
         self.assertTrue(review["allow_fallback"])
+        self.assertEqual(review["permission_mode"], "default")
 
     def test_fallback_order_whitespace_primary_and_invalid_lists_are_atomic(self) -> None:
         pool = [f"codex/m{number}" for number in range(1, 5)]
@@ -578,7 +583,6 @@ class SetupWizardTests(unittest.TestCase):
             stdin=StringIO(
                 "2, 1\n"  # preserve requested CLI order; kiro is not selectable
                 "3-medium, 1-null, 2-low\n"  # one global batch, interleaved agy/codex rows
-                "2\n1\n"  # one permission choice per used CLI, in selected-CLI order
             ),
             stdout=StringIO(),
         )
@@ -589,9 +593,7 @@ class SetupWizardTests(unittest.TestCase):
 
         self.assertEqual([entry["cli"] for entry in wizard.selected_clis], ["agy", "codex"])
         self.assertEqual(wizard.working_pool, ["codex/codex-beta/medium", "agy/agy-model", "codex/codex-alpha/low"])
-        self.assertEqual(wizard.target_permissions["codex/codex-beta/medium"], "default")
-        self.assertEqual(wizard.target_permissions["agy/agy-model"], "bypass")
-        self.assertEqual(wizard.target_permissions["codex/codex-alpha/low"], "default")
+        self.assertFalse(hasattr(wizard, "target_permissions"))
         self.assertNotIn("kiro", {t.split("/")[0] for t in wizard.working_pool})
         self.assertNotIn("claude", {t.split("/")[0] for t in wizard.working_pool})
         self.assertNotIn("codex-unused", {t.split("/")[1] for t in wizard.working_pool})
@@ -600,16 +602,18 @@ class SetupWizardTests(unittest.TestCase):
         output = wizard.stdout.getvalue()
         self.assertLess(output.index("CLI=agy | effort"), output.index("跨 CLI 全局模型-effort 批次"))
         self.assertLess(output.index("CLI=codex | effort"), output.index("跨 CLI 全局模型-effort 批次"))
-        self.assertEqual(output.count("权限偏好（1/2"), 2)
+        self.assertNotIn("权限偏好", output)
+        self.assertNotIn("permission_mode", output)
         self.assertIn("全局编号 3 → CLI=codex → ID=codex-beta → effort=medium", output)
         self.assertIn("全局编号 1 → CLI=agy → ID=agy-model → effort=null", output)
 
         before = list(wizard.working_pool)
-        wizard.stdin = StringIO("n\n99\n1\n0\n" + "s\n" * 9)
+        wizard.stdin = StringIO("n\n99\n1\n0\n\n" + "s\n" * 9)
         wizard.configure_scenarios()
         self.assertEqual(wizard.working_pool, before)
         self.assertEqual(wizard.workflow["scenarios"]["research"]["target"], "codex/codex-beta/medium")
         self.assertFalse(wizard.workflow["scenarios"]["research"]["allow_fallback"])
+        self.assertEqual(wizard.workflow["scenarios"]["research"]["permission_mode"], "default")
 
     def test_all_selected_catalogs_are_printed_before_first_global_batch_input(self) -> None:
         def catalog_entry(cli: str, count: int) -> dict[str, object]:
@@ -668,7 +672,7 @@ class SetupWizardTests(unittest.TestCase):
 
         wizard = SetupWizard(
             scanner=lambda timeout: clis,
-            stdin=_InspectingInput(["1,2,3,4,5", "316-high", "1"], inspect),
+            stdin=_InspectingInput(["1,2,3,4,5", "316-high"], inspect),
             stdout=stdout,
         )
         wizard.clis = wizard.scan()
@@ -691,13 +695,13 @@ class SetupWizardTests(unittest.TestCase):
         snapshots: list[str] = []
 
         def inspect(read_number: int) -> None:
-            if read_number == 3:  # after valid global batch, before first permission choice
+            if read_number == 2:  # before the (valid) second global batch answer
                 snapshots.append(stdout.getvalue())
 
         wizard = SetupWizard(
             scanner=lambda timeout: clis,
             stdin=_InspectingInput(
-                ["1,2", "1-high,1-high", "1-high,2-high", "1", "2"],
+                ["1,2", "1-high,1-high", "1-high,2-high"],
                 inspect,
             ),
             stdout=stdout,
@@ -706,16 +710,15 @@ class SetupWizardTests(unittest.TestCase):
         wizard.configure_pool()
 
         self.assertEqual(wizard.working_pool, ["codex/shared-model/high", "agy/shared-model/high"])
-        self.assertEqual(wizard.target_permissions["codex/shared-model/high"], "default")
-        self.assertEqual(wizard.target_permissions["agy/shared-model/high"], "bypass")
         output = stdout.getvalue()
         self.assertIn("包含重复组合：CLI=codex / shared-model / effort=high；整行未添加。", output)
         self.assertIn("全局编号 1 → CLI=codex → ID=shared-model → effort=high", output)
         self.assertIn("全局编号 2 → CLI=agy → ID=shared-model → effort=high", output)
-        self.assertEqual(output.count("权限偏好（1/2"), 2)
+        self.assertNotIn("权限偏好", output)
+        self.assertNotIn("permission_mode", output)
+        self.assertLess(output.index("已选组合（按输入顺序）"), output.index("配置池完成"))
         self.assertIn("所有已选 CLI 的模型表均已显示", snapshots[0])
         self.assertLess(snapshots[0].index("CLI=codex | effort"), snapshots[0].index("CLI=agy | effort"))
-        self.assertLess(snapshots[0].index("已选组合（按输入顺序）"), snapshots[0].index("权限偏好（1/2"))
 
     def test_manual_model_appends_stable_global_row_and_relist_keeps_identity(self) -> None:
         clis = [
@@ -852,7 +855,7 @@ class SetupWizardTests(unittest.TestCase):
         ]
         wizard = SetupWizard(
             scanner=lambda timeout: clis,
-            stdin=StringIO("1,2\n4-null\n1\n"),
+            stdin=StringIO("1,2\n4-null\n"),
             stdout=StringIO(),
         )
         wizard.clis = wizard.scan()
@@ -867,7 +870,8 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn("claude-haiku-5-5", output)
         self.assertIn("完整目录未取得；以下仅3个官方文档参考模型，并非全部模型", output)
         self.assertLess(output.index("4) codex-model"), output.index("跨 CLI 全局模型-effort 批次"))
-        self.assertLess(output.index("所有已选 CLI 的模型表均已显示"), output.index("权限偏好（1/2"))
+        self.assertLess(output.index("所有已选 CLI 的模型表均已显示"), output.index("配置池完成"))
+        self.assertNotIn("权限偏好", output)
 
     def test_claude_versioned_models_and_effort_enums_are_offered_without_aliases(self) -> None:
         entry = {
@@ -878,7 +882,7 @@ class SetupWizardTests(unittest.TestCase):
             "efforts": [],
             "efforts_status": "unavailable",
         }
-        wizard = SetupWizard(stdin=StringIO("1\n1-xhigh\n1\n"), stdout=StringIO())
+        wizard = SetupWizard(stdin=StringIO("1\n1-xhigh\n"), stdout=StringIO())
         wizard.clis = [entry]
         wizard.configure_pool()
 
@@ -945,30 +949,71 @@ class SetupWizardTests(unittest.TestCase):
                 self.fail(f"--scan --json emitted non-JSON stdout: {exc}")
             self.assertEqual(payload["clis"], _scan_fixture())
 
-    def test_mixed_permission_scenario_prompt(self) -> None:
-        wizard = SetupWizard(
-            stdin=StringIO(
-                "1\n"  # primary: target 1 (codex/m1, default)
-                "2\n"  # fallback: target 2 (agy/m2/high, bypass)
-                "2\n"  # mixed permission prompt: choose 2 (bypass)
-                + "s\n" * 9
-            ),
-            stdout=StringIO(),
-        )
+    def test_scenario_permission_prompt_after_fallbacks_once_per_configured_scenario(self) -> None:
+        stdout = StringIO()
+        prompts_before_read: list[str] = []
+
+        def inspect(read_number: int) -> None:
+            prompts_before_read.append(stdout.getvalue())
+
+        answers = [
+            "1",  # research primary: codex/m1
+            "2",  # research fallback: agy/m2/high
+            "2",  # research permission: bypass
+            "s",  # design skipped: no permission prompt
+            "2",  # test_design primary: agy/m2/high
+            "",  # test_design: no fallback
+            "",  # test_design permission: default (blank -> 1)
+            *("s" for _ in range(7)),
+        ]
+        wizard = SetupWizard(stdin=_InspectingInput(answers, inspect), stdout=stdout)
         wizard.working_pool = ["codex/m1", "agy/m2/high"]
-        wizard.target_permissions = {
-            "codex/m1": "default",
-            "agy/m2/high": "bypass",
-        }
         wizard.configure_scenarios()
-        research = wizard.workflow["scenarios"]["research"]
+
+        scenarios = wizard.workflow["scenarios"]
+        research = scenarios["research"]
         self.assertEqual(research["target"], "codex/m1")
         self.assertEqual(research["fallbacks"], ["agy/m2/high"])
+        self.assertTrue(research["allow_fallback"])
         self.assertEqual(research["permission_mode"], "bypass")
-        output = wizard.stdout.getvalue()
-        self.assertIn("权限偏好不一致", output)
-        self.assertIn("permission_mode 为场景级别", output)
+        self.assertEqual(scenarios["test_design"]["target"], "agy/m2/high")
+        self.assertEqual(scenarios["test_design"]["fallbacks"], [])
+        self.assertEqual(scenarios["test_design"]["permission_mode"], "default")
+        for name, route in scenarios.items():
+            if name in {"research", "test_design"}:
+                continue
+            self.assertIsNone(route["target"], name)
+            self.assertEqual(route["fallbacks"], [], name)
+            self.assertFalse(route["allow_fallback"], name)
+            self.assertEqual(route["permission_mode"], "default", name)
 
+        output = stdout.getvalue()
+        self.assertEqual(output.count("permission_mode（场景级，统一应用于 primary 和全部 fallback）"), 2)
+        self.assertIn("1) default（推荐）：沿用 CLI 当前权限设置", output)
+        self.assertIn("2) bypass：请求 CLI 绕过权限确认（仍需当前任务明确授权）", output)
+        self.assertIn("警告：YAML 中的 bypass 不能授权当前任务", output)
+        self.assertNotIn("权限偏好不一致", output)
+        # Permission prompt for research appears only after the fallback answer was consumed.
+        self.assertNotIn("场景级", prompts_before_read[1])
+        self.assertIn("场景级", prompts_before_read[2])
+        # Skipped design scenario (read 3) is not followed by a permission prompt.
+        self.assertEqual(prompts_before_read[4].count("场景级"), 1)
+
+    def test_scenario_permission_accepts_aliases_reprompts_and_q_cancels(self) -> None:
+        wizard = SetupWizard(stdin=StringIO("x\nb\n"), stdout=StringIO())
+        self.assertEqual(wizard._ask_scenario_permission("research", "研究"), "bypass")
+        self.assertIn("请输入 1/default 或 2/bypass。", wizard.stdout.getvalue())
+        wizard = SetupWizard(stdin=StringIO("d\n"), stdout=StringIO())
+        self.assertEqual(wizard._ask_scenario_permission("research", "研究"), "default")
+        wizard = SetupWizard(stdin=StringIO("q\n"), stdout=StringIO())
+        with self.assertRaises(WizardCancelled):
+            wizard._ask_scenario_permission("research", "研究")
+
+    def test_target_summary_has_no_permission_suffix(self) -> None:
+        wizard = SetupWizard(stdout=StringIO())
+        self.assertEqual(wizard._target_summary("codex/m1/high"), "codex/m1/high")
+        for name in ("_select_permission_mode", "_resolve_scenario_permission"):
+            self.assertFalse(hasattr(wizard, name), name)
 
 if __name__ == "__main__":
     unittest.main()

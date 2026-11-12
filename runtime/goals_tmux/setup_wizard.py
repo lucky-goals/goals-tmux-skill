@@ -637,7 +637,6 @@ class SetupWizard:
         self.workflow = new_workflow()
         self.clis: list[dict[str, Any]] = []
         self.working_pool: list[str] = []
-        self.target_permissions: dict[str, str] = {}
         self.selected_clis: list[dict[str, Any]] = []
         self.unverified: list[tuple[str, str]] = []
         self.save_started = False
@@ -683,11 +682,7 @@ class SetupWizard:
         return [entry for entry in self.clis if entry.get("installed") is True]
 
     def _target_summary(self, target: str) -> str:
-        perm = self.target_permissions.get(target, "default")
-        text = target
-        if perm == "bypass":
-            text += " (permission_mode=bypass)"
-        return text
+        return target
 
     def choose_target_reference(self, prompt: str, excluded: set[str] | None = None) -> str | None:
         excluded = excluded or set()
@@ -1040,21 +1035,6 @@ class SetupWizard:
             if parsed is not None:
                 return parsed
 
-    def _select_permission_mode(self, cli: str) -> str:
-        self.write(f"为 {_cli_label({'cli': cli})} 本次加入的全部组合选择权限偏好：")
-        self.write("  1) default（推荐）：沿用 CLI 当前权限设置，不额外添加绕过参数。")
-        self.write("  2) bypass：请求 CLI 绕过权限确认；仅记录偏好，执行仍需当前任务明确授权。")
-        while True:
-            permission = self.ask("权限偏好（1/2；兼容 d/b；q 退出向导）", "1").lower()
-            if permission == "q":
-                raise WizardCancelled("用户选择退出")
-            if permission in {"1", "d", "default"}:
-                return "default"
-            if permission in {"2", "b", "bypass"}:
-                self.write("警告：YAML 中的 bypass 不能授权当前任务；执行时仍需当前任务明确授权。")
-                return "bypass"
-            self.write("请输入 1/default 或 2/bypass。")
-
     def configure_pool(self) -> None:
         """Build the reusable CLI/model/effort target pool before scenarios."""
 
@@ -1069,24 +1049,14 @@ class SetupWizard:
                     f"  全局编号 {item['number']} → CLI={item['cli']} → ID={item['model']} → effort={effort}"
                 )
 
-            # Ask once for each CLI represented in the batch, in selected-CLI order.
-            used_clis = {item["cli"] for item in pending}
-            permissions: dict[str, str] = {}
-            for entry in self.selected_clis:
-                cli = str(entry.get("cli") or "unknown")
-                if cli in used_clis and cli not in permissions:
-                    permissions[cli] = self._select_permission_mode(cli)
-
             # Insert targets in the user's global batch order, even when CLIs interleave.
             for item in pending:
                 cli = item["cli"]
                 model = item["model"]
                 effort = item["effort"]
                 target_str = f"{cli}/{model}/{effort}" if effort is not None else f"{cli}/{model}"
-                perm = permissions[cli]
                 if target_str not in self.working_pool:
                     self.working_pool.append(target_str)
-                self.target_permissions[target_str] = perm
                 if item["model_unverified"]:
                     self.unverified.append((target_str, "model"))
                 if item["effort_unverified"]:
@@ -1137,34 +1107,28 @@ class SetupWizard:
                 continue
             return selected
 
-    def _resolve_scenario_permission(
-        self,
-        scenario: str,
-        label: str,
-        primary: str,
-        fallbacks: list[str],
-    ) -> str:
-        selected_targets = [primary] + fallbacks
-        perms = {self.target_permissions.get(t, "default") for t in selected_targets}
-        if len(perms) <= 1:
-            return list(perms)[0] if perms else "default"
-        # Mixed permission modes: prompt the user for scenario-level permission mode
-        primary_perm = self.target_permissions.get(primary, "default")
-        default_choice = "1" if primary_perm == "default" else "2"
-        self.write(f"\n场景 {label}（{scenario}）所选 target 与 fallback 的权限偏好不一致（包含 default 和 bypass）。")
-        self.write("permission_mode 为场景级别，将统一应用于 primary 和全部 fallback。")
-        self.write("  1) default：沿用 CLI 当前权限设置")
-        self.write("  2) bypass：请求 CLI 绕过权限确认")
+    def _ask_scenario_permission(self, scenario: str, label: str, current: str | None = None) -> str:
+        """Ask one scenario-level permission_mode; current=None means creation flow (default 1)."""
+
+        self.write(f"\n{label}（{scenario}）permission_mode（场景级，统一应用于 primary 和全部 fallback）：")
+        self.write("  1) default（推荐）：沿用 CLI 当前权限设置")
+        self.write("  2) bypass：请求 CLI 绕过权限确认（仍需当前任务明确授权）")
+        if current is None:
+            prompt, default = "permission_mode（1/2；兼容 d/b；q 退出向导）", "1"
+        else:
+            prompt, default = f"permission_mode：空行保留当前 {current}，1 default，2 bypass（q 取消）", None
         while True:
-            ans = self.ask(f"选择该场景的 permission_mode（1/2；默认 primary 的偏好 {primary_perm}）", default_choice).lower()
-            if ans == "q":
-                raise WizardCancelled("用户选择退出")
-            if ans in {"1", "d", "default"}:
+            answer = self.ask(prompt, default).lower()
+            if answer == "q":
+                raise WizardCancelled("用户选择退出" if current is None else "用户取消编辑")
+            if answer == "" and current is not None:
+                return current
+            if answer in {"1", "d", "default"}:
                 return "default"
-            if ans in {"2", "b", "bypass"}:
+            if answer in {"2", "b", "bypass"}:
                 self.write("警告：YAML 中的 bypass 不能授权当前任务；执行时仍需当前任务明确授权。")
                 return "bypass"
-            self.write("请输入 1/default 或 2/bypass。")
+            self.write("请输入 1/default 或 2/bypass。" if current is None else "请输入空行、1/default 或 2/bypass。")
 
     def configure_scenarios(self) -> None:
         self.write("\n=== 阶段 2/2：为场景选择配置池组合 ===")
@@ -1190,9 +1154,7 @@ class SetupWizard:
             route["target"] = primary
             route["fallbacks"] = fallbacks
             route["allow_fallback"] = bool(fallbacks)
-            route["permission_mode"] = self._resolve_scenario_permission(
-                scenario, label, primary, fallbacks
-            )
+            route["permission_mode"] = self._ask_scenario_permission(scenario, label)
 
     def configure_concurrency(self) -> None:
         used = set()
@@ -1343,23 +1305,15 @@ class SetupWizard:
 
         # Seed working pool from existing scenarios (dedupe, preserve order)
         self.working_pool = []
-        self.target_permissions = {}
         for route in self.workflow.get("scenarios", {}).values():
             if not isinstance(route, dict):
                 continue
-            perm = route.get("permission_mode", "default")
             target = route.get("target")
-            if target and isinstance(target, str):
-                if target not in self.working_pool:
-                    self.working_pool.append(target)
-                if target not in self.target_permissions:
-                    self.target_permissions[target] = perm
+            if target and isinstance(target, str) and target not in self.working_pool:
+                self.working_pool.append(target)
             for fb in route.get("fallbacks", []):
-                if fb and isinstance(fb, str):
-                    if fb not in self.working_pool:
-                        self.working_pool.append(fb)
-                    if fb not in self.target_permissions:
-                        self.target_permissions[fb] = perm
+                if fb and isinstance(fb, str) and fb not in self.working_pool:
+                    self.working_pool.append(fb)
 
     def _edit_scenario_updates(self) -> dict[str, dict[str, Any]]:
         original_scenarios = (self._edit_original_workflow or {}).get("scenarios", {})
@@ -1510,7 +1464,9 @@ class SetupWizard:
                 break
 
             if primary is not None:
-                perm_mode = self._resolve_scenario_permission(scenario, label, primary, fallbacks)
+                perm_mode = self._ask_scenario_permission(
+                    scenario, label, current_perm if current_perm in {"default", "bypass"} else "default"
+                )
             else:
                 perm_mode = "default"
 

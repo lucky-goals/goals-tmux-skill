@@ -40,12 +40,15 @@ options. Run this in an interactive terminal for the step-by-step prompts.
    for the same model are separate choices. `1` or `1-null` omits effort.
    Empty input or `s` skips the entire pool; `q` cancels. `l` lists the same
    table again without rescanning or changing numbers. `m` selects a CLI and
-   adds an unverified exact model at the next global number. Only after a valid
-   batch does the wizard ask for a permission preference for each used CLI.
+   adds an unverified exact model at the next global number. No permission
+   question is asked in this stage.
 3. **Configure scenarios from that pool only.** Choose a primary target by
-   number, or skip the scenario. If targets selected for a scenario have mixed
-   permission modes, the wizard prompts for a scenario-level permission mode
-   (default: primary target's mode) applying uniformly to target and all fallbacks.
+   number, or skip the scenario. For each configured scenario, after the primary
+   and ordered fallbacks are chosen, the wizard asks one scenario-level
+   `permission_mode` question that applies uniformly to the primary and all
+   fallbacks: `1` default (recommended; blank input) or `2` bypass (`d`/`b`
+   aliases; `q` cancels). Skipped scenarios get `target: null` and
+   `permission_mode: "default"` without a permission prompt.
    No new CLI/model combinations are added here.
    The ten scenarios include research, design, test design, implementation,
    testing, HTML UI prototyping, UI implementation, UI automation, review and
@@ -96,7 +99,10 @@ Its menu lets you:
 2. **Modify a selected scenario.** See the current primary and ordered fallbacks,
    then select from the working pool targets. Blank input keeps the current choice;
    `0` explicitly clears it (setting `target: null`, `fallbacks: []`, `allow_fallback: false`).
-   If selected targets have mixed permission modes, the wizard prompts for a scenario-level mode.
+   When a primary remains set, the wizard then asks the scenario-level `permission_mode`:
+   `1` default, `2` bypass, blank keeps the current value, `q` cancels. Clearing the
+   primary (`0`) resets `permission_mode` to `default` without asking. Adding targets
+   to the pool never asks a permission question.
    Other scenarios are untouched. Review defaults to no fallback but supports the same ordered selection.
 3. **Inspect the diff.** Preview the changed scenario fields.
 4. **Save and exit.** Review the diff, exact path and backup path, then confirm.
@@ -162,10 +168,10 @@ literal values `low`, `medium`, `high`, `xhigh`, `max` are offered only as
 **unverified quick entries**, not a claim that the CLI accepts them. There is
 no extra manual-effort submenu.
 
-`1` or `1-null` leaves the independent effort option unset. After the cross-CLI batch,
-choose each used CLI's permission preference: retain its current settings
-(recommended) or request bypass. This is a configuration preference, not
-current-task authorization.
+`1` or `1-null` leaves the independent effort option unset. Permission is not
+chosen per CLI. It is chosen per configured scenario, after that scenario's
+target and fallbacks: retain the CLI's current settings (recommended) or request
+bypass. This is a configuration preference, not current-task authorization.
 
 ## Destinations
 

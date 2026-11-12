@@ -97,7 +97,7 @@ class SetupWizardEditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / ".goals-tmux.yaml"
             original = _write_generated(target)
-            wizard = self._wizard(target, ["2", "1", "", "", "4"])
+            wizard = self._wizard(target, ["2", "1", "", "", "", "4"])  # blank primary/fallback/permission
 
             self.assertEqual(wizard.run_edit(target), 0)
             self.assertEqual(target.read_bytes(), original)
@@ -126,14 +126,15 @@ class SetupWizardEditTests(unittest.TestCase):
             # Working pool has:
             # 1) codex/model-one/high
             # 2) codex/model-two
-            # Select target 1 for review, keep empty fallbacks
-            wizard = self._wizard(target, ["2", "9", "1", "", "4", "y"])
+            # Select target 1 for review, keep empty fallbacks, keep permission
+            wizard = self._wizard(target, ["2", "9", "1", "", "", "4", "y"])
 
             self.assertEqual(wizard.run_edit(target), 0)
             edited = _load_workflow(target)
             self.assertEqual(edited["scenarios"]["review"]["target"], "codex/model-one/high")
             self.assertEqual(edited["scenarios"]["review"]["fallbacks"], [])
             self.assertFalse(edited["scenarios"]["review"]["allow_fallback"])
+            self.assertEqual(edited["scenarios"]["review"]["permission_mode"], "default")
             self.assertEqual(edited["scenarios"]["research"], _load_workflow_from_bytes(original)["scenarios"]["research"])
             self.assertEqual(edited["scenarios"]["other"], _load_workflow_from_bytes(original)["scenarios"]["other"])
             self.assertEqual(edited["hosts"], _load_workflow_from_bytes(original)["hosts"])
@@ -145,12 +146,12 @@ class SetupWizardEditTests(unittest.TestCase):
             answers = [
                 "1",  # edit menu: add targets
                 "1",  # select Codex
-                "1-high",  # global model/effort batch -> codex/new-model/high
-                "1",  # default permission mode
+                "1-high",  # global model/effort batch -> codex/new-model/high (no permission prompt)
                 "2",  # edit menu: edit a scenario
                 "9",  # Review
                 "3",  # newly added codex/new-model/high
                 "2,1",  # ordered Review fallbacks: codex/model-two, codex/model-one/high
+                "2",  # scenario-level permission: bypass
                 "4",  # save
                 "y",
             ]
@@ -163,6 +164,11 @@ class SetupWizardEditTests(unittest.TestCase):
             self.assertEqual(edited["scenarios"]["review"]["target"], "codex/new-model/high")
             self.assertEqual(edited["scenarios"]["review"]["fallbacks"], ["codex/model-two", "codex/model-one/high"])
             self.assertTrue(edited["scenarios"]["review"]["allow_fallback"])
+            self.assertEqual(edited["scenarios"]["review"]["permission_mode"], "bypass")
+            output = wizard.stdout.getvalue()
+            self.assertNotIn("权限偏好", output)
+            self.assertEqual(output.count("permission_mode（场景级"), 1)
+            self.assertLess(output.index("fallback：空行保留"), output.index("permission_mode（场景级"))
             before = _load_workflow_from_bytes(original)
             self.assertEqual(edited["scenarios"]["research"], before["scenarios"]["research"])
             self.assertEqual(edited["scenarios"]["other"], before["scenarios"]["other"])
@@ -176,8 +182,7 @@ class SetupWizardEditTests(unittest.TestCase):
             answers = [
                 "1",  # edit menu: add targets
                 "1",  # select Codex
-                "1-high",  # batch: add codex/new-model/high
-                "1",  # default permission mode
+                "1-high",  # batch: add codex/new-model/high (no permission prompt)
                 "4",  # save without assigning
             ]
             wizard = self._wizard(target, answers, scanner=_scanner_fixture)
@@ -185,6 +190,50 @@ class SetupWizardEditTests(unittest.TestCase):
             # Nothing modified because added target was not assigned to any scenario
             self.assertEqual(target.read_bytes(), original)
             self.assertIn("未修改", wizard.stdout.getvalue())
+            self.assertNotIn("权限偏好", wizard.stdout.getvalue())
+            self.assertNotIn("permission_mode（场景级", wizard.stdout.getvalue())
+
+    def test_scenario_permission_blank_keeps_two_sets_bypass_and_clear_forces_default(self) -> None:
+        cases = (
+            # (initial permission, answers after selecting Review, expected permission)
+            ("bypass", ["", "", ""], "bypass"),  # blank keeps current bypass
+            ("default", ["", "", "2"], "bypass"),  # 2 sets bypass
+            ("bypass", ["", "", "1"], "default"),  # 1 sets default
+            ("bypass", ["0"], "default"),  # clearing primary forces default without prompting
+        )
+        for initial, route_answers, expected in cases:
+            with self.subTest(initial=initial, answers=route_answers), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "workflow.yaml"
+                workflow = _workflow_with_targets()
+                workflow["scenarios"]["review"]["permission_mode"] = initial
+                original = _write_generated(target, workflow)
+                wizard = self._wizard(target, ["2", "9", *route_answers, "4", "y"])
+
+                self.assertEqual(wizard.run_edit(target), 0)
+                review = _load_workflow(target)["scenarios"]["review"]
+                self.assertEqual(review["permission_mode"], expected)
+                output = wizard.stdout.getvalue()
+                if route_answers == ["0"]:
+                    self.assertIsNone(review["target"])
+                    self.assertNotIn("permission_mode（场景级", output)
+                else:
+                    self.assertEqual(review["target"], "codex/model-two")
+                    self.assertEqual(output.count("permission_mode（场景级"), 1)
+                    self.assertIn(f"空行保留当前 {initial}", output)
+                if expected == initial and route_answers != ["0"]:
+                    self.assertEqual(target.read_bytes(), original)
+                else:
+                    self.assertEqual(Path(str(target) + ".bak").read_bytes(), original)
+
+    def test_scenario_permission_q_cancels_edit_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "workflow.yaml"
+            original = _write_generated(target)
+            wizard = self._wizard(target, ["2", "9", "", "", "q"])
+            with self.assertRaises(WizardCancelled):
+                wizard.run_edit(target)
+            self.assertEqual(target.read_bytes(), original)
+            self.assertEqual(list(Path(directory).glob("*.bak*")), [])
 
     def test_existing_review_fallback_can_be_kept_or_cleared(self) -> None:
         for answer in ("", "0"):
@@ -195,7 +244,7 @@ class SetupWizardEditTests(unittest.TestCase):
                     "fallbacks": ["codex/model-one/high"], "allow_fallback": True,
                 })
                 original = _write_generated(target, workflow)
-                wizard = self._wizard(target, ["2", "9", "", answer, "4", "y"])
+                wizard = self._wizard(target, ["2", "9", "", answer, "", "4", "y"])
                 self.assertEqual(wizard.run_edit(target), 0)
                 review = _load_workflow(target)["scenarios"]["review"]
                 self.assertEqual(review["target"], "codex/model-two")
@@ -304,7 +353,7 @@ class SetupWizardEditTests(unittest.TestCase):
             target = root / "workflow.yaml"
             original = _write_generated(target)
             with (
-                patch("sys.stdin", StringIO("2\n1\n\n\n4\n")),
+                patch("sys.stdin", StringIO("2\n1\n\n\n\n4\n")),
                 patch("sys.stdout", new_callable=StringIO),
                 patch("goals_tmux.setup_wizard._default_discover", side_effect=AssertionError("scan called")),
             ):

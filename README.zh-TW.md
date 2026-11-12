@@ -193,7 +193,7 @@ fallback 支援逗號多選：`2,3,1` 依此順序安排優先級；另可設定
 先展示所有已選 CLI 的模型表，再顯示唯一的統一輸入框。每列包含全域編號、CLI、模型 ID 與 effort。
 按表中編號輸入 `1-high, 28-xhigh, 306-max`，一次跨 CLI 選擇；`l` 可重列全表，編號不變。
 Claude 未取得完整目錄時，僅提供 `claude-opus-5-5` 等三個文件參考模型，標示「並非全部模型、帳號可用性未驗證」。
-批次選完後再以編號選單選擇權限偏好。預覽 YAML 後，選擇存至使用者設定目錄、宿主設定（`hosts/<host-name>.yaml`）或專案的 `.goals-tmux.yaml`；覆寫須額外確認，
+權限模式不按 CLI 詢問，而是在每個已設定場景選完 target 與 fallback 後詢問一次。預覽 YAML 後，選擇存至使用者設定目錄、宿主設定（`hosts/<host-name>.yaml`）或專案的 `.goals-tmux.yaml`；覆寫須額外確認，
 並保留備份。需要 Python 3.12+，不需要 tmux 或額外 Python 套件，不發起模型任務。
 
 局部修改既有設定：`sh scripts/setup-workflow.sh --edit /絕對路徑/workflow.yaml`。
