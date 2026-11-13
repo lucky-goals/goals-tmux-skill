@@ -149,6 +149,93 @@ class HeadlessFixtureTest(unittest.TestCase):
         self.assertTrue(thought["text"].startswith("The user wants"))
         self.assertEqual(events[-1].payload["result"], "ok")
 
+    def test_cursor_tool_call_started_and_completed_frames_normalize_cleanly(self):
+        norm = Normalizer("t0001", "headless")
+        lines = [
+            {
+                "type": "system",
+                "subtype": "init",
+                "session_id": "sess-cursor-tc-1",
+                "model": "Auto",
+                "permissionMode": "default",
+            },
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-cursor-1",
+                "tool_call": {
+                    "readToolCall": {"args": {"path": "README.md"}},
+                    "hookAdditionalContexts": [],
+                    "toolCallId": "call-cursor-1",
+                },
+            },
+            {
+                "type": "tool_call",
+                "subtype": "completed",
+                "call_id": "call-cursor-1",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {"path": "README.md"},
+                        "result": {"success": {"content": "hello world"}},
+                    },
+                    "hookAdditionalContexts": [],
+                    "toolCallId": "call-cursor-1",
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "Done."}]},
+                "session_id": "sess-cursor-tc-1",
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "result": "Done.",
+                "session_id": "sess-cursor-tc-1",
+            },
+        ]
+        events: list[PreEvent] = []
+        for raw_seq, line in enumerate(lines, start=1):
+            events += norm.headless_line("cursor", line, raw_seq, float(raw_seq) * 0.1)
+        events += norm.finish()
+        events.append(norm.headless_turn_end(0))
+
+        self.assertEqual(of_type(events, "adapter_unknown"), [])
+        calls = of_type(events, "tool_call")
+        results = of_type(events, "tool_result")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(calls[0].payload["call_id"], "call-cursor-1")
+        self.assertEqual(calls[0].payload["tool"], "readToolCall")
+        self.assertEqual(calls[0].payload["status"], "in_progress")
+        self.assertEqual(results[0].payload["call_id"], "call-cursor-1")
+        self.assertTrue(results[0].payload["ok"])
+        self.assertEqual(results[0].payload["status"], "completed")
+        self.assertIn("hello world", results[0].payload["output_summary"])
+        self.assertEqual([m.payload["text"] for m in of_type(events, "message")], ["Done."])
+        self.assertEqual(events[-1].payload["result"], "ok")
+
+        # Recorded Phase 0 Cursor headless turn with real tool_call started/completed frames.
+        if (FIXTURES / "p0d_cursor_acp_to_hl.json").exists():
+            rec_norm, rec_events = headless_turn("cursor", "p0d_cursor_acp_to_hl.json")
+            self.assertEqual(of_type(rec_events, "adapter_unknown"), [])
+            rec_calls = of_type(rec_events, "tool_call")
+            rec_results = of_type(rec_events, "tool_result")
+            self.assertGreaterEqual(len(rec_calls), 1)
+            self.assertEqual(len(rec_calls), len(rec_results))
+            self.assertEqual(
+                {c.payload["call_id"] for c in rec_calls},
+                {r.payload["call_id"] for r in rec_results},
+            )
+            self.assertEqual(rec_events[-1].payload["result"], "ok")
+            self.assertEqual(rec_norm.observed["session_id"], "64cf4eb7-e261-4465-9006-7cced62aeb60")
+
+        # p0c_cursor_headless_ok.json is the free-tier stderr failure probe; ensure its rx frames have no unknowns.
+        if (FIXTURES / "p0c_cursor_headless_ok.json").exists():
+            _, ok_probe_events = headless_turn("cursor", "p0c_cursor_headless_ok.json")
+            self.assertEqual(of_type(ok_probe_events, "adapter_unknown"), [])
+
     def test_agy_headless_steps(self):
         norm, events = headless_turn("agy", "p0c_agy_headless_ok.json")
         self.assertEqual(of_type(events, "adapter_unknown"), [])

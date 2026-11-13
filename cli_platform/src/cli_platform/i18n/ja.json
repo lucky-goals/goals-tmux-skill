@@ -279,6 +279,7 @@
   "error.LOCALE_UNSUPPORTED": "この言語には対応していません。",
   "error.CATALOG_INVALID": "メッセージカタログが無効です。",
   "error.RATE_LIMITED": "アカウントがレート制限を受けています。",
+  "error.MODEL_UNAVAILABLE": "要求されたモデルはこのアカウントでは利用できません。",
   "error.AUTH_REQUIRED": "CLI の再サインインが必要です。",
   "error.ADAPTER_UNAVAILABLE": "CLI を起動できませんでした。",
   "error.RUN_UNKNOWN": "この ID またはニックネームの実行はありません。",

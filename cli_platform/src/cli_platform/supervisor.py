@@ -42,7 +42,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
@@ -95,6 +95,18 @@ LIVE_STATES = ("queued", "starting", "running", "cancelling")
 _BREAKER_TURN_FAULTS = frozenset({errors.ACP_STREAM_ENDED, errors.ACP_STREAM_CORRUPT,
                                   errors.TURN_TIMEOUT, errors.ACP_CANCEL_UNACKNOWLEDGED,
                                   errors.PERMISSION_UNANSWERABLE})
+_COMMIT_EVENT_TYPES = frozenset({
+    "thought", "thought_delta", "tool_call", "tool_result", "plan", "permission_requested",
+})
+
+
+def _is_commit_pre_event(pre: PreEvent) -> bool:
+    """True when ``pre`` represents model output or a permission prompt."""
+    if pre.type in _COMMIT_EVENT_TYPES:
+        return True
+    if pre.type in ("message", "message_delta"):
+        return pre.payload.get("role") != "user"
+    return False
 
 
 @dataclass(frozen=True)
@@ -734,6 +746,15 @@ class RunService:
             if duplicate is not None:
                 return duplicate
             handle.clear_cancel()
+            prior_committed = (
+                bool(run.state.get("resume_id"))
+                or int(run.state.get("turns", 0)) > 0
+                or bool(run.state.get("selection"))
+            )
+            pin = Candidate(**run.run["pin"]) if run.run.get("pin") else None
+            allow_fallback = bool(run.run.get("allow_fallback"))
+            fallback_permitted = (not prior_committed) and (pin is None or allow_fallback)
+
             turn_id = f"t{turns + 1:04d}"
             selection, account, disclosure = self._route(run, turn_id)
             ready_called = False
@@ -744,14 +765,45 @@ class RunService:
                     ready_called = True
                     on_ready(run, turn_id, before_seq, disclosure)
 
-            lease = self._lease(run, turn_id, selection, account, on_state_change=notify_ready)
-            if lease is None:
-                return self._summary(run, turn_id, request_id, disclosure=disclosure)
-            try:
-                return self._turn(run, turn_id, request_id, instruction, selection, account, lease,
-                                  disclosure=disclosure)
-            finally:
-                handle.clear_cancel()
+            excluded_models: set[tuple[str, str]] = set()
+            fallback_reasons: list[str] = list((disclosure or {}).get("reasons") or ())
+            initial_requested = str((disclosure or {}).get("requested") or selection.label())
+
+            while True:
+                lease = self._lease(run, turn_id, selection, account, on_state_change=notify_ready)
+                if lease is None:
+                    return self._summary(run, turn_id, request_id, disclosure=disclosure)
+                try:
+                    summary, outcome = self._run_attempt(
+                        run, turn_id, request_id, instruction, selection, account, lease,
+                        disclosure=disclosure, prior_committed=prior_committed,
+                    )
+                finally:
+                    handle.clear_cancel()
+                if (
+                    not fallback_permitted
+                    or outcome.turn_committed
+                    or outcome.cancelled
+                    or (outcome.error or outcome.stream_error) != errors.MODEL_UNAVAILABLE
+                ):
+                    return summary
+
+                excluded_models.add((selection.variant, selection.model))
+                if errors.MODEL_UNAVAILABLE not in fallback_reasons:
+                    fallback_reasons.append(errors.MODEL_UNAVAILABLE)
+                next_turn_id = f"t{int(run.state.get('turns', 0)) + 1:04d}"
+                next_route = self._route_fallback(
+                    run, next_turn_id, excluded_models, initial_requested, fallback_reasons,
+                )
+                if next_route is None:
+                    return summary
+                # Clear uncommitted attempt state so the fallback candidate starts fresh.
+                run.state.pop("selection", None)
+                run.state.pop("transport", None)
+                run.state.pop("resume_id", None)
+                run.save()
+                turn_id = next_turn_id
+                selection, account, disclosure = next_route
 
     def _send_detached(self, ref: str, instruction: str, *, request_id: str | None = None) -> dict:
         """Spawn a setsid per-turn worker holding ``RunHandle.lock`` and wait for readiness."""
@@ -929,6 +981,60 @@ class RunService:
         run.append("route_resolved", payload, turn_id=turn_id)
         return selection, account, disclosure
 
+    def _route_fallback(
+        self,
+        run: _Run,
+        turn_id: str,
+        excluded_models: set[tuple[str, str]],
+        initial_requested: str,
+        fallback_reasons: list[str],
+    ) -> tuple[Candidate, str, dict[str, object]] | None:
+        """Resolve the next serviceable candidate after pre-commit ``MODEL_UNAVAILABLE``."""
+        platform, stage_id = self.platform, run.run["stage"]
+        config = platform.config
+        stage = config.stages.get(stage_id)
+        if stage is None:
+            return None
+        filtered_stage = replace(
+            stage,
+            candidates=tuple(
+                c for c in stage.candidates if (c.variant, c.model) not in excluded_models
+            ),
+        )
+        filtered_defaults = tuple(
+            c for c in config.default_candidates if (c.variant, c.model) not in excluded_models
+        )
+        filtered_config = replace(
+            config,
+            stages={**config.stages, stage_id: filtered_stage},
+            default_candidates=filtered_defaults,
+        )
+        filtered_router = Router(
+            filtered_config, platform.registry, platform.catalog, platform.limiter.blocked_on,
+        )
+        try:
+            resolution = filtered_router.resolve(RouteRequest(
+                stage=stage_id, pin=None, allow_fallback=True,
+            ))
+        except PlatformError as exc:
+            if exc.code in (errors.NO_ROUTE, errors.PIN_UNSATISFIABLE):
+                return None
+            raise
+
+        reasons: list[str] = []
+        for reason in [*fallback_reasons, *((resolution.disclosure or {}).get("reasons") or ())]:
+            if reason not in reasons:
+                reasons.append(reason)
+        merged_disclosure: dict[str, object] = {
+            "requested": initial_requested,
+            "selected": resolution.selected.label(),
+            "reasons": reasons,
+            "adjustments": list((resolution.disclosure or {}).get("adjustments") or ()),
+        }
+        payload = dict(resolution.to_dict(), fallback_used=True, disclosure=merged_disclosure)
+        run.append("route_resolved", payload, turn_id=turn_id)
+        return resolution.selected, resolution.account, merged_disclosure
+
     def _lease(self, run: _Run, turn_id: str, selection: Candidate, account: str,
                *, on_state_change: Callable[[], None] | None = None) -> Outcome | None:
         """Acquire the turn's lease, queueing if needed. None: the wait ended
@@ -971,6 +1077,15 @@ class RunService:
     def _turn(self, run: _Run, turn_id: str, request_id: str, instruction: str,
               selection: Candidate, account: str, lease: Outcome,
               *, disclosure: dict[str, object] | None = None) -> dict:
+        summary, _ = self._run_attempt(
+            run, turn_id, request_id, instruction, selection, account, lease, disclosure=disclosure,
+        )
+        return summary
+
+    def _run_attempt(self, run: _Run, turn_id: str, request_id: str, instruction: str,
+                     selection: Candidate, account: str, lease: Outcome,
+                     *, disclosure: dict[str, object] | None = None,
+                     prior_committed: bool = False) -> tuple[dict, "_TurnOutcome"]:
         platform, config = self.platform, self.platform.config
         stage = config.stages[run.run["stage"]]
         variant = platform.registry.get(selection.variant)
@@ -999,7 +1114,10 @@ class RunService:
                 self._record_rate_limit(run, turn_id, account, exc.details.get("retry_after"))
             self._release(run, turn_id, lease, "binding_failed")
             run.transition("failed", exc.code, turn_id=turn_id)
-            return self._summary(run, turn_id, request_id, error=exc.code, disclosure=disclosure)
+            return (
+                self._summary(run, turn_id, request_id, error=exc.code, disclosure=disclosure),
+                _TurnOutcome(error=exc.code, turn_committed=prior_committed),
+            )
 
         # The commit point. Nothing reached a model before this line is on disk.
         try:
@@ -1025,7 +1143,7 @@ class RunService:
         run.state.update(turns=int(run.state.get("turns", 0)) + 1, last_turn=turn_id,
                          transport=bound.launch.transport, selection=selection.__dict__)
         run.transition("running", "turn_started", turn_id=turn_id)
-        outcome = _TurnOutcome()
+        outcome = _TurnOutcome(turn_committed=prior_committed)
         try:
             self._drive(run, turn_id, instruction, bound, stage.permission_profile, lease, outcome)
         finally:
@@ -1034,8 +1152,9 @@ class RunService:
                                 "expected": outcome.completed or outcome.cancelled or info.expected,
                                 "stderr_tail": list(info.stderr_tail[-5:])}, turn_id=turn_id)
         self._after_turn(run, turn_id, bound, ctx, account, lease, outcome)
-        return self._summary(run, turn_id, request_id, error=outcome.error, result=outcome.result,
-                             fallback=bound.fallback, disclosure=disclosure)
+        summary = self._summary(run, turn_id, request_id, error=outcome.error, result=outcome.result,
+                                fallback=bound.fallback, disclosure=disclosure)
+        return summary, outcome
 
     def _drive(self, run: _Run, turn_id: str, instruction: str, bound: Bound, profile: str,
                lease: Outcome, outcome: "_TurnOutcome") -> None:
@@ -1096,6 +1215,7 @@ class RunService:
             if pre.type == "tick":
                 continue
             if pre.type == "permission_request":
+                outcome.turn_committed = True
                 if not self._permission(run, turn_id, agent, pre, profile,
                                         cancelling=cancel_deadline is not None):
                     outcome.fail(errors.PERMISSION_UNANSWERABLE)
@@ -1127,6 +1247,8 @@ class RunService:
                 run.append("turn_completed", payload, turn_id=turn_id, source="adapter",
                            raw_seq=pre.raw_seq)
                 return
+            if _is_commit_pre_event(pre):
+                outcome.turn_committed = True
             self._append_adapter(run, turn_id, bound, pre, deltas)
             if pre.type == "error" and pre.payload.get("code"):
                 outcome.stream_error = pre.payload["code"]
@@ -1567,6 +1689,7 @@ class _TurnOutcome:
     stream_error: str | None = None
     resume_id: str | None = None
     retry_after: float | None = None
+    turn_committed: bool = False
 
     def fail(self, code: str) -> None:
         if self.error is None:

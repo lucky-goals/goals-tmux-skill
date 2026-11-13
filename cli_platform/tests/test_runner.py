@@ -18,9 +18,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from support import make_config, raw_config
+from support import LIBRARY, make_config, raw_config
 
-from cli_platform import supervisor
+from cli_platform import errors, supervisor
+from cli_platform.config import Candidate
 from cli_platform.errors import PlatformError
 from cli_platform.events import read_events
 from cli_platform.limiter import LeaseRequest
@@ -527,6 +528,268 @@ class SupervisorRulesTest(RunnerCase):
             self.assertIsInstance(state.get("as_of_seq"), int)
             self.assertNotIsInstance(state.get("as_of_seq"), bool)
             self.assertEqual(state["as_of_seq"], events[-1]["seq"])
+
+
+class CursorFallbackTest(RunnerCase):
+    def _write_json_fixture(self, path: Path, body: dict) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body), encoding="utf-8")
+        return path
+
+    def _cursor_wrapper(self, bin_path: Path, record_path: Path, *,
+                        model_fixtures: dict[str, Path], default_fixture: Path) -> Path:
+        bin_path.parent.mkdir(parents=True, exist_ok=True)
+        py = shlex.quote(sys.executable)
+        fake_hl = shlex.quote(str(TESTS / "fake_headless_cli.py"))
+        cases = "\n".join(
+            f'  if [ "$prev" = "--model" ] && [ "$arg" = {shlex.quote(model)} ]; then '
+            f'fixture={shlex.quote(str(fixture))}; fi'
+            for model, fixture in model_fixtures.items()
+        )
+        bin_path.write_text(
+            "#!/bin/sh\n"
+            f"fixture={shlex.quote(str(default_fixture))}\n"
+            'prev=""\n'
+            'for arg in "$@"; do\n'
+            f"{cases}\n"
+            '  prev="$arg"\n'
+            "done\n"
+            f"exec {py} {fake_hl} --fixture \"$fixture\" --record {shlex.quote(str(record_path))} \"$@\"\n",
+            encoding="utf-8",
+        )
+        bin_path.chmod(0o755)
+        return bin_path
+
+    def _cursor_service(self, case_dir: Path, binary: Path, *,
+                        candidates: list[tuple[str, str]]) -> RunService:
+        case_dir.mkdir(parents=True, exist_ok=True)
+        state_dir = case_dir / "state"
+        toml_path = case_dir / "cli-platform.toml"
+        models = sorted({model for _, model in candidates})
+        model_blocks = "\n".join(
+            f'[[models]]\nvariant = "cursor"\nid = {json.dumps(model)}\n'
+            for model in models
+        )
+        candidate_list = ", ".join(
+            f'{{ variant = {json.dumps(variant)}, model = {json.dumps(model)} }}'
+            for variant, model in candidates
+        )
+        toml_path.write_text(
+            "schema_version = 1\n\n"
+            "[platform]\n"
+            f"state_dir = {json.dumps(str(state_dir))}\n\n"
+            "[nicknames]\n"
+            f"library = {json.dumps(str(LIBRARY))}\n\n"
+            "[concurrency]\n"
+            "global_max_parallel = 4\n"
+            "heartbeat_seconds = 1\n"
+            "lease_ttl_seconds = 30\n\n"
+            "[execution]\n"
+            "cancel_grace_seconds = 1\n"
+            "close_grace_seconds = 2\n"
+            "quiet_timeout_seconds = 20\n\n"
+            "[accounts.cursor-free]\n"
+            'vendor = "cursor"\n'
+            "max_parallel = 2\n\n"
+            "[variants.cursor]\n"
+            'adapter = "cursor"\n'
+            f"binary = {json.dumps(str(binary))}\n"
+            'account = "cursor-free"\n'
+            'transport = "headless"\n'
+            'acp_gate = "disabled"\n\n'
+            f"{model_blocks}\n"
+            "[[stages]]\n"
+            'id = "work"\n'
+            'permission_profile = "bypass"\n'
+            "max_parallel = 2\n"
+            f"candidates = [{candidate_list}]\n",
+            encoding="utf-8",
+        )
+        scans = [CliScan(
+            adapter="cursor",
+            installed=True,
+            binary=str(binary),
+            path=str(binary),
+            realpath=os.path.realpath(binary),
+            version="2026.11.11",
+        )]
+        platform = Platform.from_file(toml_path, scans)
+        return RunService(platform, poll_seconds=0.1)
+
+    @staticmethod
+    def _recorded_jsonl(record_path: Path) -> list[list[str]]:
+        return [json.loads(line) for line in record_path.read_text(encoding="utf-8").splitlines()] if record_path.exists() else []
+
+    def test_cursor_free_tier_stderr_classifies_model_unavailable_vs_rate_limited_and_reroutes_pre_commit(self):
+        # Sub-case A1: "Free User Usage Limit..." classifies as RATE_LIMITED.
+        case_rl = self.root / "subcase_a_rl"
+        work_rl = case_rl / "work"
+        work_rl.mkdir(parents=True)
+        rl_fixture = self._write_json_fixture(case_rl / "rl.json", {
+            "exit_code": 1,
+            "frames": [
+                {"dir": "rx", "data": {"type": "system", "subtype": "init", "session_id": "sess-rl", "model": "Auto"}},
+                {"dir": "rx", "data": {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}}},
+                {"dir": "stderr", "data": "Free User Usage Limit reached. Upgrade to continue."},
+            ],
+        })
+        rl_bin = self._cursor_wrapper(
+            case_rl / "bin" / "agent", case_rl / "agent.jsonl",
+            model_fixtures={}, default_fixture=rl_fixture,
+        )
+        rl_service = self._cursor_service(case_rl, rl_bin, candidates=[("cursor", "@default")])
+        rl_run = rl_service.create(stage="work", cwd=str(work_rl))["run"]["run_id"]
+        rl_res = rl_service.send(rl_run, "hello")
+        self.assertEqual((rl_res["state"], rl_res.get("error")), ("failed", errors.RATE_LIMITED))
+        rl_events = self.events(rl_service, rl_run)
+        self.assertEqual(self.first(rl_events, "turn_completed")["payload"]["error_code"], errors.RATE_LIMITED)
+        self.assertTrue(any(e["type"] == "rate_limited" for e in rl_events))
+
+        # Sub-case A2: "ActionRequiredError: Model unavailable on Free ..." classifies as MODEL_UNAVAILABLE.
+        case_mu = self.root / "subcase_a_mu"
+        work_mu = case_mu / "work"
+        work_mu.mkdir(parents=True)
+        mu_bin = self._cursor_wrapper(
+            case_mu / "bin" / "agent", case_mu / "agent.jsonl",
+            model_fixtures={"grok-4.7-xhigh": FIXTURES / "p0c_cursor_headless_ok.json"},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        mu_service = self._cursor_service(case_mu, mu_bin, candidates=[("cursor", "grok-4.7-xhigh")])
+        mu_run = mu_service.create(stage="work", cwd=str(work_mu))["run"]["run_id"]
+        mu_res = mu_service.send(mu_run, "hello")
+        self.assertEqual((mu_res["state"], mu_res.get("error")), ("failed", errors.MODEL_UNAVAILABLE))
+        mu_events = self.events(mu_service, mu_run)
+        self.assertEqual(self.first(mu_events, "turn_completed")["payload"]["error_code"], errors.MODEL_UNAVAILABLE)
+        self.assertFalse(any(e["type"] == "rate_limited" for e in mu_events))
+        self.assertEqual(mu_service.platform.limiter.snapshot()["accounts"]["cursor-free"]["cooldown_remaining"], 0)
+
+        # Sub-case B: pre-commit turn-1 reroute from candidate 1 (grok-4.7-xhigh) to candidate 2 (@default).
+        case_b = self.root / "subcase_b_reroute"
+        work_b = case_b / "work"
+        work_b.mkdir(parents=True)
+        rec_b = case_b / "agent.jsonl"
+        bin_b = self._cursor_wrapper(
+            case_b / "bin" / "agent", rec_b,
+            model_fixtures={"grok-4.7-xhigh": FIXTURES / "p0c_cursor_headless_ok.json"},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        service_b = self._cursor_service(
+            case_b, bin_b,
+            candidates=[("cursor", "grok-4.7-xhigh"), ("cursor", "@default")],
+        )
+        run_b = service_b.create(stage="work", cwd=str(work_b))["run"]["run_id"]
+        res_b = service_b.send(run_b, "Reply with exactly: PROBE_OK")
+        self.assertEqual(res_b["state"], "idle")
+        self.assertIsNone(res_b.get("error"))
+        disclosure = res_b.get("disclosure")
+        self.assertIsInstance(disclosure, dict)
+        self.assertEqual(disclosure.get("requested"), "cursor/grok-4.7-xhigh")
+        self.assertEqual(disclosure.get("selected"), "cursor/@default")
+        self.assertIn(errors.MODEL_UNAVAILABLE, disclosure.get("reasons", []))
+
+        events_b = self.events(service_b, run_b)
+        self.assert_gap_free(events_b)
+        completed_b = [e for e in events_b if e["type"] == "turn_completed"]
+        self.assertTrue(completed_b)
+        self.assertEqual(completed_b[-1]["payload"]["result"], "ok")
+        assistant_b = [e["payload"]["text"] for e in events_b
+                       if e["type"] == "message" and e["payload"].get("role") == "assistant"]
+        self.assertEqual(assistant_b, ["PROBE_OK"])
+        calls_b = self._recorded_jsonl(rec_b)
+        self.assertEqual(len(calls_b), 2)
+        self.assertIn("grok-4.7-xhigh", calls_b[0])
+        self.assertNotIn("--model", calls_b[1])
+        self.assertEqual(service_b.find(run_b).read_state()["selection"]["model"], "@default")
+
+    def test_cursor_post_commit_model_unavailable_or_allow_fallback_false_refuses_reroute(self):
+        # Case 1: allow_fallback=False with pin cursor/grok-4.7-xhigh refuses reroute.
+        case_1 = self.root / "case1_pin_no_fallback"
+        work_1 = case_1 / "work"
+        work_1.mkdir(parents=True)
+        rec_1 = case_1 / "agent.jsonl"
+        bin_1 = self._cursor_wrapper(
+            case_1 / "bin" / "agent", rec_1,
+            model_fixtures={"grok-4.7-xhigh": FIXTURES / "p0c_cursor_headless_ok.json"},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        service_1 = self._cursor_service(
+            case_1, bin_1,
+            candidates=[("cursor", "grok-4.7-xhigh"), ("cursor", "@default")],
+        )
+        run_1 = service_1.create(
+            stage="work",
+            cwd=str(work_1),
+            pin=Candidate("cursor", "grok-4.7-xhigh"),
+            allow_fallback=False,
+        )["run"]["run_id"]
+        res_1 = service_1.send(run_1, "hello")
+        self.assertEqual((res_1["state"], res_1.get("error")), ("failed", errors.MODEL_UNAVAILABLE))
+        calls_1 = self._recorded_jsonl(rec_1)
+        self.assertEqual(len(calls_1), 1)
+        self.assertIn("grok-4.7-xhigh", calls_1[0])
+
+        # Case 2a: post-commit via stdout assistant/tool_call output before exit 1 refuses reroute.
+        case_2a = self.root / "case2a_stdout_committed"
+        work_2a = case_2a / "work"
+        work_2a.mkdir(parents=True)
+        rec_2a = case_2a / "agent.jsonl"
+        post_commit_fixture = self._write_json_fixture(case_2a / "post_commit.json", {
+            "exit_code": 1,
+            "frames": [
+                {"dir": "rx", "data": {"type": "system", "subtype": "init", "session_id": "sess-post-1", "model": "Grok 4.7"}},
+                {"dir": "rx", "data": {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}}},
+                {"dir": "rx", "data": {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "partial output"}]}}},
+                {"dir": "rx", "data": {"type": "tool_call", "subtype": "started", "call_id": "call-1", "tool_call": {"readToolCall": {"args": {"path": "a.py"}}}}},
+                {"dir": "stderr", "data": "ActionRequiredError: Model unavailable on Free Free includes Grok 4.7, Grok 4.6, and Auto with fixed settings."},
+            ],
+        })
+        bin_2a = self._cursor_wrapper(
+            case_2a / "bin" / "agent", rec_2a,
+            model_fixtures={"grok-4.7-xhigh": post_commit_fixture},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        service_2a = self._cursor_service(
+            case_2a, bin_2a,
+            candidates=[("cursor", "grok-4.7-xhigh"), ("cursor", "@default")],
+        )
+        run_2a = service_2a.create(stage="work", cwd=str(work_2a))["run"]["run_id"]
+        res_2a = service_2a.send(run_2a, "hello")
+        self.assertEqual((res_2a["state"], res_2a.get("error")), ("failed", errors.MODEL_UNAVAILABLE))
+        calls_2a = self._recorded_jsonl(rec_2a)
+        self.assertEqual(len(calls_2a), 1)
+        self.assertIn("grok-4.7-xhigh", calls_2a[0])
+
+        # Case 2b: post-commit via later turn (turns >= 1 after turn 1 already committed) refuses reroute.
+        case_2b = self.root / "case2b_later_turn"
+        work_2b = case_2b / "work"
+        work_2b.mkdir(parents=True)
+        rec_2b = case_2b / "agent.jsonl"
+        bin_2b = self._cursor_wrapper(
+            case_2b / "bin" / "agent", rec_2b,
+            model_fixtures={"grok-4.7-xhigh": FIXTURES / "p0c_cursor_headless_auto.json"},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        service_2b = self._cursor_service(
+            case_2b, bin_2b,
+            candidates=[("cursor", "grok-4.7-xhigh"), ("cursor", "@default")],
+        )
+        run_2b = service_2b.create(stage="work", cwd=str(work_2b))["run"]["run_id"]
+        turn1 = service_2b.send(run_2b, "turn one")
+        self.assertEqual(turn1["state"], "idle")
+        self.assertGreaterEqual(service_2b.find(run_2b).read_state()["turns"], 1)
+
+        self._cursor_wrapper(
+            case_2b / "bin" / "agent", rec_2b,
+            model_fixtures={"grok-4.7-xhigh": FIXTURES / "p0c_cursor_headless_ok.json"},
+            default_fixture=FIXTURES / "p0c_cursor_headless_auto.json",
+        )
+        turn2 = service_2b.send(run_2b, "turn two")
+        self.assertEqual((turn2["state"], turn2.get("error")), ("failed", errors.MODEL_UNAVAILABLE))
+        calls_2b = self._recorded_jsonl(rec_2b)
+        self.assertEqual(len(calls_2b), 2)
+        self.assertIn("grok-4.7-xhigh", calls_2b[0])
+        self.assertIn("grok-4.7-xhigh", calls_2b[1])
+        self.assertIn("--resume", calls_2b[1])
 
 
 def run_and_bin(root: Path, name: str) -> str:

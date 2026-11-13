@@ -279,6 +279,7 @@
   "error.LOCALE_UNSUPPORTED": "This language is not supported.",
   "error.CATALOG_INVALID": "A message catalog is invalid.",
   "error.RATE_LIMITED": "The account is rate limited.",
+  "error.MODEL_UNAVAILABLE": "The requested model is unavailable for this account.",
   "error.AUTH_REQUIRED": "The CLI needs to sign in again.",
   "error.ADAPTER_UNAVAILABLE": "The CLI could not be started.",
   "error.RUN_UNKNOWN": "No run has this id or nickname.",

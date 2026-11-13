@@ -279,6 +279,7 @@
   "error.LOCALE_UNSUPPORTED": "不支援此語言。",
   "error.CATALOG_INVALID": "訊息目錄無效。",
   "error.RATE_LIMITED": "帳號受到速率限制。",
+  "error.MODEL_UNAVAILABLE": "此帳號無法使用所要求的模型。",
   "error.AUTH_REQUIRED": "CLI 需要重新登入。",
   "error.ADAPTER_UNAVAILABLE": "無法啟動 CLI。",
   "error.RUN_UNKNOWN": "沒有此 ID 或暱稱的執行。",

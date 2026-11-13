@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import signal
 import subprocess
 import threading
@@ -40,6 +41,23 @@ RESUME_FLAGS = {"claude": "--resume", "cursor": "--resume", "kiro": "--resume-id
 _STDERR_LINES = 50
 _AUTH_HINTS = ("not logged in", "failed to authenticate", "please run", "login required",
                "authentication")
+_RATE_LIMIT_STDERR_RE = re.compile(
+    r"(?i)(?:\bfree\s+user\s+usage\s+limit\b|\busage\s+limit(?:\s+reached|\s+exceeded)?\b"
+    r"|\bquota(?:\s+limit)?\s+exceeded\b)"
+)
+_MODEL_UNAVAILABLE_STDERR_RE = re.compile(
+    r"(?i)(?:\bactionrequirederror\b|\bmodel\s+unavailable(?:\s+on\s+free)?\b|\bmodel_unavailable\b)"
+)
+
+
+def _is_rate_limit_stderr(stderr_text: str) -> bool:
+    return is_rate_limit_error(None, stderr_text) or bool(
+        stderr_text and _RATE_LIMIT_STDERR_RE.search(stderr_text)
+    )
+
+
+def _is_model_unavailable_stderr(stderr_text: str) -> bool:
+    return bool(stderr_text and _MODEL_UNAVAILABLE_STDERR_RE.search(stderr_text))
 
 
 def headless_argv(launch: TurnLaunch, instruction: str, resume_id: str | None) -> list[str]:
@@ -147,13 +165,15 @@ class HeadlessTransport(AgentTransport):
         stderr_text = "\n".join(self._stderr)
         failure = norm.failure
         if failure in (None, errors.ADAPTER_ERROR):
-            if is_rate_limit_error(None, stderr_text):
+            if _is_rate_limit_stderr(stderr_text):
                 failure = errors.RATE_LIMITED
+            elif _is_model_unavailable_stderr(stderr_text):
+                failure = errors.MODEL_UNAVAILABLE
             elif failure is None and self._auth_hint():
                 failure = errors.AUTH_REQUIRED
         if exit_code not in (0, None) and end.payload["result"] in ("ok", "unknown"):
             end.payload["result"] = "error"
-        elif failure == errors.RATE_LIMITED and end.payload["result"] == "unknown":
+        elif failure in (errors.RATE_LIMITED, errors.MODEL_UNAVAILABLE) and end.payload["result"] == "unknown":
             end.payload["result"] = "error"
         if end.payload["result"] == "error":
             end.payload["error_code"] = failure or errors.ADAPTER_ERROR
