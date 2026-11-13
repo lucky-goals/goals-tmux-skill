@@ -311,6 +311,7 @@
   "error.WORKTREE_FAILED": "Git worktree 操作失敗。",
   "error.TASK_SCOPE_VIOLATION": "此執行屬於與 MCP 伺服器範圍不同的任務。",
   "error.MCP_PROTOCOL_ERROR": "MCP JSON-RPC 訊息無效。",
+  "error.CURSOR_INVALID": "串流游標必須為非負整數。",
 
   "reason.unknown": "原因 {code}",
   "reason.VARIANT_UNKNOWN": "未設定此變體",

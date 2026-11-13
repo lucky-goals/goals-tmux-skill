@@ -31,6 +31,7 @@ from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
 from .scanner import ADAPTER_PROBES, publish_environment_snapshots, scan_adapter, scan_all
+from .sse import open_sse_stream
 from .supervisor import (Platform, RunService, SessionRequest, publish_config_applied,
                          publish_config_rejected, write_worker_ready)
 
@@ -106,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     events = runs.add_parser("events", help="events after a cursor")
     events.add_argument("run")
     events.add_argument("--after-seq", type=int, default=0)
+    tail = runs.add_parser("tail", help="stream events from a run")
+    tail.add_argument("run")
+    tail.add_argument("--after-seq", default=None, help="emit events with seq > N")
+    tail.add_argument("--follow", action="store_true",
+                      help="follow new events until the run closes")
+    tail.add_argument("--format", choices=("text", "json", "sse"), default="text",
+                      help="output format (default: text)")
     wait = runs.add_parser("wait", help="wait until a run reaches a settled state")
     wait.add_argument("run")
     wait.add_argument("--timeout", type=float, default=300.0,
@@ -248,6 +256,8 @@ def _run(args: argparse.Namespace, config) -> int:
         result = service.status(args.run)
     elif command == "events":
         result = service.events(args.run, args.after_seq)
+    elif command == "tail":
+        return _tail_run(service.find(args.run).dir, args.after_seq, args.follow, args.format)
     elif command == "wait":
         result = service.wait(args.run, timeout_seconds=args.timeout)
     elif command == "close":
@@ -261,6 +271,52 @@ def _run(args: argparse.Namespace, config) -> int:
     else:
         result = service.list()
     print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _tail_run(run_dir: Path, after_seq: str | None, follow: bool, fmt: str) -> int:
+    stream = open_sse_stream(run_dir, after_seq=after_seq, follow=follow)
+    try:
+        for chunk in stream.chunks:
+            if fmt == "sse":
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                continue
+            event_id = None
+            event_type = None
+            data_lines: list[str] = []
+            for line in chunk.rstrip("\n").split("\n"):
+                if not line or line.startswith(":"):
+                    continue
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    if value.startswith(" "):
+                        value = value[1:]
+                    if key == "id":
+                        event_id = value
+                    elif key == "event":
+                        event_type = value
+                    elif key == "data":
+                        data_lines.append(value)
+            if event_id is None:
+                if event_type == "reset" and data_lines:
+                    sys.stderr.write(f"[reset] {data_lines[0]}\n")
+                    sys.stderr.flush()
+                continue
+            raw_line = "\n".join(data_lines)
+            if fmt == "json":
+                sys.stdout.write(raw_line + "\n")
+                sys.stdout.flush()
+            else:
+                record = json.loads(raw_line)
+                payload = record.get("payload")
+                suffix = f" {json.dumps(payload, ensure_ascii=False)}" if payload else ""
+                sys.stdout.write(
+                    f"[{record.get('seq')}] {record.get('ts', '')} {record.get('type', '')}{suffix}\n"
+                )
+                sys.stdout.flush()
+    except BrokenPipeError:
+        return 0
     return 0
 
 

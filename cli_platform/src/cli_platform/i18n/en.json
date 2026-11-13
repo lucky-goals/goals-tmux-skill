@@ -311,6 +311,7 @@
   "error.WORKTREE_FAILED": "The git worktree operation failed.",
   "error.TASK_SCOPE_VIOLATION": "This run belongs to a different task than the MCP server scope.",
   "error.MCP_PROTOCOL_ERROR": "The MCP JSON-RPC message is invalid.",
+  "error.CURSOR_INVALID": "The stream cursor must be a non-negative integer.",
 
   "reason.unknown": "Reason {code}",
   "reason.VARIANT_UNKNOWN": "variant not configured",
