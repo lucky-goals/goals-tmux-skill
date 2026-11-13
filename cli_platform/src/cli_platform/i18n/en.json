@@ -355,6 +355,8 @@
   "event.permission_resolved": "Permission answered",
   "event.session_meta": "Session details",
   "event.usage": "Context usage",
+  "event.config_applied": "Configuration applied",
+  "event.config_rejected": "Configuration rejected",
 
   "incident.unknown": "Incident {code}",
   "incident.rate_limited": "Rate limited",

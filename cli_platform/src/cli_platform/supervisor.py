@@ -50,9 +50,9 @@ from .adapters.base import (AgentTransport, PreEvent, RawSink, SessionRef, Trans
                             decide_permission, gate_record)
 from .adapters.headless import HeadlessTransport
 from .catalog import ModelCatalog, Observation, ObservationStore
-from .config import Candidate, PlatformConfig, load_config
+from .config import Candidate, PlatformConfig, SCHEMA_VERSION, load_config
 from .errors import PlatformError
-from .events import EventLog, last_record, read_events, read_stream
+from .events import EventLog, StreamLog, last_record, read_events, read_stream
 from .fsutil import private_dir
 from .limiter import LeaseRequest, Limiter, Outcome
 from .nicknames import NicknameAllocator, NicknameLease, load_library, tmux_session_name
@@ -136,8 +136,17 @@ class Platform:
         self.router = Router(config, self.registry, self.catalog, self.limiter.blocked_on)
 
     @classmethod
-    def from_file(cls, path: Path | str, scans: list[CliScan] | None = None) -> "Platform":
-        return cls(load_config(path), scans)
+    def from_file(cls, path: Path | str, scans: list[CliScan] | None = None, *,
+                  state_dir: Path | None = None) -> "Platform":
+        try:
+            config = load_config(path)
+        except PlatformError as exc:
+            if state_dir is not None:
+                publish_config_rejected(Path(state_dir), Path(path), exc)
+            raise
+        target_state_dir = Path(state_dir or config.state_dir)
+        publish_config_applied(config, target_state_dir)
+        return cls(config, scans, state_dir=state_dir)
 
     def open_session(self, request: SessionRequest) -> SessionPlan:
         nickname = self.nicknames.allocate(request.run_id, task_id=request.task_id)
@@ -200,6 +209,189 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _write_private_json(path: Path, body: dict) -> None:
+    """Atomically replace ``path`` with sorted JSON content and mode 0600."""
+    path = Path(path)
+    private_dir(path.parent)
+    temporary = path.parent / f"{path.name}.tmp-{os.getpid()}"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(body, handle, sort_keys=True, indent=1)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+@contextmanager
+def _config_lock(config_dir: Path) -> Iterator[None]:
+    private_dir(config_dir)
+    fd = os.open(config_dir / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def effective_config_dict(config: PlatformConfig) -> dict[str, object]:
+    """Serialize the non-secret effective configuration, preserving stage order."""
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "platform": {"state_dir": str(config.state_dir)},
+        "nicknames": {
+            "library": str(config.nicknames.library),
+            "cooldown_days": config.nicknames.cooldown_days,
+            "tmux_prefix": config.nicknames.tmux_prefix,
+        },
+        "concurrency": {
+            "global_max_parallel": config.concurrency.global_max_parallel,
+            "lease_ttl_seconds": config.concurrency.lease_ttl_seconds,
+            "heartbeat_seconds": config.concurrency.heartbeat_seconds,
+            "queue_max_depth": config.concurrency.queue_max_depth,
+            "queue_timeout_seconds": config.concurrency.queue_timeout_seconds,
+            "rate_limit": {
+                "cooldown_base_seconds": config.concurrency.rate_limit.cooldown_base_seconds,
+                "cooldown_max_seconds": config.concurrency.rate_limit.cooldown_max_seconds,
+                "recover_after_turns": config.concurrency.rate_limit.recover_after_turns,
+            },
+        },
+        "catalog": {
+            "stale_after_days": config.catalog.stale_after_days,
+            "allow_unreviewed": config.catalog.allow_unreviewed,
+        },
+        "ui": {"locale": config.ui.locale},
+        "execution": {
+            "transport_order": list(config.execution.transport_order),
+            "cancel_grace_seconds": config.execution.cancel_grace_seconds,
+            "close_grace_seconds": config.execution.close_grace_seconds,
+            "quiet_timeout_seconds": config.execution.quiet_timeout_seconds,
+            "acp": {
+                "protocol_versions": list(config.execution.acp.protocol_versions),
+                "handshake_timeout_seconds": config.execution.acp.handshake_timeout_seconds,
+                "setup_timeout_seconds": config.execution.acp.setup_timeout_seconds,
+                "breaker_consecutive_faults": config.execution.acp.breaker_consecutive_faults,
+                "breaker_window_turns": config.execution.acp.breaker_window_turns,
+                "breaker_window_faults": config.execution.acp.breaker_window_faults,
+                "breaker_retry_seconds": config.execution.acp.breaker_retry_seconds,
+            },
+        },
+        "accounts": {
+            account_id: {"vendor": account.vendor, "max_parallel": account.max_parallel}
+            for account_id, account in config.accounts.items()
+        },
+        "variants": {
+            variant_id: {
+                "adapter": variant.adapter,
+                "binary": variant.binary,
+                "account": variant.account,
+                "enabled": variant.enabled,
+                "settings_file": str(variant.settings_file) if variant.settings_file else None,
+                "env_names": sorted(variant.env),
+                "env_unset": list(variant.env_unset),
+                "env_allow": list(variant.env_allow),
+                "extra_args": list(variant.extra_args),
+                "max_parallel": variant.max_parallel,
+                "note": variant.note,
+                "transport": variant.transport,
+                "transport_order": (list(variant.transport_order)
+                                    if variant.transport_order is not None else None),
+                "acp_gate": variant.acp_gate,
+            }
+            for variant_id, variant in config.variants.items()
+        },
+        "models": [
+            {
+                "variant": model.variant,
+                "id": model.id,
+                "efforts": list(model.efforts),
+                "default_effort": model.default_effort,
+                "display_name": model.display_name,
+                "context_tokens": model.context_tokens,
+                "cost_tier": model.cost_tier,
+                "status": model.status,
+                "verified_at": model.verified_at,
+                "note": model.note,
+            }
+            for model in config.models
+        ],
+        "stages": [
+            {
+                "id": stage.id,
+                "permission_profile": stage.permission_profile,
+                "max_parallel": stage.max_parallel,
+                "on_busy": stage.on_busy,
+                "effort_fallback": stage.effort_fallback,
+                "allow_pins_outside": stage.allow_pins_outside,
+                "candidates": [
+                    {"variant": candidate.variant, "model": candidate.model, "effort": candidate.effort}
+                    for candidate in stage.candidates
+                ],
+            }
+            for stage in config.stages.values()
+        ],
+        "routing": {
+            "default_candidates": [
+                {"variant": candidate.variant, "model": candidate.model, "effort": candidate.effort}
+                for candidate in config.default_candidates
+            ],
+        },
+    }
+
+
+def publish_config_applied(config: PlatformConfig, state_dir: Path) -> dict | None:
+    """Append ``config_applied`` and update ``config/state.json`` if the config digest changed."""
+    config_path = Path(config.path)
+    digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    config_dir = Path(state_dir) / "config"
+    state_path = config_dir / "state.json"
+    with _config_lock(config_dir):
+        try:
+            current = json.loads(state_path.read_text())
+        except (FileNotFoundError, ValueError, OSError):
+            current = None
+        if isinstance(current, dict) and current.get("sha256") == digest:
+            return None
+        effective = effective_config_dict(config)
+        log = StreamLog(config_dir / "journal.jsonl", stream="config")
+        event = log.append(
+            "config_applied",
+            {"path": str(config_path), "sha256": digest, "config": effective},
+        )
+        _write_private_json(state_path, {
+            "v": 1,
+            "as_of_seq": event["seq"],
+            "path": str(config_path),
+            "sha256": digest,
+            "applied_at": event["ts"],
+            "config": effective,
+        })
+        return event
+
+
+def publish_config_rejected(state_dir: Path, config_path: Path | str, exc: PlatformError) -> dict:
+    """Append ``config_rejected`` without echoing secret values or altering ``config/state.json``."""
+    resolved = Path(config_path).resolve()
+    digest = _file_sha256(resolved)
+    config_dir = Path(state_dir) / "config"
+    payload: dict[str, object] = {
+        "path": str(resolved),
+        "code": exc.code,
+        "message": exc.message,
+    }
+    if digest is not None:
+        payload["sha256"] = digest
+    with _config_lock(config_dir):
+        log = StreamLog(config_dir / "journal.jsonl", stream="config")
+        return log.append("config_rejected", payload)
+
+
 def new_run_id() -> str:
     """``run-`` plus a time-ordered, collision-resistant suffix."""
     stamp = int(time.time() * 1000)
@@ -251,14 +443,7 @@ class RunHandle:
         return json.loads((self.dir / "state.json").read_text())
 
     def write_json(self, name: str, body: dict) -> None:
-        private_dir(self.dir)
-        temporary = self.dir / f"{name}.tmp-{os.getpid()}"
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "w") as handle:
-            json.dump(body, handle, sort_keys=True, indent=1)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, self.dir / name)
+        _write_private_json(self.dir / name, body)
 
     def log(self) -> EventLog:
         run = self.read_run()

@@ -31,7 +31,8 @@ from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
 from .scanner import scan_all
-from .supervisor import Platform, RunService, SessionRequest
+from .supervisor import (Platform, RunService, SessionRequest, publish_config_applied,
+                         publish_config_rejected)
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cli-platform.toml"
 
@@ -100,7 +101,20 @@ def main(argv: list[str] | None = None) -> int:
 
     config = None
     try:
-        config = load_config(args.config)
+        try:
+            config = load_config(args.config)
+        except PlatformError as exc:
+            if args.state_dir is not None:
+                publish_config_rejected(args.state_dir, args.config, exc)
+            raise
+        publish_dir = (
+            args.state_dir
+            if args.state_dir is not None
+            else (config.state_dir if args.command in ("run", "scan")
+                  or (args.command == "plan" and args.commit) else None)
+        )
+        if publish_dir is not None:
+            publish_config_applied(config, publish_dir)
         if args.command == "locale":
             return _locale(args, config)
         if args.command == "check-config":
@@ -118,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
                 return _plan(Platform(config, scans, state_dir=Path(scratch)), args)
-        platform = Platform(config, scans)
+        platform = Platform(config, scans, state_dir=args.state_dir)
         if args.command == "plan":
             return _plan(platform, args)
         if args.command == "variants":

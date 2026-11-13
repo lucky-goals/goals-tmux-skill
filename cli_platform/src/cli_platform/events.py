@@ -34,7 +34,7 @@ from typing import Iterable, Iterator
 from .fsutil import private_dir
 from .redact import scrub_value
 
-STREAMS = ("run", "limits", "adapters", "catalog")
+STREAMS = ("run", "limits", "adapters", "catalog", "config")
 
 # Types defined by the gateway proposal.
 RUN_EVENT_TYPES = (
@@ -59,6 +59,7 @@ STREAM_TYPES: dict[str, tuple[str, ...]] = {
     "adapters": ("adapter_probe", "breaker_recorded", "breaker_opened", "breaker_half_open",
                  "breaker_closed"),
     "catalog": ("observation",),
+    "config": ("config_applied", "config_rejected"),
 }
 
 # Events that must be on disk before the writer continues: lifecycle, lease,
@@ -69,6 +70,7 @@ FSYNC_TYPES = frozenset({
     "lease_released", "lease_reaped", "rate_limited", "adapter_selected", "adapter_degraded",
     "permission_requested", "permission_resolved", "adapter_probe", "breaker_recorded",
     "breaker_opened", "breaker_half_open", "breaker_closed",
+    "config_applied", "config_rejected",
 })
 # Other events are fsynced at least this often.
 FSYNC_INTERVAL_SECONDS = 1.0

@@ -355,6 +355,8 @@
   "event.permission_resolved": "権限への応答",
   "event.session_meta": "セッション情報",
   "event.usage": "コンテキスト使用量",
+  "event.config_applied": "構成を適用",
+  "event.config_rejected": "構成を拒否",
 
   "incident.unknown": "インシデント {code}",
   "incident.rate_limited": "レート制限",

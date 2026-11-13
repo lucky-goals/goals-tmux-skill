@@ -40,6 +40,19 @@ def read_limits(state_dir: Path) -> dict:
         return empty_limits()
 
 
+def read_config_snapshot(state_dir: Path) -> dict | None:
+    """Last published configuration snapshot, or None if none exists.
+
+    Lock-free and read-only: never creates files or directories. Raises
+    ``ValueError`` when the snapshot file is not valid JSON.
+    """
+    try:
+        data = json.loads((Path(state_dir) / "config" / "state.json").read_text())
+    except FileNotFoundError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def read_live_nicknames(state_dir: Path) -> list[dict]:
     """Live nickname records, each with its durable ``ref``."""
     live = Path(state_dir) / "nicknames" / "live"

@@ -355,6 +355,8 @@
   "event.permission_resolved": "已回應權限",
   "event.session_meta": "工作階段資訊",
   "event.usage": "內容使用量",
+  "event.config_applied": "已套用組態",
+  "event.config_rejected": "已拒絕組態",
 
   "incident.unknown": "異常事件 {code}",
   "incident.rate_limited": "速率限制",
