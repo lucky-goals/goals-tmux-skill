@@ -272,6 +272,7 @@
   "error.PIN_NOT_ALLOWED_FOR_STAGE": "ピンされたモデルはこのステージでは許可されていません。",
   "error.PIN_UNSATISFIABLE": "ピンされたモデルは現在実行できません。",
   "error.NO_ROUTE": "このステージを提供できる候補がありません。",
+  "error.REVIEW_INDEPENDENCE_UNSATISFIED": "ライターと異なるベンダーの候補がこのレビューステージを提供できません。",
   "error.QUEUE_FULL": "キューがいっぱいです。",
   "error.QUEUE_TIMEOUT": "ターンがキューで長く待ちすぎました。",
   "error.LEASE_NOT_HELD": "リースが保持されていません。",
@@ -292,6 +293,7 @@
   "error.TURN_TIMEOUT": "CLI の出力が長時間ありませんでした。",
   "error.SPAWN_FAILED": "CLI プロセスを開始できませんでした。",
   "error.EVENT_APPEND_FAILED": "イベントを書き込めなかったため、ターンは開始されませんでした。",
+  "error.READ_ONLY_DRIFT_DETECTED": "読み取り専用ターンが作業ディレクトリ内のファイルを変更しました。",
   "error.TRANSPORT_UNAVAILABLE": "このターンを実行できるトランスポートがありません。",
   "error.PERMISSION_PROFILE_UNSUPPORTED": "この CLI はステージの権限プロファイルを保証できません。",
   "error.PERMISSION_UNANSWERABLE": "権限リクエストに応答できませんでした。",
@@ -337,6 +339,7 @@
   "reason.SETTINGS_FILE_FOREIGN_OWNER": "設定ファイルの所有者が別のユーザー",
   "reason.SETTINGS_FILE_GROUP_OR_WORLD_ACCESS": "設定ファイルを他者が読める",
   "reason.PERMISSION_PROFILE_UNSUPPORTED": "権限プロファイルを保証できない",
+  "reason.SAME_VENDOR_AS_WRITER": "ライターと同じベンダー",
 
   "event.unknown": "イベント {code}",
   "event.turn_started": "ターン開始",

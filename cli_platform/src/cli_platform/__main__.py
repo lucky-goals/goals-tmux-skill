@@ -84,9 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     resolve.add_argument("stage")
     resolve.add_argument("--pin")
     resolve.add_argument("--allow-fallback", action="store_true")
+    resolve.add_argument("--writer-variant", help="variant that wrote the changes under review")
     plan = commands.add_parser("plan", help="dry-run one session: nickname, route, lease, launch")
     plan.add_argument("stage")
     plan.add_argument("--run-id", default="run-DRYRUN0001")
+    plan.add_argument("--writer-variant", help="variant that wrote the changes under review")
     plan.add_argument("--commit", action="store_true",
                       help="use the configured state directory instead of a temporary one")
     run = commands.add_parser("run", help="create, send, cancel and inspect runs")
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--task-id", default="adhoc")
     create.add_argument("--pin")
     create.add_argument("--allow-fallback", action="store_true")
+    create.add_argument("--writer-variant", help="variant that wrote the changes under review")
     create.add_argument("--run-id")
     create.add_argument("--worktree", action="store_true",
                         help="provision an isolated git worktree for this run")
@@ -228,7 +231,8 @@ def main(argv: list[str] | None = None) -> int:
                               for entry in platform.catalog.entries(variant)], indent=2))
         elif args.command == "resolve":
             resolution = platform.router.resolve(RouteRequest(
-                stage=args.stage, pin=_pin(args.pin), allow_fallback=args.allow_fallback))
+                stage=args.stage, pin=_pin(args.pin), allow_fallback=args.allow_fallback,
+                writer_variant=args.writer_variant))
             print("\n".join(resolution.explain()))
         return 0
     except PlatformError as exc:
@@ -330,7 +334,8 @@ def _run(args: argparse.Namespace, config) -> int:
         result = service.create(stage=args.stage, cwd=str(Path(args.cwd).resolve()),
                                 task_id=args.task_id, pin=_pin(args.pin),
                                 allow_fallback=args.allow_fallback, run_id=args.run_id,
-                                worktree=args.worktree, allow_shared_cwd=args.allow_shared_cwd)
+                                worktree=args.worktree, allow_shared_cwd=args.allow_shared_cwd,
+                                writer_variant=args.writer_variant)
     elif command == "send":
         if args.file is not None:
             instruction = sys.stdin.read() if str(args.file) == "-" else args.file.read_text()
@@ -434,7 +439,8 @@ def _run_turn(args: argparse.Namespace, config, state_dir: Path | None) -> int:
 
 def _plan(platform: Platform, args: argparse.Namespace) -> int:
     plan = platform.open_session(SessionRequest(
-        task_id="dry-run", run_id=args.run_id, stage=args.stage, cwd=str(Path.cwd())))
+        task_id="dry-run", run_id=args.run_id, stage=args.stage, cwd=str(Path.cwd()),
+        writer_variant=args.writer_variant))
     print(json.dumps({
         "nickname": plan.nickname.nickname, "ref": plan.nickname.ref,
         "tmux_session": plan.tmux_session, "run_dir": str(plan.run_dir),

@@ -272,6 +272,7 @@
   "error.PIN_NOT_ALLOWED_FOR_STAGE": "指定的模型不允許用於此階段。",
   "error.PIN_UNSATISFIABLE": "指定的模型目前無法執行。",
   "error.NO_ROUTE": "沒有候選能服務此階段。",
+  "error.REVIEW_INDEPENDENCE_UNSATISFIED": "沒有不同廠商的候選能服務此審查階段。",
   "error.QUEUE_FULL": "佇列已滿。",
   "error.QUEUE_TIMEOUT": "回合在佇列中等待過久。",
   "error.LEASE_NOT_HELD": "未持有租約。",
@@ -292,6 +293,7 @@
   "error.TURN_TIMEOUT": "CLI 太久沒有輸出。",
   "error.SPAWN_FAILED": "無法啟動 CLI 程序。",
   "error.EVENT_APPEND_FAILED": "無法寫入事件，因此未開始回合。",
+  "error.READ_ONLY_DRIFT_DETECTED": "唯讀回合修改了工作目錄中的檔案。",
   "error.TRANSPORT_UNAVAILABLE": "沒有可執行此回合的傳輸方式。",
   "error.PERMISSION_PROFILE_UNSUPPORTED": "此 CLI 無法保證階段的權限設定檔。",
   "error.PERMISSION_UNANSWERABLE": "無法回應權限請求。",
@@ -337,6 +339,7 @@
   "reason.SETTINGS_FILE_FOREIGN_OWNER": "設定檔屬於其他使用者",
   "reason.SETTINGS_FILE_GROUP_OR_WORLD_ACCESS": "其他人可讀取設定檔",
   "reason.PERMISSION_PROFILE_UNSUPPORTED": "無法保證權限設定檔",
+  "reason.SAME_VENDOR_AS_WRITER": "與實作使用相同廠商",
 
   "event.unknown": "事件 {code}",
   "event.turn_started": "回合開始",

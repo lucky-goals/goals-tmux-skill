@@ -126,6 +126,8 @@ class Stage:
     on_busy: str = "queue"            # queue | next
     effort_fallback: str = "lower"    # lower | skip
     allow_pins_outside: bool = False
+    prefer_distinct_vendor: bool = False
+    require_distinct_vendor: bool = False
 
 
 @dataclass(frozen=True)
@@ -404,7 +406,8 @@ def _candidates(raw: Any, where: str, config_models: tuple[ModelEntry, ...]) -> 
 def _stage(index: int, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
     where = f"stages[{index}]"
     raw = _table(raw, where, {"id", "permission_profile", "candidates", "max_parallel", "on_busy",
-                              "effort_fallback", "allow_pins_outside"},
+                              "effort_fallback", "allow_pins_outside",
+                              "prefer_distinct_vendor", "require_distinct_vendor"},
                  {"id", "candidates", "max_parallel"})
     stage_id = _typed(raw, "id", str, "", where)
     if not _STAGE_ID_RE.fullmatch(stage_id):
@@ -420,6 +423,8 @@ def _stage(index: int, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
         on_busy=_choice(raw, "on_busy", ("queue", "next"), "queue", where),
         effort_fallback=_choice(raw, "effort_fallback", ("lower", "skip"), "lower", where),
         allow_pins_outside=_typed(raw, "allow_pins_outside", bool, False, where),
+        prefer_distinct_vendor=_typed(raw, "prefer_distinct_vendor", bool, stage_id == "code_review", where),
+        require_distinct_vendor=_typed(raw, "require_distinct_vendor", bool, False, where),
     )
 
 

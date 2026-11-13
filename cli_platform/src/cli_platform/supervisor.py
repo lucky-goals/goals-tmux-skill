@@ -119,6 +119,7 @@ class SessionRequest:
     allow_fallback: bool = False
     task_candidates: tuple[Candidate, ...] = ()
     holder: str = "runner"
+    writer_variant: str | None = None
 
 
 @dataclass(frozen=True)
@@ -180,7 +181,7 @@ class Platform:
         try:
             resolution = self.router.resolve(RouteRequest(
                 stage=request.stage, pin=request.pin, allow_fallback=request.allow_fallback,
-                task_candidates=request.task_candidates))
+                task_candidates=request.task_candidates, writer_variant=request.writer_variant))
         except PlatformError as exc:
             log.append("error", {"code": exc.code, "message": exc.message, "retryable": False,
                                  "phase": "routing", "explain": exc.details.get("explain", [])})
@@ -396,6 +397,8 @@ def effective_config_dict(config: PlatformConfig) -> dict[str, object]:
                 "on_busy": stage.on_busy,
                 "effort_fallback": stage.effort_fallback,
                 "allow_pins_outside": stage.allow_pins_outside,
+                "prefer_distinct_vendor": stage.prefer_distinct_vendor,
+                "require_distinct_vendor": stage.require_distinct_vendor,
                 "candidates": [
                     {"variant": candidate.variant, "model": candidate.model, "effort": candidate.effort}
                     for candidate in stage.candidates
@@ -647,10 +650,13 @@ class RunService:
 
     def create(self, *, stage: str, cwd: str, task_id: str = "adhoc", pin: Candidate | None = None,
                allow_fallback: bool = False, run_id: str | None = None,
-               worktree: bool = False, allow_shared_cwd: bool = False) -> dict:
+               worktree: bool = False, allow_shared_cwd: bool = False,
+               writer_variant: str | None = None) -> dict:
         config = self.platform.config
         if stage not in config.stages:
             raise PlatformError(errors.STAGE_UNKNOWN, f"unknown stage {stage!r}")
+        if writer_variant is not None and writer_variant not in config.variants:
+            raise PlatformError(errors.VARIANT_UNKNOWN, f"unknown writer variant {writer_variant!r}")
         if not os.path.isabs(cwd) or not os.path.isdir(cwd):
             raise PlatformError(errors.RUN_STATE_INVALID, "cwd must be an existing absolute directory")
         runs_dir = self.platform.state_dir / "runs"
@@ -685,6 +691,7 @@ class RunService:
                    "worktree": worktree_meta,
                    "allow_shared_cwd": bool(allow_shared_cwd),
                    "pin": pin.__dict__ if pin else None, "allow_fallback": allow_fallback,
+                   "writer_variant": writer_variant,
                    "nickname": nickname.nickname, "ref": nickname.ref,
                    "tmux_session": tmux_session_name(config.nicknames.tmux_prefix, nickname.nickname),
                    "created_at": _now()}
@@ -969,7 +976,8 @@ class RunService:
             else:
                 pin = Candidate(**run.run["pin"]) if run.run.get("pin") else None
                 resolution = platform.router.resolve(RouteRequest(
-                    stage=stage_id, pin=pin, allow_fallback=bool(run.run.get("allow_fallback"))))
+                    stage=stage_id, pin=pin, allow_fallback=bool(run.run.get("allow_fallback")),
+                    writer_variant=run.run.get("writer_variant")))
                 selection, account, payload = resolution.selected, resolution.account, resolution.to_dict()
                 disclosure = resolution.disclosure
         except PlatformError as exc:
@@ -1015,9 +1023,10 @@ class RunService:
         try:
             resolution = filtered_router.resolve(RouteRequest(
                 stage=stage_id, pin=None, allow_fallback=True,
+                writer_variant=run.run.get("writer_variant"),
             ))
         except PlatformError as exc:
-            if exc.code in (errors.NO_ROUTE, errors.PIN_UNSATISFIABLE):
+            if exc.code in (errors.NO_ROUTE, errors.PIN_UNSATISFIABLE, errors.REVIEW_INDEPENDENCE_UNSATISFIED):
                 return None
             raise
 
@@ -1143,6 +1152,11 @@ class RunService:
         run.state.update(turns=int(run.state.get("turns", 0)) + 1, last_turn=turn_id,
                          transport=bound.launch.transport, selection=selection.__dict__)
         run.transition("running", "turn_started", turn_id=turn_id)
+        pre_status = (
+            _git_porcelain(run.run["cwd"])
+            if stage.permission_profile == "read_only_auto"
+            else None
+        )
         outcome = _TurnOutcome(turn_committed=prior_committed)
         try:
             self._drive(run, turn_id, instruction, bound, stage.permission_profile, lease, outcome)
@@ -1151,6 +1165,20 @@ class RunService:
             run.append("exit", {"exit_code": info.exit_code, "signal": info.signal,
                                 "expected": outcome.completed or outcome.cancelled or info.expected,
                                 "stderr_tail": list(info.stderr_tail[-5:])}, turn_id=turn_id)
+        if stage.permission_profile == "read_only_auto" and pre_status is not None:
+            post_status = _git_porcelain(run.run["cwd"])
+            if post_status is not None and post_status != pre_status:
+                outcome.fail(errors.READ_ONLY_DRIFT_DETECTED)
+                run.append(
+                    "error",
+                    {
+                        "code": errors.READ_ONLY_DRIFT_DETECTED,
+                        "message": "read_only_auto turn modified files in the working directory",
+                        "phase": "audit",
+                        "retryable": False,
+                    },
+                    turn_id=turn_id,
+                )
         self._after_turn(run, turn_id, bound, ctx, account, lease, outcome)
         summary = self._summary(run, turn_id, request_id, error=outcome.error, result=outcome.result,
                                 fallback=bound.fallback, disclosure=disclosure)
@@ -1700,7 +1728,7 @@ def _jsonable(value: object) -> object:
     return json.loads(json.dumps(value, default=str))
 
 
-def _git_output(cwd: str | Path, *args: str) -> str | None:
+def _git_output(cwd: str | Path, *args: str, strip: bool = True) -> str | None:
     """Run a read-only git query in ``cwd`` without inherited GIT_* overrides."""
     env = {key: value for key, value in os.environ.items() if key not in _GIT_ENV_STRIP}
     try:
@@ -1715,7 +1743,7 @@ def _git_output(cwd: str | Path, *args: str) -> str | None:
         return None
     if proc.returncode != 0:
         return None
-    return proc.stdout.strip()
+    return proc.stdout.strip() if strip else proc.stdout
 
 
 def _git_head(cwd: str | Path) -> str | None:
@@ -1725,6 +1753,11 @@ def _git_head(cwd: str | Path) -> str | None:
 def _git_dirty(cwd: str | Path) -> bool:
     status = _git_output(cwd, "status", "--porcelain")
     return bool(status)
+
+
+def _git_porcelain(cwd: str | Path) -> str | None:
+    """Return raw ``git status --porcelain`` output if ``cwd`` is inside a git repo, else None."""
+    return _git_output(cwd, "status", "--porcelain", strip=False)
 
 
 def _git_diff_stat(cwd: str | Path, pre_head: str | None, post_head: str | None,

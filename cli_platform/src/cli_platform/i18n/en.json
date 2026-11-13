@@ -272,6 +272,7 @@
   "error.PIN_NOT_ALLOWED_FOR_STAGE": "The pinned model is not allowed for this stage.",
   "error.PIN_UNSATISFIABLE": "The pinned model cannot run now.",
   "error.NO_ROUTE": "No candidate can serve this stage.",
+  "error.REVIEW_INDEPENDENCE_UNSATISFIED": "No distinct-vendor candidate can serve this review stage.",
   "error.QUEUE_FULL": "The queue is full.",
   "error.QUEUE_TIMEOUT": "The turn waited too long in the queue.",
   "error.LEASE_NOT_HELD": "The lease is not held.",
@@ -292,6 +293,7 @@
   "error.TURN_TIMEOUT": "The CLI produced no output for too long.",
   "error.SPAWN_FAILED": "The CLI process could not be started.",
   "error.EVENT_APPEND_FAILED": "The event could not be written; the turn was not started.",
+  "error.READ_ONLY_DRIFT_DETECTED": "The read-only turn modified files in the working directory.",
   "error.TRANSPORT_UNAVAILABLE": "No transport can run this turn.",
   "error.PERMISSION_PROFILE_UNSUPPORTED": "This CLI cannot guarantee the stage's permission profile.",
   "error.PERMISSION_UNANSWERABLE": "A permission request could not be answered.",
@@ -337,6 +339,7 @@
   "reason.SETTINGS_FILE_FOREIGN_OWNER": "settings file owned by another user",
   "reason.SETTINGS_FILE_GROUP_OR_WORLD_ACCESS": "settings file readable by others",
   "reason.PERMISSION_PROFILE_UNSUPPORTED": "cannot guarantee the permission profile",
+  "reason.SAME_VENDOR_AS_WRITER": "same vendor as writer",
 
   "event.unknown": "Event {code}",
   "event.turn_started": "Turn started",
