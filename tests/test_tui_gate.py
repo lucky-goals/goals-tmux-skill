@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -247,6 +248,8 @@ class TuiGateIntegrationTests(unittest.TestCase):
         self.assertEqual(2, show.call_count)
 
     def test_dispatch_submit_and_exit_intent_input_stop_when_gui_proof_is_missing(self):
+        # T5.1 flips default tui.require_visible to False; opt in explicitly for hard-gate refusal.
+        self.service.config.set("tui.require_visible", True)
         created = self._create_session(tui={"enabled": False}, name="blocked-input")
         self.assertEqual("ok", created["status"], created)
         self.server_started = True
@@ -398,6 +401,154 @@ class TuiGateIntegrationTests(unittest.TestCase):
         self.assertEqual("attached", missing["data"]["status"])
         self.assertEqual("unavailable", missing["data"]["tui_evidence"]["status"])
         self.assertEqual(data["pane"]["pane_id"], missing["data"]["tui_target"]["pane_id"])
+
+    def test_per_task_sockets_isolate_task_a_and_task_b_and_send_input_succeeds_with_advisory_tui_evidence(self):
+        from runtime.goals_tmux.service import resolve_task_socket
+
+        sock_a = resolve_task_socket(self.state_dir, "task-a")
+        sock_b = resolve_task_socket(self.state_dir, "task-b")
+        self.assertNotEqual(sock_a, sock_b)
+        self.assertEqual("task-a.sock", Path(sock_a).name)
+        self.assertEqual("task-b.sock", Path(sock_b).name)
+        self.assertEqual(0o700, stat.S_IMODE((self.state_dir / "sockets").stat().st_mode))
+
+        svc_a = Service(
+            sock_a, state_dir=self.state_dir,
+            config_path=self.root / "config-task-a.json", tmux_binary=TMUX,
+        )
+        svc_b = Service(
+            sock_b, state_dir=self.state_dir,
+            config_path=self.root / "config-task-b.json", tmux_binary=TMUX,
+        )
+
+        def cleanup_servers():
+            for svc in (svc_a, svc_b):
+                if Path(svc.socket_path).exists():
+                    try:
+                        svc.tmux.run("kill-server", mutating=True)
+                    except Exception:
+                        pass
+
+        self.addCleanup(cleanup_servers)
+
+        for sock, svc, task_id, coord_id in (
+            (sock_a, svc_a, "task-a", "coord-a"),
+            (sock_b, svc_b, "task-b", "coord-b"),
+        ):
+            svc.policy.configure(
+                sock, read_only=False, pane_ids=None,
+                allow_create=True, allow_close=True, allow_layout=True,
+                allow_interrupt=True, allow_view=True, allow_capture=True,
+            )
+            svc.tasks.create(
+                task_id, goal=f"Isolated socket test for {task_id}.",
+                cwd=str(self.root), coordinator_id=coord_id,
+                acceptance=["Task sockets remain isolated."],
+            )
+
+        created_a = svc_a.invoke(self._request(
+            "create_session",
+            {"cwd": str(self.root), "name": "task-a-pane", "program_argv": ["/bin/cat"],
+             "tui": {"enabled": False}},
+            task_context={"task_id": "task-a", "coordinator_id": "coord-a"},
+        ))
+        self.assertEqual("ok", created_a["status"], created_a)
+        created_b = svc_b.invoke(self._request(
+            "create_session",
+            {"cwd": str(self.root), "name": "task-b-pane", "program_argv": ["/bin/cat"],
+             "tui": {"enabled": False}},
+            task_context={"task_id": "task-b", "coordinator_id": "coord-b"},
+        ))
+        self.assertEqual("ok", created_b["status"], created_b)
+
+        record_a = created_a["data"]["record"]
+        record_a = svc_a.registry.update(
+            record_a["record_id"],
+            {"task_id": "task-a", "coordinator_id": "coord-a",
+             "generation": record_a["generation"], "expected_revision": record_a["revision"]},
+            {"tui_requested": True},
+        )
+
+        resources_a_resp = svc_a.invoke(self._request("list_resources", {}))
+        self.assertEqual("ok", resources_a_resp["status"], resources_a_resp)
+        resources_a = resources_a_resp["data"]
+        send_req = self._request(
+            "send_text",
+            {"text": "ADVISORY_TUI_INPUT"},
+            target={
+                "endpoint_id": svc_a.endpoint_id,
+                "server_instance_id": resources_a["observation"]["server_instance_id"],
+                "pane_id": record_a["pane_id"],
+            },
+            task_context={
+                "task_id": "task-a", "coordinator_id": "coord-a",
+                "generation": record_a["generation"], "expected_revision": record_a["revision"],
+            },
+            observation=resources_a["observation"],
+        )
+
+        def unavailable_open(session_id, _settings, _snap, *, task_ids=None):
+            return {"status": "unavailable", "reason": "test_no_gui", "session_id": session_id}
+
+        with patch.object(svc_a, "_show_viewer", side_effect=unavailable_open), \
+             patch.object(svc_a.viewer, "verify_visible", side_effect=self._unavailable_evidence):
+            sent = svc_a.invoke(send_req)
+
+        self.assertEqual("ok", sent["status"], sent)
+        self.assertIs(True, sent["data"]["tui_evidence"]["advisory"])
+
+        resources_b_resp = svc_b.invoke(self._request("list_resources", {}))
+        self.assertEqual("ok", resources_b_resp["status"], resources_b_resp)
+        resources_b = resources_b_resp["data"]
+        self.assertNotEqual(resources_a["server"]["instance_id"], resources_b["server"]["instance_id"])
+        self.assertNotIn("task-a-pane", {s["name"] for s in resources_b["sessions"]})
+        self.assertNotIn(
+            created_a["data"]["pane"]["process_instance_id"],
+            {p["process_instance_id"] for p in resources_b["panes"]},
+        )
+        self.assertNotIn(
+            created_a["data"]["pane"]["tty"],
+            {p["tty"] for p in resources_b["panes"]},
+        )
+
+    def test_require_visible_true_still_refuses_with_tui_required(self):
+        self.service.config.set("tui.require_visible", True)
+        created = self._create_session(tui={"enabled": False}, name="require-visible-true")
+        self.assertEqual("ok", created["status"], created)
+        self.server_started = True
+        record = self._mark_view_required(created["data"])
+
+        def unavailable_open(session_id, _settings, _snap, *, task_ids=None):
+            return {"status": "unavailable", "reason": "test_gui_closed", "session_id": session_id}
+
+        with patch.object(self.service, "_show_viewer", side_effect=unavailable_open), \
+             patch.object(self.service.viewer, "verify_visible", side_effect=self._unavailable_evidence), \
+             patch("runtime.goals_tmux.service.send_text") as send_text:
+            result = self.service.invoke(
+                self._target_request("send_text", {"text": "SHOULD_BE_REFUSED"}, record)
+            )
+        self.assertEqual("TUI_REQUIRED", result["code"], result)
+        self.assertIn(result["status"], {"partial", "refused"}, result)
+        send_text.assert_not_called()
+
+    def test_unsafe_task_id_characters_sanitized_in_socket_path_under_unix_sun_path_limit(self):
+        from runtime.goals_tmux.service import resolve_task_socket
+
+        unsafe_a = "../escape/task id with spaces & symbols/" + ("x" * 200)
+        unsafe_b = "../escape/task id with spaces & symbols/" + ("x" * 199) + "y"
+        sock_a = resolve_task_socket(self.state_dir, unsafe_a)
+        sock_b = resolve_task_socket(self.state_dir, unsafe_b)
+        self.assertNotEqual(sock_a, sock_b)
+        expected_dir = (self.state_dir / "sockets").resolve()
+        for sock in (sock_a, sock_b):
+            path = Path(sock)
+            self.assertEqual(expected_dir, path.parent.resolve())
+            self.assertEqual("sockets", path.parent.name)
+            self.assertTrue(path.name.endswith(".sock"), path.name)
+            self.assertNotIn("..", path.name)
+            self.assertNotIn("/", path.name)
+            self.assertNotIn(" ", path.name)
+            self.assertLessEqual(len(sock.encode("utf-8")), 103)
 
 
 if __name__ == "__main__":

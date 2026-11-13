@@ -17,7 +17,7 @@ from .errors import DomainError
 from .operation_store import OperationStore, state_dir_path
 from .policy import Policy
 from .registry import Registry
-from .service import Service, _context
+from .service import Service, _context, resolve_task_socket
 from .viewer import Viewer, diagnose_viewers
 
 
@@ -224,7 +224,6 @@ def run(args):
         root = root / "endpoints" / namespace
         if args.config is None:
             args.config = root / "config.json"
-    socket = args.socket or str(root / "sockets" / "default.sock")
     if args.command == "config":
         config = ConfigStore(args.config)
         if args.action == "show":
@@ -234,6 +233,33 @@ def run(args):
         except json.JSONDecodeError:
             value = args.value
         return contract.result(None, data=config.set(args.key, value), side_effects="confirmed")
+    if args.command == "operation-status":
+        return contract.result(args.request_id, data=OperationStore(root).status(args.request_id))
+    req_payload = (
+        _load_request(args.request_file, getattr(args, "_stdin_json", None))
+        if args.command == "invoke"
+        else None
+    )
+    if args.socket:
+        socket = args.socket
+    else:
+        task_id = None
+        if isinstance(req_payload, dict):
+            task_context = req_payload.get("task_context")
+            if isinstance(task_context, dict):
+                task_id = task_context.get("task_id")
+        else:
+            task_id = getattr(args, "task_id", None)
+        socket_per_task = bool(
+            ConfigStore(args.config).effective()["tui"].get("socket_per_task", True)
+        )
+        ensure_sockets_dir = args.command not in {"run", "task", "registry"}
+        socket = resolve_task_socket(
+            root,
+            task_id,
+            socket_per_task=socket_per_task,
+            ensure_dir=ensure_sockets_dir,
+        )
     if args.command == "policy":
         policy = Policy(root)
         if args.action == "show":
@@ -245,8 +271,6 @@ def run(args):
                                 **{"allow_" + flag.replace("-", "_"): getattr(args, "allow_" + flag.replace("-", "_"))
                                    for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor", "run", "run-cancel")})
         return contract.result(None, data=data, side_effects="confirmed")
-    if args.command == "operation-status":
-        return contract.result(args.request_id, data=OperationStore(root).status(args.request_id))
     if args.command == "task":
         tasks, registry, store = TaskStore(root), Registry(root), OperationStore(root)
         if args.action == "list":
@@ -363,7 +387,7 @@ def run(args):
     service = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
                       endpoint_namespace=namespace)
     if args.command == "invoke":
-        return service.invoke(_load_request(args.request_file, getattr(args, "_stdin_json", None)))
+        return service.invoke(req_payload)
     if args.command in {"doctor", "capabilities"}:
         version = service.tmux.version()
         data = {"runtime_version": __version__, "python": sys.version.split()[0], "tmux": version,

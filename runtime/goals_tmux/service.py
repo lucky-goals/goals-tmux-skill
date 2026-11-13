@@ -31,6 +31,9 @@ from .transport import Tmux
 from .viewer import Viewer
 
 
+_UNIX_SUN_PATH_LIMIT = 103
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
@@ -40,7 +43,79 @@ def _context(record):
             "generation": record["generation"], "expected_revision": record["revision"]}
 
 
+def resolve_task_socket(
+    state_dir: os.PathLike[str] | str | None,
+    task_id: str | None,
+    *,
+    socket_per_task: bool = True,
+    ensure_dir: bool = True,
+) -> str:
+    """Resolve the private UNIX socket path for a task within sun_path bounds."""
+    sockets_dir = state_dir_path(state_dir) / "sockets"
+    if ensure_dir:
+        private_dir(sockets_dir)
+    if not socket_per_task or not isinstance(task_id, str) or not task_id.strip():
+        return str(sockets_dir / "default.sock")
+
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", task_id.strip())
+    while ".." in safe:
+        safe = safe.replace("..", ".")
+    safe = safe.strip(".-") or "task"
+
+    candidate = str(sockets_dir / f"{safe}.sock")
+    if len(candidate.encode("utf-8")) <= _UNIX_SUN_PATH_LIMIT:
+        return candidate
+
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:8]
+    dir_bytes = len(str(sockets_dir).encode("utf-8"))
+    max_stem_bytes = _UNIX_SUN_PATH_LIMIT - dir_bytes - 1 - len(".sock")
+    if max_stem_bytes <= 0:
+        raise DomainError("INVALID_ENDPOINT", "state_dir path leaves no room for a UNIX socket name")
+
+    suffix = f"-{digest}"
+    if max_stem_bytes > len(suffix):
+        prefix_budget = max_stem_bytes - len(suffix)
+        prefix = safe.encode("utf-8")[:prefix_budget].decode("utf-8", errors="ignore").rstrip(".-")
+        stem = f"{prefix}{suffix}" if prefix else digest[:max_stem_bytes]
+    else:
+        stem = digest[:max_stem_bytes]
+    stem = stem.strip(".-") or digest[:max_stem_bytes]
+    return str(sockets_dir / f"{stem}.sock")
+
+
 class Service:
+    @classmethod
+    def for_task(
+        cls,
+        task_id: str | None,
+        *,
+        state_dir: os.PathLike[str] | str | None = None,
+        config_path: os.PathLike[str] | str | None = None,
+        tmux_binary: str | None = None,
+        endpoint_namespace: str | None = None,
+    ) -> "Service":
+        """Construct a Service bound to the task's configured per-task or default socket."""
+        root = state_dir_path(state_dir)
+        effective_root = root / "endpoints" / endpoint_namespace if endpoint_namespace else root
+        effective_config = (
+            effective_root / "config.json"
+            if (endpoint_namespace and config_path is None)
+            else config_path
+        )
+        socket_per_task = bool(
+            ConfigStore(effective_config).effective()["tui"].get("socket_per_task", True)
+        )
+        socket_path = resolve_task_socket(
+            effective_root, task_id, socket_per_task=socket_per_task
+        )
+        return cls(
+            socket_path,
+            state_dir=effective_root,
+            config_path=effective_config,
+            tmux_binary=tmux_binary,
+            endpoint_namespace=endpoint_namespace,
+        )
+
     def __init__(self, socket_path, *, state_dir=None, config_path=None, tmux_binary=None, endpoint_namespace=None):
         path = Path(socket_path).expanduser()
         if not path.is_absolute() or "\0" in str(path):
@@ -1627,8 +1702,39 @@ class Service:
             data=data,
         )
 
+    def _tui_gate_or_advisory(
+        self,
+        *,
+        require_visible,
+        pane,
+        session_id,
+        record,
+        snap,
+        viewer,
+        evidence,
+        capture,
+        show_tui_attempts=0,
+    ):
+        if require_visible:
+            raise self._tui_required(
+                pane=pane, session_id=session_id, record=record, snap=snap,
+                viewer=viewer, evidence=evidence, capture=capture,
+                show_tui_attempts=show_tui_attempts,
+            )
+        viewer_payload = (
+            viewer
+            if isinstance(viewer, dict)
+            else {"status": "unavailable", "reason": evidence.get("reason", "tui_not_verified")}
+        )
+        return {
+            "tui": viewer_payload,
+            "tui_evidence": {**evidence, "advisory": True},
+            "pane_capture": capture,
+        }
+
     def _require_tui_for_input(self, pane, record, snap):
         settings, requested = self._record_tui_settings(record)
+        require_visible = bool(self._effective_tui().get("require_visible", False))
         saved_viewer = record.get("viewer") if isinstance(record.get("viewer"), dict) else {}
         embedded_viewer = saved_viewer.get("record") if isinstance(saved_viewer.get("record"), dict) else {}
         session_id = self._linked_session(
@@ -1640,8 +1746,11 @@ class Service:
             evidence = {"status": "unavailable", "reason": "pane_capture_unavailable",
                         "viewer_gui_session_id": None, "evidence": {}}
             viewer = {"status": "unavailable", "reason": "pane_capture_unavailable"}
-            raise self._tui_required(pane=pane, session_id=session_id, record=record, snap=snap,
-                                     viewer=viewer, evidence=evidence, capture=capture)
+            return self._tui_gate_or_advisory(
+                require_visible=require_visible,
+                pane=pane, session_id=session_id, record=record, snap=snap,
+                viewer=viewer, evidence=evidence, capture=capture,
+            )
         if not requested:
             return {"tui": {"status": "disabled", "reason": "explicit_headless"},
                     "tui_evidence": {"status": "not_required", "reason": "explicit_headless",
@@ -1651,15 +1760,19 @@ class Service:
             evidence = {"status": "unavailable", "reason": "viewer_session_ambiguous",
                         "viewer_gui_session_id": None, "evidence": {}}
             viewer = {"status": "unavailable", "reason": "viewer_session_ambiguous"}
-            raise self._tui_required(pane=pane, session_id=None, record=record, snap=snap,
-                                     viewer=viewer, evidence=evidence, capture=capture)
+            return self._tui_gate_or_advisory(
+                require_visible=require_visible,
+                pane=pane, session_id=None, record=record, snap=snap,
+                viewer=viewer, evidence=evidence, capture=capture,
+            )
 
         viewer = self._latest_viewer_record(record, session_id)
         evidence, current, _fresh, target_problem = self._verify_visible(
             viewer, pane, record.get("server_instance_id")
         )
         if target_problem:
-            raise self._tui_required(
+            return self._tui_gate_or_advisory(
+                require_visible=require_visible,
                 pane=pane, session_id=session_id, record=record, snap=snap,
                 viewer=viewer or {"status": "unavailable", "reason": "viewer_record_missing"},
                 evidence=evidence, capture=capture,
@@ -1677,7 +1790,8 @@ class Service:
                             "viewer_gui_session_id": None, "evidence": {}}
                 viewer = viewer if isinstance(viewer, dict) else {
                     "status": "unavailable", "reason": exc.code}
-                raise self._tui_required(
+                return self._tui_gate_or_advisory(
+                    require_visible=require_visible,
                     pane=pane, session_id=session_id, record=record, snap=snap,
                     viewer=viewer, evidence=evidence, capture=capture,
                 )
@@ -1686,7 +1800,8 @@ class Service:
                 session_id, settings, pane, snap, task_ids=[record.get("task_id")]
             )
             if target_problem:
-                raise self._tui_required(
+                return self._tui_gate_or_advisory(
+                    require_visible=require_visible,
                     pane=pane, session_id=session_id, record=record, snap=snap,
                     viewer=viewer, evidence=evidence, capture=capture,
                     show_tui_attempts=show_attempts,
@@ -1711,7 +1826,8 @@ class Service:
             capture = self._capture_pane(current)
             visible = capture.get("status") == "captured"
         if not visible:
-            raise self._tui_required(
+            return self._tui_gate_or_advisory(
+                require_visible=require_visible,
                 pane=pane, session_id=session_id, record=record, snap=fresh or snap,
                 viewer=viewer, evidence=evidence, capture=capture,
                 show_tui_attempts=show_attempts,

@@ -27,7 +27,15 @@ DEFAULT_CONFIG: dict[str, object] = {
 }
 _TERMINALS = frozenset({"auto", "iterm2", "terminal-app", "current"})
 _MODES = frozenset({"tmux", "iterm2-native"})
-_TUI_FIELDS = frozenset({"enabled", "terminal", "mode", "keep_open", "allow_input"})
+_TUI_FIELDS = frozenset({
+    "enabled",
+    "terminal",
+    "mode",
+    "keep_open",
+    "allow_input",
+    "require_visible",
+    "socket_per_task",
+})
 _MAX_CONFIG_BYTES = 64 * 1024
 
 
@@ -60,7 +68,7 @@ def validate_config(value: object) -> dict[str, object]:
         or not required_tui_fields <= set(tui)
     ):
         raise _invalid(
-            "tui must contain enabled, terminal, and mode, with optional keep_open and allow_input"
+            "tui must contain enabled, terminal, and mode, with optional keep_open, allow_input, require_visible, and socket_per_task"
         )
     if type(tui["enabled"]) is not bool:
         raise _invalid("tui.enabled must be a boolean")
@@ -74,15 +82,21 @@ def validate_config(value: object) -> dict[str, object]:
     allow_input = tui.get("allow_input", True)
     if type(allow_input) is not bool:
         raise _invalid("tui.allow_input must be a boolean")
+    validated_tui: dict[str, object] = {
+        "enabled": tui["enabled"],
+        "terminal": tui["terminal"],
+        "mode": tui["mode"],
+        "keep_open": keep_open,
+        "allow_input": allow_input,
+    }
+    for field in ("require_visible", "socket_per_task"):
+        if field in tui:
+            if type(tui[field]) is not bool:
+                raise _invalid(f"tui.{field} must be a boolean")
+            validated_tui[field] = tui[field]
     return {
         "schema_version": 1,
-        "tui": {
-            "enabled": tui["enabled"],
-            "terminal": tui["terminal"],
-            "mode": tui["mode"],
-            "keep_open": keep_open,
-            "allow_input": allow_input,
-        },
+        "tui": validated_tui,
     }
 
 

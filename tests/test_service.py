@@ -992,6 +992,39 @@ class ServiceIntegrationTests(unittest.TestCase):
         self.assertNotEqual(0, abort_exit)
         self.assertEqual("refused", abort_payload["status"], abort_payload)
 
+    def test_config_accepts_tui_require_visible_and_socket_per_task_and_rejects_non_bool(self) -> None:
+        updated_rv = self.service.config.set("tui.require_visible", True)
+        self.assertIs(True, updated_rv["tui"]["require_visible"])
+        self.assertIs(True, self.service.config.load()["tui"]["require_visible"])
+        self.assertIs(True, self.service.config.effective()["tui"]["require_visible"])
+
+        updated_spt = self.service.config.set("tui.socket_per_task", False)
+        self.assertIs(False, updated_spt["tui"]["socket_per_task"])
+        self.assertIs(False, self.service.config.load()["tui"]["socket_per_task"])
+        self.assertIs(False, self.service.config.effective()["tui"]["socket_per_task"])
+
+        overridden = self.service.config.effective(
+            {"tui": {"require_visible": False, "socket_per_task": True}}
+        )
+        self.assertIs(False, overridden["tui"]["require_visible"])
+        self.assertIs(True, overridden["tui"]["socket_per_task"])
+
+        for field in ("require_visible", "socket_per_task"):
+            key = f"tui.{field}"
+            for bad_value in ("true", 1, None):
+                with self.subTest(op="set", key=key, value=bad_value):
+                    with self.assertRaises(DomainError) as exc:
+                        self.service.config.set(key, bad_value)
+                    self.assertEqual("CONFIG_INVALID", exc.exception.code)
+                with self.subTest(op="effective_nested", key=key, value=bad_value):
+                    with self.assertRaises(DomainError) as exc:
+                        self.service.config.effective({"tui": {field: bad_value}})
+                    self.assertEqual("CONFIG_INVALID", exc.exception.code)
+                with self.subTest(op="effective_dotted", key=key, value=bad_value):
+                    with self.assertRaises(DomainError) as exc:
+                        self.service.config.effective({key: bad_value})
+                    self.assertEqual("CONFIG_INVALID", exc.exception.code)
+
 
 if __name__ == "__main__":
     unittest.main()
