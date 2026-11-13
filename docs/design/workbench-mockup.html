@@ -1484,7 +1484,27 @@ function normalizeLocale(tag) {
       (parts.indexOf("hant") !== -1 || parts.indexOf("tw") !== -1 || parts.indexOf("hk") !== -1 || parts.indexOf("mo") !== -1)) return "zh-Hant";
   return null;
 }
+function readCookie(name) {
+  var parts = String(document.cookie || "").split(";");
+  for (var i = 0; i < parts.length; i++) {
+    var item = parts[i].trim();
+    if (!item) continue;
+    var eq = item.indexOf("=");
+    if (eq === -1) continue;
+    if (item.slice(0, eq).trim() === name) {
+      try { return decodeURIComponent(item.slice(eq + 1).trim()); }
+      catch (error) { return item.slice(eq + 1).trim(); }
+    }
+  }
+  return null;
+}
 var LOCALE = (function () {
+  if (IS_SERVED) {
+    var cookieLoc = normalizeLocale(readCookie("wb_locale"));
+    if (cookieLoc) return cookieLoc;
+    var htmlLoc = normalizeLocale(document.documentElement.lang);
+    if (htmlLoc) return htmlLoc;
+  }
   var stored = null;
   try { stored = normalizeLocale(window.localStorage.getItem(LOCALE_KEY)); } catch (error) { /* storage unavailable */ }
   if (stored) return stored;
@@ -1527,7 +1547,14 @@ function applyStatic() {
 function setLocale(locale) {
   LOCALE = normalizeLocale(locale) || "en";
   try { window.localStorage.setItem(LOCALE_KEY, LOCALE); } catch (error) { /* the choice lasts for this page only */ }
+  if (IS_SERVED) {
+    try { document.cookie = "wb_locale=" + encodeURIComponent(LOCALE) + "; path=/; SameSite=Strict"; } catch (error) { /* ignore cookie error */ }
+  }
   applyStatic();
+  renderList();
+  renderDetail();
+  renderObservation();
+  renderIncidents();
   if (typeof changed === "function") changed();
 }
 
@@ -2871,7 +2898,7 @@ function show(view) {
 }
 function navigate(view) {
   if (view === current) return;
-  if (isSettings(current) && isDirty()) { guard(view); return; }
+  if (isSettings(current) && !isSettings(view) && isDirty()) { guard(view); return; }
   show(view);
 }
 function guard(target) {
@@ -3053,9 +3080,44 @@ function selectServedSession(s) {
   });
 }
 
+function serverMode() {
+  var meta = document.querySelector('meta[name="wb-server-mode"]');
+  return meta ? String(meta.getAttribute("content") || "").trim() : "";
+}
+
+function applySettingsResponse(settingsResp) {
+  if (!settingsResp || !settingsResp.ok || !settingsResp.config) return false;
+  SETTINGS_API.active = true;
+  SETTINGS_API.digest = settingsResp.digest || null;
+  SETTINGS_API.csrfToken = settingsResp.csrf_token || null;
+  SETTINGS_API.permanentVariants = settingsResp.permanent_variant_ids || [];
+  SETTINGS_API.permanentModels = settingsResp.permanent_models || [];
+  SETTINGS_API.savedToml = settingsResp.toml || "";
+  SAVED = apiConfigToDraft(settingsResp.config);
+  DRAFT = clone(SAVED);
+  ERR = validate(DRAFT);
+  var resetBtn = document.getElementById("cfg-reset");
+  if (resetBtn) resetBtn.hidden = true;
+  if (isSettings(current)) PAGES[current]();
+  renderChrome();
+  return true;
+}
+
 function hydrateServedMode() {
+  var mode = serverMode();
   var badgeNode = document.querySelector(".ro-badge");
-  if (badgeNode) badgeNode.textContent = "Observation read-only · live state";
+  if (badgeNode && mode !== "configure") badgeNode.textContent = "Observation read-only · live state";
+
+  if (mode === "configure") {
+    fetchJson("/api/settings").catch(function () { return null; }).then(function (settingsResp) {
+      applySettingsResponse(settingsResp);
+      renderList();
+      renderDetail();
+      renderObservation();
+      renderIncidents();
+    });
+    return;
+  }
 
   var path = window.location.pathname || "/";
   var nickMatch = path.match(/^\/s\/([^/]+)$/);
@@ -3068,6 +3130,10 @@ function hydrateServedMode() {
     deepPromise = fetchJson("/api/runs/" + encodeURIComponent(decodeURIComponent(runMatch[1]))).catch(function () { return null; });
   }
 
+  var settingsPromise = mode === "observe"
+    ? Promise.resolve(null)
+    : fetchJson("/api/settings").catch(function () { return null; });
+
   Promise.all([
     fetchJson("/api/sessions").catch(function () { return { sessions: [] }; }),
     fetchJson("/api/registry").catch(function () { return null; }),
@@ -3076,7 +3142,7 @@ function hydrateServedMode() {
     fetchJson("/api/concurrency").catch(function () { return null; }),
     fetchJson("/api/incidents").catch(function () { return { incidents: [] }; }),
     deepPromise,
-    fetchJson("/api/settings").catch(function () { return null; })
+    settingsPromise
   ]).then(function (res) {
     var sessionsResp = res[0] || { sessions: [] };
     LIVE_DATA.registry = res[1];
@@ -3085,22 +3151,7 @@ function hydrateServedMode() {
     LIVE_DATA.concurrency = res[4];
     LIVE_DATA.incidents = (res[5] && Array.isArray(res[5].incidents)) ? res[5].incidents : [];
     var deep = res[6];
-    var settingsResp = res[7];
-    if (settingsResp && settingsResp.ok && settingsResp.config) {
-      SETTINGS_API.active = true;
-      SETTINGS_API.digest = settingsResp.digest || null;
-      SETTINGS_API.csrfToken = settingsResp.csrf_token || null;
-      SETTINGS_API.permanentVariants = settingsResp.permanent_variant_ids || [];
-      SETTINGS_API.permanentModels = settingsResp.permanent_models || [];
-      SETTINGS_API.savedToml = settingsResp.toml || "";
-      SAVED = apiConfigToDraft(settingsResp.config);
-      DRAFT = clone(SAVED);
-      ERR = validate(DRAFT);
-      var resetBtn = document.getElementById("cfg-reset");
-      if (resetBtn) resetBtn.hidden = true;
-      if (isSettings(current)) PAGES[current]();
-      renderChrome();
-    }
+    applySettingsResponse(res[7]);
 
     SESSIONS = (sessionsResp.sessions || []).map(mapServedSession);
     if (deep) {

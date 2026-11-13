@@ -16,13 +16,17 @@ Values are plain text: the renderer escapes them, a catalog never holds HTML.
 
 from __future__ import annotations
 
+import html
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import parse_qs, unquote
 
 from .. import errors
 from ..errors import PlatformError
@@ -114,6 +118,134 @@ def negotiate(option: str | None = None, configured: str | None = None,
         # "C" or an unsupported one ends the search rather than reaching LANG.
         break
     return Negotiation(DEFAULT_LOCALE, "default", tuple(skipped))
+
+
+def parse_accept_language(header: str | None) -> list[str]:
+    """Parse an HTTP ``Accept-Language`` header into tags sorted by descending ``q``.
+
+    Entries with ``q <= 0``, ``q > 1``, non-finite or malformed ``q`` weights,
+    empty tags, and ``*`` are ignored without raising. Ties preserve input order.
+    """
+    if not header or not isinstance(header, str):
+        return []
+    weighted: list[tuple[float, str]] = []
+    for raw_item in header.split(","):
+        parts = [part.strip() for part in raw_item.split(";")]
+        tag = parts[0]
+        if not tag or tag == "*":
+            continue
+        q = 1.0
+        valid = True
+        for param in parts[1:]:
+            if not param or "=" not in param:
+                continue
+            key, val = param.split("=", 1)
+            if key.strip().lower() == "q":
+                try:
+                    parsed_q = float(val.strip())
+                except ValueError:
+                    valid = False
+                    break
+                if not math.isfinite(parsed_q) or not (0.0 < parsed_q <= 1.0):
+                    valid = False
+                    break
+                q = parsed_q
+        if valid:
+            weighted.append((q, tag))
+    weighted.sort(key=lambda item: item[0], reverse=True)
+    return [tag for _, tag in weighted]
+
+
+def negotiate_viewer(
+    viewer_choice: str | None = None,
+    configured: str | None = None,
+    accept_language: str | None = None,
+) -> Negotiation:
+    """Pick the HTTP viewer display locale per section 18.2.
+
+    Order: ``viewer_choice`` (cookie/query), then ``configured`` (``ui.locale``
+    when not ``"auto"``), then ``Accept-Language`` tags by descending ``q``,
+    then English. Unsupported values are skipped and recorded in ``skipped``
+    without raising; ``zh``, ``zh-CN``, and ``zh-Hans`` remain unmapped.
+    """
+    skipped: list[str] = []
+    if viewer_choice and viewer_choice.strip():
+        locale = normalize(viewer_choice)
+        if locale:
+            return Negotiation(locale, "cookie", tuple(skipped))
+        skipped.append(viewer_choice)
+    if configured and configured.strip() and configured.strip() != "auto":
+        locale = normalize(configured)
+        if locale:
+            return Negotiation(locale, "config", tuple(skipped))
+        skipped.append(configured)
+    for tag in parse_accept_language(accept_language):
+        locale = normalize(tag)
+        if locale:
+            return Negotiation(locale, "accept_language", tuple(skipped))
+        skipped.append(tag)
+    return Negotiation(DEFAULT_LOCALE, "default", tuple(skipped))
+
+
+def viewer_choice_from_request(
+    query_string: str,
+    cookie_header: str | None,
+    *,
+    cookie_name: str = "wb_locale",
+) -> str | None:
+    """Extract viewer locale choice from ``?locale=`` query or ``wb_locale`` cookie."""
+    if query_string:
+        params = parse_qs(query_string, keep_blank_values=False)
+        query_vals = params.get("locale")
+        if query_vals and query_vals[0].strip():
+            return query_vals[0].strip()
+    if cookie_header:
+        jar = SimpleCookie()
+        try:
+            jar.load(cookie_header)
+        except CookieError:
+            return None
+        morsel = jar.get(cookie_name)
+        if morsel is not None:
+            value = unquote(morsel.value).strip()
+            if value:
+                return value
+    return None
+
+
+def apply_viewer_html_meta(html_text: str, locale: str, server_mode: str) -> str:
+    """Set ``<html lang="...">`` and inject ``<meta name="wb-server-mode">``."""
+    safe_locale = html.escape(locale, quote=True)
+    safe_mode = html.escape(server_mode, quote=True)
+    updated, count = re.subn(
+        r'<html\b([^>]*?)\blang="[^"]*"',
+        f'<html\\1lang="{safe_locale}"',
+        html_text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    if count == 0:
+        updated = re.sub(
+            r"<html\b",
+            f'<html lang="{safe_locale}"',
+            updated,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    meta_tag = f'<meta name="wb-server-mode" content="{safe_mode}">'
+    if re.search(r'<meta\s+name="wb-server-mode"', updated, flags=re.IGNORECASE):
+        updated = re.sub(
+            r'<meta\s+name="wb-server-mode"[^>]*>',
+            meta_tag,
+            updated,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    elif re.search(r"</head>", updated, flags=re.IGNORECASE):
+        updated = re.sub(r"</head>", f"{meta_tag}\n</head>", updated, count=1, flags=re.IGNORECASE)
+    elif re.search(r"<head\b[^>]*>", updated, flags=re.IGNORECASE):
+        updated = re.sub(r"(<head\b[^>]*>)", f"\\1\n{meta_tag}", updated, count=1, flags=re.IGNORECASE)
+    return updated
 
 
 def fallback_chain(locale: str) -> tuple[str, ...]:

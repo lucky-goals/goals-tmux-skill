@@ -18,7 +18,7 @@ from cli_platform.errors import PlatformError
 from cli_platform.events import EVENT_TYPES
 from cli_platform.i18n.core import (
     CATALOG_DIR, PLURAL_CATEGORIES, SUPPORTED, Translator, format_number, load_catalog, negotiate,
-    normalize, placeholders,
+    normalize, placeholders, require_locale,
 )
 from cli_platform.supervisor import RUN_STATES
 
@@ -294,6 +294,120 @@ class MockupTest(unittest.TestCase):
         options = re.findall(r'<option value="([^"]+)" lang="[^"]+">([^<]+)</option>', self.html)
         self.assertEqual(options, [(locale, load_catalog(locale)["meta.language_name"]) for locale in SUPPORTED])
         self.assertIn("localStorage.setItem(LOCALE_KEY", self.html)
+
+    def test_static_and_playwright_views_have_zero_missing_i18n_keys(self):
+        catalogs = {locale: load_catalog(locale) for locale in SUPPORTED}
+        english_keys = set(catalogs["en"])
+        for locale in SUPPORTED:
+            with self.subTest(parity_locale=locale):
+                self.assertEqual(set(catalogs[locale]) ^ english_keys, set())
+
+        used = set(re.findall(r'\b(?:tx|lk)\(\s*["\']([a-z][A-Za-z0-9_.]*[A-Za-z0-9_])["\']', self.html))
+        used |= set(re.findall(r'data-i18n(?:-title|-aria)?="([^"]+)"', self.html))
+        used |= {"shell.nav." + view.replace("-", "_") for view in re.findall(r'data-view="([a-z-]+)"', self.html)}
+
+        src_root = ROOT / "src" / "cli_platform"
+        for py_path in sorted(src_root.rglob("*.py")):
+            src = py_path.read_text(encoding="utf-8")
+            used |= set(re.findall(
+                r'\bTranslator\([^)]*\)\s*\.\s*t\(\s*["\']([a-z][a-z0-9_]*(?:\.[A-Za-z0-9_]+)+)["\']',
+                src,
+            ))
+            used |= set(re.findall(
+                r'(?<![A-Za-z0-9_])(?:[A-Za-z_][A-Za-z0-9_]*\.)?t\(\s*["\']([a-z][a-z0-9_]*(?:\.[A-Za-z0-9_]+)+)["\']',
+                src,
+            ))
+
+        self.assertGreater(len(used), 100)
+        for locale in SUPPORTED:
+            with self.subTest(static_locale=locale):
+                missing = sorted(used - set(catalogs[locale]))
+                self.assertEqual(missing, [], f"missing keys in {locale}: {missing}")
+                translator = Translator(locale, catalogs=catalogs)
+                for key in sorted(used):
+                    translator.lookup(key)
+                self.assertEqual(translator.missing, set())
+
+
+class ViewerNegotiationTest(unittest.TestCase):
+    """HTTP viewer locale negotiation (section 18.2): cookie -> ui.locale -> Accept-Language -> en."""
+
+    def test_negotiate_viewer_precedence_cookie_then_ui_locale_then_accept_language_then_en(self):
+        from cli_platform.i18n.core import negotiate_viewer
+
+        # 1. Stored viewer cookie/choice beats ui.locale and Accept-Language.
+        chosen = negotiate_viewer("ja", "zh-Hant", "en-US,en;q=0.9")
+        self.assertEqual((chosen.locale, chosen.source, chosen.chain), ("ja", "cookie", ("ja", "en")))
+
+        chosen_regional = negotiate_viewer("zh-TW", "ja", "en")
+        self.assertEqual((chosen_regional.locale, chosen_regional.source, chosen_regional.chain),
+                         ("zh-Hant", "cookie", ("zh-Hant", "en")))
+
+        # 2. ui.locale (when not "auto") beats Accept-Language.
+        chosen = negotiate_viewer(None, "zh-Hant", "ja,en;q=0.8")
+        self.assertEqual((chosen.locale, chosen.source, chosen.chain), ("zh-Hant", "config", ("zh-Hant", "en")))
+
+        # 3. Accept-Language weighted tags when cookie is absent and ui.locale is "auto" / None.
+        chosen = negotiate_viewer(None, "auto", "fr;q=1.0, ja;q=0.8, en;q=0.5")
+        self.assertEqual((chosen.locale, chosen.source, chosen.chain), ("ja", "accept_language", ("ja", "en")))
+
+        chosen_none_cfg = negotiate_viewer(None, None, "ja,en;q=0.8")
+        self.assertEqual((chosen_none_cfg.locale, chosen_none_cfg.source), ("ja", "accept_language"))
+
+        # 4. Fallback to English when nothing matches.
+        chosen = negotiate_viewer(None, "auto", "fr, de;q=0.9")
+        self.assertEqual((chosen.locale, chosen.source, chosen.chain), ("en", "default", ("en",)))
+
+        chosen_empty = negotiate_viewer(None, None, None)
+        self.assertEqual((chosen_empty.locale, chosen_empty.source, chosen_empty.chain), ("en", "default", ("en",)))
+
+    def test_zh_cn_and_zh_hans_never_map_to_zh_hant_and_malformed_q_weights_fall_back_safely(self):
+        from cli_platform.i18n.core import negotiate_viewer, parse_accept_language
+
+        # Simplified Chinese / bare zh must never map to zh-Hant.
+        chosen = negotiate_viewer(None, "auto", "zh-CN,zh;q=0.9,ja;q=0.8")
+        self.assertEqual((chosen.locale, chosen.source), ("ja", "accept_language"))
+
+        chosen_hans = negotiate_viewer(None, "auto", "zh-Hans,zh-CN;q=0.9")
+        self.assertEqual((chosen_hans.locale, chosen_hans.source), ("en", "default"))
+
+        # Malformed q-weights never raise; q=0 and malformed weights are ignored; q=0.9 > q=0.7.
+        parsed = parse_accept_language("en;q=bad, ja;q=0.7, zh-TW;q=invalid, zh-HK;q=0.9, fr;q=0")
+        tags = [item[0] if isinstance(item, (tuple, list)) else item for item in parsed]
+        self.assertIn("zh-HK", tags)
+        self.assertIn("ja", tags)
+        self.assertLess(tags.index("zh-HK"), tags.index("ja"))
+        for dropped in ("en", "zh-TW", "fr"):
+            self.assertNotIn(dropped, tags)
+
+        self.assertEqual(parse_accept_language(None), [])
+        self.assertEqual(parse_accept_language(""), [])
+        self.assertEqual(
+            (negotiate_viewer(None, "auto", "en;q=bad, ja;q=0.7, zh-TW;q=invalid, zh-HK;q=0.9, fr;q=0").locale),
+            "zh-Hant",
+        )
+
+        # Invalid viewer cookie is skipped safely rather than raising.
+        skipped_cookie = negotiate_viewer("zh-CN", "ja", "en")
+        self.assertEqual((skipped_cookie.locale, skipped_cookie.source), ("ja", "config"))
+
+        skipped_cookie_accept = negotiate_viewer("fr", "auto", "zh-TW,en;q=0.8")
+        self.assertEqual((skipped_cookie_accept.locale, skipped_cookie_accept.source), ("zh-Hant", "accept_language"))
+
+        # Regression guard: CLI --locale zh-CN still exits 2 and require_locale refuses LOCALE_UNSUPPORTED.
+        self.assertIsNone(normalize("zh-CN"))
+        with self.assertRaises(PlatformError) as cm:
+            require_locale("zh-CN", "--locale")
+        self.assertEqual(cm.exception.code, errors.LOCALE_UNSUPPORTED)
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = main(["--locale", "zh-CN", "locale"])
+            except SystemExit as exc:
+                code = exc.code
+        self.assertEqual(code, 2)
+        self.assertIn("not supported", err.getvalue())
 
 
 if __name__ == "__main__":

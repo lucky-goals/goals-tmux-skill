@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 from .. import errors, toml_writer
 from ..config import PlatformConfig, load_config, parse_config
 from ..errors import PlatformError
+from ..i18n.core import apply_viewer_html_meta, negotiate_viewer, viewer_choice_from_request
 
 _ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 _MOCKUP_PATH = Path(__file__).resolve().parents[4] / "docs" / "design" / "workbench-mockup.html"
@@ -426,6 +427,25 @@ class SettingsEditorRequestHandler(BaseHTTPRequestHandler):
             extra_headers={"Allow": "GET, HEAD, POST, PUT"},
         )
 
+    def _configured_locale(self) -> str | None:
+        try:
+            _, _, cfg = _read_and_parse_config(self.server.config_path)
+            return cfg.ui.locale
+        except PlatformError:
+            return None
+
+    def _render_html(self, query_string: str) -> bytes:
+        if _MOCKUP_PATH.is_file():
+            raw_html = _MOCKUP_PATH.read_text(encoding="utf-8")
+        else:
+            raw_html = (
+                '<!doctype html><html lang="en"><head><meta charset="utf-8"></head>'
+                "<body><h1>CLI platform settings editor</h1></body></html>"
+            )
+        choice = viewer_choice_from_request(query_string, self.headers.get("Cookie"))
+        chosen = negotiate_viewer(choice, self._configured_locale(), self.headers.get("Accept-Language"))
+        return apply_viewer_html_meta(raw_html, chosen.locale, "configure").encode("utf-8")
+
     def _handle_auth(self, query_string: str, *, head_only: bool) -> None:
         params = parse_qs(query_string, keep_blank_values=True)
         token = params.get("token", [""])[0]
@@ -466,11 +486,7 @@ class SettingsEditorRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/":
-            if _MOCKUP_PATH.is_file():
-                html = _MOCKUP_PATH.read_bytes()
-            else:
-                html = b"<!doctype html><html><body><h1>CLI platform settings editor</h1></body></html>"
-            self._send_bytes(200, "text/html; charset=utf-8", html, head_only=head_only)
+            self._send_bytes(200, "text/html; charset=utf-8", self._render_html(parsed.query), head_only=head_only)
             return
 
         if path == "/api/settings":

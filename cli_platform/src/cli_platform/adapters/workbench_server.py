@@ -26,6 +26,8 @@ import cli_platform.adapters.workbench as workbench
 from .. import errors
 from ..errors import PlatformError
 from ..fsutil import private_dir
+from ..i18n.core import apply_viewer_html_meta, negotiate_viewer, viewer_choice_from_request
+from ..snapshots import read_config_snapshot
 
 _ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -110,10 +112,12 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
         auth_token: str,
         url_host: str,
         address_family: int = socket.AF_INET,
+        configured_locale: str | None = None,
     ) -> None:
         self.address_family = address_family
         self.state_dir = Path(state_dir)
         self.auth_token = auth_token
+        self.configured_locale = configured_locale
         self._sessions: set[str] = set()
         self._sessions_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -364,8 +368,7 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         state_dir = self.server.state_dir
 
         if path == "/" or self._match_ui_deep_link(path):
-            html = workbench.render_ui_html().encode("utf-8")
-            self._send_bytes(200, "text/html; charset=utf-8", html, head_only=head_only)
+            self._send_bytes(200, "text/html; charset=utf-8", self._render_html(parsed.query), head_only=head_only)
             return
 
         if path == "/api/sessions":
@@ -439,6 +442,25 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
 
         self._send_error_json(404, "NOT_FOUND", f"unknown route {path!r}", head_only=head_only)
 
+    def _configured_locale(self) -> str | None:
+        if self.server.configured_locale is not None:
+            return self.server.configured_locale
+        try:
+            snap = read_config_snapshot(self.server.state_dir)
+        except (OSError, ValueError):
+            return None
+        if isinstance(snap, dict) and isinstance(snap.get("config"), dict):
+            ui = snap["config"].get("ui")
+            if isinstance(ui, dict) and isinstance(ui.get("locale"), str):
+                return ui["locale"]
+        return None
+
+    def _render_html(self, query_string: str) -> bytes:
+        choice = viewer_choice_from_request(query_string, self.headers.get("Cookie"))
+        chosen = negotiate_viewer(choice, self._configured_locale(), self.headers.get("Accept-Language"))
+        html_text = apply_viewer_html_meta(workbench.render_ui_html(), chosen.locale, "observe")
+        return html_text.encode("utf-8")
+
     @staticmethod
     def _match_ui_deep_link(path: str) -> bool:
         for prefix in ("/s/", "/runs/"):
@@ -453,13 +475,21 @@ def create_server(
     *,
     host: str = "127.0.0.1",
     port: int = 0,
+    configured_locale: str | None = None,
 ) -> WorkbenchHTTPServer:
     """Create a loopback-bound, token-authenticated read-only workbench server."""
     bind_host, url_host, family = _validate_loopback_host(host)
     root = Path(state_dir)
     token = secrets.token_urlsafe(32)
     _write_token_file(root, token)
-    return WorkbenchHTTPServer((bind_host, int(port)), root, token, url_host, address_family=family)
+    return WorkbenchHTTPServer(
+        (bind_host, int(port)),
+        root,
+        token,
+        url_host,
+        address_family=family,
+        configured_locale=configured_locale,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
