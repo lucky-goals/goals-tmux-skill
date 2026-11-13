@@ -56,33 +56,38 @@ cli_platform/
 │   ├── catalog.py                     new   observation store and merge with the curated overlay
 │   ├── router.py                      new   stage routing and explain trace
 │   ├── limiter.py                     new   leases, queue, rate-limit cooldown, reaping
-│   ├── events.py                      new   run event log with platform event types
+│   ├── events.py                      new   run event log with platform event types (event layer)
+│   ├── snapshots.py                   new   lock-free readers of published state, one limits projection (event layer)
 │   ├── supervisor.py                  new   run states, supervisor contract, Platform wiring
 │   ├── __main__.py                    new   check-config, scan, variants, catalog, resolve, plan
 │   └── adapters/
-│       ├── workbench.py               new   placeholder: GET route table and read model
+│       ├── workbench.py               new   placeholder: GET route table and read model over files (observation layer)
 │       └── mcp.py                     new   placeholder: tool table
-└── tests/                             new   101 unittest cases
+└── tests/                             new   115 unittest cases
     ├── support.py                           fixtures
     ├── test_nicknames.py                    library and allocation
     ├── test_router.py                       precedence, fallback, catalog
     ├── test_limiter.py                      caps, queue, cooldown, recovery, cross-process
     ├── test_config.py                       loading, validation, settings files
-    └── test_session_flow.py                 nickname, route, lease, events
+    ├── test_session_flow.py                 nickname, route, lease, events
+    └── test_layering.py                     layer table, import rules, lock-free and write-free read model
 ```
 
-Responsibilities and direction of dependencies:
+Layers and direction of dependencies (design section 5; enforced for
+`cli_platform` by `tests/test_layering.py`):
 
-| Unit | Responsibility | May import |
+| Layer | Modules | May import |
 | --- | --- | --- |
-| `cli_platform` core | Decide name, route and capacity for a turn | Standard library only |
-| `cli_platform.adapters` | Present platform state outward | `cli_platform` core |
-| `goals_tmux.runs` (planned) | Run one turn, own the process and its log | `cli_platform` core |
-| `goals_tmux.mcp_server`, `workbench` (planned) | Thin clients of the libraries and files | `runs`, `cli_platform` |
+| Configuration (shared input) | `config`, `errors`, `fsutil` | Configuration only |
+| Event | `events`, `snapshots` | Configuration, event |
+| Execution | `scanner`, `variants`, `catalog`, `nicknames`, `router`, `limiter`, `supervisor`, `__main__`, `adapters/mcp`; planned `goals_tmux.runs`, `goals_tmux.mcp_server` | Configuration, event, execution |
+| Observation | `adapters/workbench`; planned `goals_tmux.workbench` | Configuration, event, and the pure evaluators `catalog` and `variants` |
 | `goals_tmux` tmux backend | Interactive sessions and takeover panes | Unchanged; adopts `gt-<nickname>` names later |
 
-Nothing in the core imports an adapter or the workbench; that is the
-zero-gate rule expressed as an import rule.
+Nothing in the execution layer imports the workbench (the zero-gate rule),
+and the workbench imports none of the router, limiter, nickname allocator,
+supervisor, scanner or MCP adapter. The settings editor (planned) writes
+`cli-platform.toml` only.
 
 ## State directory
 
@@ -103,7 +108,7 @@ nicknames/
 ├── live/<name>.json                       new      one per live session
 └── released/<name>.json                   new      last release, drives the reuse cooldown
 limits/
-├── lock, state.json                       new      leases, queue, per-account cooldown
+├── lock, state.json                       new      leases, queue, per-account cooldown; state.json is a published snapshot
 └── journal.jsonl                          new      lease history
 catalog/observed/<variant>.jsonl           new      model observations with provenance
 ```

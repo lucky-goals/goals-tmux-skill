@@ -1,8 +1,9 @@
 """Concurrency limiter: leases, queue, rate-limit cooldown, crash recovery.
 
 One lease is one CLI turn in flight (or one human takeover). A lease needs a
-free slot in three scopes at once: global, the variant's account, and the
-stage. All three are taken or none, inside one ``flock`` critical section
+free slot in every scope that applies: global, the variant's account, the
+stage, and the variant itself when it sets its own ``max_parallel``. All are
+taken or none, inside one ``flock`` critical section
 over ``<state>/limits/state.json``, so separate supervisor processes can
 never oversubscribe a cap or deadlock on partial holds.
 
@@ -27,6 +28,7 @@ from . import errors
 from .config import PlatformConfig
 from .errors import PlatformError
 from .fsutil import private_dir
+from .snapshots import empty_limits, summarize_limits
 
 
 def process_identity(pid: int) -> str | None:
@@ -51,6 +53,7 @@ class LeaseRequest:
     stage: str
     holder: str = "runner"           # runner | human
     pid: int | None = None           # defaults to the calling process
+    variant: str = ""                # counts against the variant's own cap, if it has one
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ class Outcome:
     lease_id: str | None = None
     ticket_id: str | None = None
     position: int | None = None      # 1 is the head of the queue
-    blocked_on: tuple[str, ...] = () # e.g. ("account:anthropic-sub", "cooldown:...")
+    blocked_on: tuple[str, ...] = () # e.g. ("account:anthropic-sub", "cooldown:...", "variant:...")
 
     @property
     def granted(self) -> bool:
@@ -87,6 +90,10 @@ class Limiter:
             raise PlatformError(errors.CONFIG_INVALID, f"unknown account {request.account!r}")
         if request.stage not in self._config.stages:
             raise PlatformError(errors.STAGE_UNKNOWN, f"unknown stage {request.stage!r}")
+        if request.variant and (request.variant not in self._config.variants
+                                or self._config.variants[request.variant].account != request.account):
+            raise PlatformError(errors.CONFIG_INVALID,
+                                f"variant {request.variant!r} does not bill account {request.account!r}")
         with self._state() as state:
             now = self._clock()
             self._reap(state, now)
@@ -100,7 +107,7 @@ class Limiter:
             entry = {
                 "session_id": request.session_id, "nickname": request.nickname,
                 "account": request.account, "stage": request.stage, "holder": request.holder,
-                "pid": pid, "pid_started": self._identity(pid),
+                "variant": request.variant, "pid": pid, "pid_started": self._identity(pid),
             }
             blocked = self._blocked_behind_queue(state, entry, len(state["queue"]), now)
             if not blocked:
@@ -185,34 +192,16 @@ class Limiter:
     # -- read model -------------------------------------------------------------
 
     def snapshot(self) -> dict:
-        """Usage per scope, queue and leases, for the router and the workbench."""
+        """Usage per scope, queue and leases, read under the lock. Readers
+        outside the execution layer use ``snapshots.read_limits`` instead."""
         with self._state(write=False) as state:
-            now = self._clock()
-            leases = list(state["leases"].values())
-            accounts = {}
-            for account_id, account in self._config.accounts.items():
-                record = self._account(state, account_id)
-                accounts[account_id] = {
-                    "in_use": sum(l["account"] == account_id for l in leases),
-                    "cap": account.max_parallel, "effective_cap": record["effective_cap"],
-                    "cooldown_remaining": max(0.0, record["cooldown_until"] - now),
-                    "strikes": record["strikes"],
-                }
-            return {
-                "global": {"in_use": len(leases), "cap": self._config.concurrency.global_max_parallel},
-                "accounts": accounts,
-                "stages": {stage_id: {"in_use": sum(l["stage"] == stage_id for l in leases),
-                                      "cap": stage.max_parallel}
-                           for stage_id, stage in self._config.stages.items()},
-                "queue": [dict(ticket, position=index + 1, waited=now - ticket["enqueued_at"])
-                          for index, ticket in enumerate(state["queue"])],
-                "leases": [dict(lease, stale=lease["expires_at"] < now) for lease in leases],
-            }
+            return summarize_limits(self._config, state, self._clock())
 
-    def blocked_on(self, account: str, stage: str) -> tuple[str, ...]:
+    def blocked_on(self, variant: str, account: str, stage: str) -> tuple[str, ...]:
         """Scopes that would stop a new lease right now (ignores the queue)."""
         with self._state(write=False) as state:
-            return self._blocked(self._usage(state), state, {"account": account, "stage": stage},
+            return self._blocked(self._usage(state), state,
+                                 {"variant": variant, "account": account, "stage": stage},
                                  self._clock())
 
     # -- internals ----------------------------------------------------------------
@@ -224,11 +213,16 @@ class Limiter:
         })
 
     @staticmethod
-    def _usage(state: dict) -> dict[str, int]:
+    def _scopes(entry: dict) -> tuple[str, ...]:
+        scopes = (f"account:{entry['account']}", f"stage:{entry['stage']}")
+        # Leases written before variant caps existed carry no variant.
+        return scopes + ((f"variant:{entry['variant']}",) if entry.get("variant") else ())
+
+    def _usage(self, state: dict) -> dict[str, int]:
         usage: dict[str, int] = {"global": 0}
         for lease in state["leases"].values():
             usage["global"] += 1
-            for scope in (f"account:{lease['account']}", f"stage:{lease['stage']}"):
+            for scope in self._scopes(lease):
                 usage[scope] = usage.get(scope, 0) + 1
         return usage
 
@@ -245,6 +239,10 @@ class Limiter:
             blocked.append(f"cooldown:{account}")
         if usage.get(f"stage:{stage}", 0) >= self._config.stages[stage].max_parallel:
             blocked.append(f"stage:{stage}")
+        variant = self._config.variants.get(entry.get("variant") or "")
+        if variant and variant.max_parallel is not None \
+                and usage.get(f"variant:{variant.id}", 0) >= variant.max_parallel:
+            blocked.append(f"variant:{variant.id}")
         return tuple(blocked)
 
     def _blocked_behind_queue(self, state: dict, entry: dict, position: int, now: float) -> tuple[str, ...]:
@@ -255,7 +253,7 @@ class Limiter:
         for earlier in state["queue"][:position]:
             if not self._blocked(usage, state, earlier, now):
                 usage["global"] += 1
-                for scope in (f"account:{earlier['account']}", f"stage:{earlier['stage']}"):
+                for scope in self._scopes(earlier):
                     usage[scope] = usage.get(scope, 0) + 1
         return self._blocked(usage, state, entry, now)
 
@@ -275,8 +273,8 @@ class Limiter:
         if blocked:
             return Outcome("queued", ticket_id=ticket_id, position=position + 1, blocked_on=blocked)
         state["queue"].pop(position)
-        entry = {key: ticket[key] for key in ("session_id", "nickname", "account", "stage",
-                                              "holder", "pid", "pid_started")}
+        entry = {key: ticket.get(key, "") for key in ("session_id", "nickname", "account", "stage",
+                                                      "holder", "variant", "pid", "pid_started")}
         return Outcome("granted", lease_id=self._grant(state, entry, now, waited=waited))
 
     def _grant(self, state: dict, entry: dict, now: float, waited: float = 0.0) -> str:
@@ -311,7 +309,7 @@ class Limiter:
             try:
                 state = json.loads(path.read_text())
             except FileNotFoundError:
-                state = {"v": 1, "leases": {}, "queue": [], "accounts": {}}
+                state = empty_limits()
             refusal: PlatformError | None = None
             try:
                 yield state
@@ -335,7 +333,8 @@ class Limiter:
     def _journal(self, kind: str, subject: dict, now: float, **extra: object) -> None:
         # Called with the state lock held, so the journal has one writer at a time.
         record = {"ts": now, "type": kind, **extra}
-        for key in ("lease_id", "ticket_id", "session_id", "nickname", "account", "stage", "holder"):
+        for key in ("lease_id", "ticket_id", "session_id", "nickname", "account", "stage", "variant",
+                    "holder"):
             if key in subject:
                 record[key] = subject[key]
         fd = os.open(self._root / "journal.jsonl",

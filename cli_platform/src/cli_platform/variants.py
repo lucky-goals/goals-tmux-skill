@@ -120,7 +120,7 @@ class VariantRegistry:
         return [self.state(variant_id) for variant_id in self._config.variants]
 
 
-def build_launch(variant: Variant, model_id: str, effort: str = "", fast: bool = False, *,
+def build_launch(variant: Variant, model_id: str, effort: str = "", *,
                  binary_path: str | None = None) -> LaunchSpec:
     """Render binary, settings and model selection into argv and environment."""
     binary = binary_path or variant.binary
@@ -142,17 +142,12 @@ def build_launch(variant: Variant, model_id: str, effort: str = "", fast: bool =
             selection += ["-m", model_id]
         if effort:
             selection += ["-c", f'model_reasoning_effort="{effort}"']
-        if fast:
-            selection += ["-c", 'service_tier="priority"']
     else:
         if named:
             selection += ["--model", model_id]
         # Cursor has no effort flag; its catalog entries list no efforts.
         if effort and variant.adapter != "cursor":
             selection += ["--effort", effort]
-        if fast:
-            raise PlatformError(errors.CONFIG_INVALID,
-                                f"no fast-mode launch rendering is known for adapter {variant.adapter}")
     selection += list(variant.extra_args)
     return LaunchSpec(argv=tuple(argv + selection), env_set=dict(variant.env),
                       env_unset=variant.env_unset, loggable_argv=tuple(loggable + selection))

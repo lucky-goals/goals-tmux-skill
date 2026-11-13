@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
-from .config import Candidate, load_config
+from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
 from .router import RouteRequest
 from .scanner import scan_all
@@ -25,11 +25,10 @@ _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cli-platform
 def _pin(text: str | None) -> Candidate | None:
     if not text:
         return None
-    body, _, fast = text.partition("+")
-    parts = body.split("/")
-    if len(parts) not in (2, 3) or fast not in ("", "fast"):
-        raise SystemExit("--pin must look like variant/model[/effort][+fast]")
-    return Candidate(parts[0], parts[1], parts[2] if len(parts) == 3 else "", fast == "fast")
+    parts = text.split("/")
+    if len(parts) not in (2, 3) or len(parts) == 3 and parts[2] not in EFFORT_ORDER:
+        raise SystemExit(f"--pin must look like variant/model[/effort], effort one of {list(EFFORT_ORDER)}")
+    return Candidate(parts[0], parts[1], parts[2] if len(parts) == 3 else "")
 
 
 def main(argv: list[str] | None = None) -> int:

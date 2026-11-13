@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,7 +31,9 @@ class Observation:
     cli_version: str = ""
     command: str = ""                # e.g. "kiro-cli chat --list-models"
     efforts: tuple[str, ...] = ()
-    fast: str = "unverified"
+
+
+_OBSERVATION_FIELDS = frozenset(item.name for item in fields(Observation))
 
 
 @dataclass(frozen=True)
@@ -40,8 +42,9 @@ class CatalogEntry:
     id: str
     efforts: tuple[str, ...]
     default_effort: str
-    fast: str
-    fast_via: str
+    display_name: str
+    context_tokens: int | None
+    cost_tier: str
     status: str                      # enabled | disabled | deprecated | unreviewed
     curated: bool
     routable: bool
@@ -79,6 +82,8 @@ class ObservationStore:
         for line in text.splitlines():
             try:
                 raw = json.loads(line)
+                # Fields this version does not know are ignored, not fatal.
+                raw = {key: value for key, value in raw.items() if key in _OBSERVATION_FIELDS}
                 raw["efforts"] = tuple(raw.get("efforts", ()))
                 if MODEL_ID_RE.fullmatch(raw["model_id"]):
                     observations.append(Observation(**raw))
@@ -134,7 +139,8 @@ class ModelCatalog:
             seen = self._seen(variant, entry.id)
             out.append(CatalogEntry(
                 variant=variant, id=entry.id, efforts=entry.efforts,
-                default_effort=entry.default_effort, fast=entry.fast, fast_via=entry.fast_via,
+                default_effort=entry.default_effort, display_name=entry.display_name,
+                context_tokens=entry.context_tokens, cost_tier=entry.cost_tier,
                 status=entry.status, curated=True, routable=entry.status == "enabled",
                 flags=self._flags(variant, seen, entry), provenance=seen))
         observed_only = sorted({item.model_id for item in self._observations
@@ -143,7 +149,7 @@ class ModelCatalog:
             seen = self._seen(variant, model_id)
             out.append(CatalogEntry(
                 variant=variant, id=model_id, efforts=seen[0].efforts, default_effort="",
-                fast=seen[0].fast, fast_via="", status="unreviewed", curated=False,
+                display_name="", context_tokens=None, cost_tier="", status="unreviewed", curated=False,
                 routable=self._config.catalog.allow_unreviewed,
                 flags=self._flags(variant, seen, None), provenance=seen))
         return out

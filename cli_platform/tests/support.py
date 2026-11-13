@@ -26,10 +26,9 @@ BASE: dict = {
         "gamma": {"adapter": "kiro", "binary": "gamma-bin", "account": "acct-b"},
     },
     "models": [
-        {"variant": "alpha", "id": "big", "efforts": EFFORTS, "default_effort": "high",
-         "fast": "unverified"},
+        {"variant": "alpha", "id": "big", "efforts": EFFORTS, "default_effort": "high"},
         {"variant": "alpha", "id": "small", "efforts": ["low", "medium"], "default_effort": "medium"},
-        {"variant": "beta", "id": "quick", "efforts": ["low", "medium", "high"], "fast": "yes"},
+        {"variant": "beta", "id": "quick", "efforts": ["low", "medium", "high"]},
         {"variant": "gamma", "id": "@default", "efforts": EFFORTS},
     ],
     "stages": {
@@ -38,17 +37,15 @@ BASE: dict = {
             {"variant": "beta", "model": "quick", "effort": "high"}]},
         "development": {"max_parallel": 3, "on_busy": "next", "candidates": [
             {"variant": "alpha", "model": "big", "effort": "high"},
-            {"variant": "beta", "model": "quick", "effort": "high", "fast": True}]},
+            {"variant": "beta", "model": "quick", "effort": "high"}]},
         "testing": {"max_parallel": 1, "candidates": [
             {"variant": "alpha", "model": "small", "effort": "max"},
             {"variant": "gamma", "model": "@default", "effort": "medium"}]},
-        "code_review": {"max_parallel": 2, "effort_fallback": "skip", "fast_fallback": "skip",
-                        "candidates": [
-                            {"variant": "alpha", "model": "small", "effort": "max"},
-                            {"variant": "alpha", "model": "big", "effort": "high", "fast": True},
-                            {"variant": "beta", "model": "quick", "effort": "medium"}]},
+        "code_review": {"max_parallel": 2, "effort_fallback": "skip", "candidates": [
+            {"variant": "alpha", "model": "small", "effort": "max"},
+            {"variant": "beta", "model": "quick", "effort": "medium"}]},
         "ui_design": {"max_parallel": 1, "candidates": [
-            {"variant": "alpha", "model": "big", "effort": "high", "fast": True}]},
+            {"variant": "alpha", "model": "big", "effort": "high"}]},
     },
     "routing": {"default_candidates": [{"variant": "gamma", "model": "@default", "effort": "low"}]},
 }

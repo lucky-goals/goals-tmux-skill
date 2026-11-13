@@ -17,14 +17,15 @@ class RouterTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.installed = {"alpha-bin", "beta-bin", "gamma-bin"}
-        self.blocked: dict[str, tuple[str, ...]] = {}   # account -> blocked scopes
+        self.blocked: dict[str, tuple[str, ...]] = {}   # account or variant -> blocked scopes
 
     def router(self, raw: dict | None = None, observations=None) -> Router:
         config = make_config(Path(self._tmp.name), raw)
         registry = VariantRegistry(
             config, which=lambda binary: f"/bin/{binary}" if binary in self.installed else None)
         return Router(config, registry, ModelCatalog(config, observations),
-                      lambda account, stage: self.blocked.get(account, ()))
+                      lambda variant, account, stage:
+                      self.blocked.get(account, ()) + self.blocked.get(variant, ()))
 
     def resolve(self, stage: str, **kwargs):
         return self.router().resolve(RouteRequest(stage=stage, **kwargs))
@@ -130,7 +131,7 @@ class RouterTest(unittest.TestCase):
             self.resolve("testing", pin=Candidate("alpha", "small", "max"))
         self.assertEqual(caught.exception.details["steps"][0]["reasons"], ["EFFORT_UNSUPPORTED"])
 
-    # -- effort and fast ------------------------------------------------------------
+    # -- effort ---------------------------------------------------------------------
 
     def test_unsupported_effort_is_lowered_and_recorded(self):
         result = self.resolve("testing")   # small supports low/medium, candidate asks max
@@ -139,20 +140,18 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(result.steps[0].adjustments, ("EFFORT_LOWERED:max->medium",))
         self.assertTrue(result.fallback_used)
 
-    def test_effort_and_fast_fallback_skip(self):
-        result = self.resolve("code_review")   # both fallbacks are "skip" in this stage
-        self.assertEqual([step.reasons for step in result.steps[:2]],
-                         [("EFFORT_UNSUPPORTED",), ("FAST_UNSUPPORTED",)])
+    def test_effort_fallback_skip(self):
+        result = self.resolve("code_review")   # effort_fallback is "skip" in this stage
+        self.assertEqual(result.steps[0].reasons, ("EFFORT_UNSUPPORTED",))
         self.assertEqual(result.selected, Candidate("beta", "quick", "medium"))
 
-    def test_unverified_fast_is_dropped_not_assumed(self):
-        result = self.resolve("ui_design")   # alpha/big has fast = "unverified"
-        self.assertFalse(result.selected.fast)
-        self.assertEqual(result.steps[0].adjustments, ("FAST_DROPPED",))
+    def test_candidate_labels_carry_no_mode_suffix(self):
+        self.assertEqual(self.resolve("development").selected.label(), "alpha/big/high")
 
-    def test_supported_fast_is_kept(self):
-        self.installed.discard("alpha-bin")
-        self.assertTrue(self.resolve("development").selected.fast)
+    def test_unknown_pin_effort_is_refused_not_crashed(self):
+        result = self.resolve("design", pin=Candidate("alpha", "big", "turbo"), allow_fallback=True)
+        self.assertEqual(result.steps[0].reasons, ("EFFORT_UNSUPPORTED",))
+        self.assertEqual(result.selected, Candidate("alpha", "big", "max"))
 
     def test_missing_effort_uses_the_model_default(self):
         result = self.resolve("design", pin=Candidate("alpha", "big"))
@@ -184,6 +183,12 @@ class RouterTest(unittest.TestCase):
         result = self.resolve("design")
         self.assertEqual((result.action, result.selected.variant), ("run", "beta"))
         self.assertEqual(result.steps[0].reasons, ("ACCOUNT_COOLDOWN",))
+
+    def test_busy_variant_cap_behaves_like_a_busy_account(self):
+        self.blocked = {"alpha": ("variant:alpha",)}
+        result = self.resolve("development")   # on_busy = "next"
+        self.assertEqual((result.action, result.selected.variant), ("run", "beta"))
+        self.assertEqual(result.steps[0].reasons, ("VARIANT_BUSY",))
 
     def test_shared_scope_queues_without_trying_other_candidates(self):
         self.blocked = {"acct-a": ("global", "stage:development"),

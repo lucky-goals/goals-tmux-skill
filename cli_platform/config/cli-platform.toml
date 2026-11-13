@@ -70,6 +70,8 @@ max_parallel = 1
 # ---------------------------------------------------------------------------
 # Variants: a stable id for binary + settings file + environment + account.
 # The id is permanent; it appears in run records and audit entries.
+# Optional max_parallel caps one variant on top of its account's cap, for
+# example a gateway endpoint with a smaller quota than the account.
 # ---------------------------------------------------------------------------
 
 [variants.claude]
@@ -109,80 +111,80 @@ binary = "agy"
 account = "google-agy"
 
 # ---------------------------------------------------------------------------
-# Models (curated overlay). fast: "yes" | "no" | "unverified".
-# "unverified" is treated as unsupported whenever fast mode is requested.
+# Models (curated overlay). display_name, context_tokens and cost_tier are
+# shown to people choosing a model; the router does not read them. Leave
+# context_tokens and cost_tier unset until they are verified.
 # ---------------------------------------------------------------------------
 
 [[models]]
 variant = "claude"
 id = "opus"
+display_name = "Claude Opus"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "high"
-fast = "unverified"
 verified_at = "2026-11-13"
-note = "Alias and effort levels from `claude --help` 2.1.311. No fast-mode flag in help."
+note = "Alias and effort levels from `claude --help` 2.1.311."
 
 [[models]]
 variant = "claude"
 id = "sonnet"
+display_name = "Claude Sonnet"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "medium"
-fast = "unverified"
 verified_at = "2026-11-13"
 
 [[models]]
 variant = "claude"
 id = "fable"
+display_name = "Claude Fable"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "high"
-fast = "unverified"
 verified_at = "2026-11-13"
 
 [[models]]
 variant = "claude-gateway"
 id = "opus"
+display_name = "Opus via gateway"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "high"
-fast = "unverified"
 note = "The settings file decides which upstream model the alias maps to."
 
 [[models]]
 variant = "claude-gateway"
 id = "sonnet"
+display_name = "Sonnet via gateway"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "medium"
-fast = "unverified"
 
 [[models]]
 variant = "cursor"
 id = "grok-4.7-xhigh"
-fast = "no"
+display_name = "Grok 4.7 xhigh (Cursor)"
 note = "Cursor has no effort flag; the effort is part of the model id."
 
 [[models]]
 variant = "kiro"
 id = "@default"
+display_name = "Kiro default model"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "high"
-fast = "no"
 verified_at = "2026-11-13"
 note = "No --model is passed. Effort levels from `kiro-cli chat --help` 2.34.0."
 
 [[models]]
 variant = "codex"
 id = "gpt-6.1-sol"
+display_name = "GPT-6.1 Sol"
 efforts = ["low", "medium", "high", "xhigh"]
 default_effort = "high"
-fast = "yes"
-fast_via = '-c service_tier="priority"'
 note = "From references/cli-adapters.md; codex is not installed on the verification host."
 
 [[models]]
 variant = "agy"
 id = "gemini-4-argon-high"
+display_name = "Gemini 4 Argon high"
 efforts = ["high"]
 default_effort = "high"
-fast = "no"
 note = "From references/cli-adapters.md; agy is not installed on the verification host."
 
 # ---------------------------------------------------------------------------
@@ -205,7 +207,7 @@ max_parallel = 3
 on_busy = "queue"
 candidates = [
   { variant = "claude", model = "opus", effort = "high" },
-  { variant = "codex", model = "gpt-6.1-sol", effort = "high", fast = true },
+  { variant = "codex", model = "gpt-6.1-sol", effort = "high" },
   { variant = "cursor", model = "grok-4.7-xhigh" },
   { variant = "kiro", model = "@default", effort = "high" },
 ]

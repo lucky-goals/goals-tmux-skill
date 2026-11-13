@@ -21,8 +21,9 @@ SCHEMA_VERSION = 1
 ADAPTERS = ("claude", "cursor", "codex", "agy", "kiro")
 STAGES = ("design", "development", "testing", "code_review", "ui_design")
 EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
-FAST_VALUES = ("yes", "no", "unverified")
 MODEL_STATUSES = ("enabled", "disabled", "deprecated")
+# Informational label for people choosing a model; the router does not read it.
+COST_TIERS = ("low", "medium", "high")
 DEFAULT_MODEL_ID = "@default"  # launch without a model flag; the CLI decides
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
@@ -51,6 +52,8 @@ class Variant:
     env: dict[str, str] = field(default_factory=dict)
     env_unset: tuple[str, ...] = ()
     extra_args: tuple[str, ...] = ()
+    # Optional cap for this way of launching, on top of the account's cap.
+    max_parallel: int | None = None
     note: str = ""
 
 
@@ -60,8 +63,9 @@ class ModelEntry:
     id: str
     efforts: tuple[str, ...] = ()
     default_effort: str = ""
-    fast: str = "no"
-    fast_via: str = ""
+    display_name: str = ""
+    context_tokens: int | None = None      # None: unknown
+    cost_tier: str = ""                    # "" or one of COST_TIERS
     status: str = "enabled"
     verified_at: str = ""
     note: str = ""
@@ -72,13 +76,12 @@ class Candidate:
     variant: str
     model: str
     effort: str = ""
-    fast: bool = False
 
     def label(self) -> str:
         parts = [self.variant, self.model]
         if self.effort:
             parts.append(self.effort)
-        return "/".join(parts) + ("+fast" if self.fast else "")
+        return "/".join(parts)
 
 
 @dataclass(frozen=True)
@@ -88,7 +91,6 @@ class Stage:
     max_parallel: int
     on_busy: str = "queue"            # queue | next
     effort_fallback: str = "lower"    # lower | skip
-    fast_fallback: str = "drop"       # drop | skip
     allow_pins_outside: bool = False
 
 
@@ -197,7 +199,7 @@ def _variant(variant_id: str, raw: Any, base: Path, accounts: dict[str, Account]
     if not _ID_RE.fullmatch(variant_id):
         raise _fail(f"{where}: id must match {_ID_RE.pattern}")
     raw = _table(raw, where, {"adapter", "binary", "account", "enabled", "settings_file",
-                              "env", "env_unset", "extra_args", "note"},
+                              "env", "env_unset", "extra_args", "max_parallel", "note"},
                  {"adapter", "binary", "account"})
     adapter = _choice(raw, "adapter", ADAPTERS, "", where)
     account = _typed(raw, "account", str, "", where)
@@ -226,14 +228,16 @@ def _variant(variant_id: str, raw: Any, base: Path, accounts: dict[str, Account]
         account=account, enabled=_typed(raw, "enabled", bool, True, where),
         settings_file=_resolve(base, settings) if settings else None,
         env=dict(env), env_unset=env_unset, extra_args=_strings(raw, "extra_args", where),
+        max_parallel=_positive(raw, "max_parallel", 1, where) if "max_parallel" in raw else None,
         note=_typed(raw, "note", str, "", where),
     )
 
 
 def _model(index: int, raw: Any, variants: dict[str, Variant]) -> ModelEntry:
     where = f"models[{index}]"
-    raw = _table(raw, where, {"variant", "id", "efforts", "default_effort", "fast", "fast_via",
-                              "status", "verified_at", "note"}, {"variant", "id"})
+    raw = _table(raw, where, {"variant", "id", "efforts", "default_effort", "display_name",
+                              "context_tokens", "cost_tier", "status", "verified_at", "note"},
+                 {"variant", "id"})
     variant = _typed(raw, "variant", str, "", where)
     if variant not in variants:
         raise _fail(f"{where}.variant refers to unknown variant {variant!r}")
@@ -249,8 +253,9 @@ def _model(index: int, raw: Any, variants: dict[str, Variant]) -> ModelEntry:
     return ModelEntry(
         variant=variant, id=model_id,
         efforts=tuple(sorted(efforts, key=EFFORT_ORDER.index)), default_effort=default_effort,
-        fast=_choice(raw, "fast", FAST_VALUES, "no", where),
-        fast_via=_typed(raw, "fast_via", str, "", where),
+        display_name=_typed(raw, "display_name", str, "", where),
+        context_tokens=_positive(raw, "context_tokens", 1, where) if "context_tokens" in raw else None,
+        cost_tier=_choice(raw, "cost_tier", ("",) + COST_TIERS, "", where),
         status=_choice(raw, "status", MODEL_STATUSES, "enabled", where),
         verified_at=_typed(raw, "verified_at", str, "", where),
         note=_typed(raw, "note", str, "", where),
@@ -264,10 +269,10 @@ def _candidates(raw: Any, where: str, config_models: tuple[ModelEntry, ...]) -> 
     out = []
     for index, item in enumerate(raw):
         here = f"{where}[{index}]"
-        item = _table(item, here, {"variant", "model", "effort", "fast"}, {"variant", "model"})
+        item = _table(item, here, {"variant", "model", "effort"}, {"variant", "model"})
         candidate = Candidate(
             variant=_typed(item, "variant", str, "", here), model=_typed(item, "model", str, "", here),
-            effort=_typed(item, "effort", str, "", here), fast=_typed(item, "fast", bool, False, here),
+            effort=_typed(item, "effort", str, "", here),
         )
         entry = known.get((candidate.variant, candidate.model))
         if entry is None:
@@ -283,13 +288,12 @@ def _candidates(raw: Any, where: str, config_models: tuple[ModelEntry, ...]) -> 
 def _stage(stage_id: str, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
     where = f"stages.{stage_id}"
     raw = _table(raw, where, {"candidates", "max_parallel", "on_busy", "effort_fallback",
-                              "fast_fallback", "allow_pins_outside"}, {"candidates", "max_parallel"})
+                              "allow_pins_outside"}, {"candidates", "max_parallel"})
     return Stage(
         id=stage_id, candidates=_candidates(raw["candidates"], f"{where}.candidates", models),
         max_parallel=_positive(raw, "max_parallel", 1, where),
         on_busy=_choice(raw, "on_busy", ("queue", "next"), "queue", where),
         effort_fallback=_choice(raw, "effort_fallback", ("lower", "skip"), "lower", where),
-        fast_fallback=_choice(raw, "fast_fallback", ("drop", "skip"), "drop", where),
         allow_pins_outside=_typed(raw, "allow_pins_outside", bool, False, where),
     )
 

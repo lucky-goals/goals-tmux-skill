@@ -135,7 +135,7 @@ class Platform:
 
         lease = self.limiter.acquire(LeaseRequest(
             session_id=request.run_id, nickname=nickname.nickname, account=resolution.account,
-            stage=request.stage, holder=request.holder))
+            stage=request.stage, holder=request.holder, variant=resolution.selected.variant))
         if lease.granted:
             log.append("lease_granted", {"lease_id": lease.lease_id, "account": resolution.account,
                                          "stage": request.stage})
@@ -144,7 +144,7 @@ class Platform:
                                         "blocked_on": list(lease.blocked_on)})
         selected = resolution.selected
         variant = self.registry.get(selected.variant)
-        launch = build_launch(variant, selected.model, selected.effort, selected.fast,
+        launch = build_launch(variant, selected.model, selected.effort,
                               binary_path=self.registry.state(selected.variant).binary_path)
         return SessionPlan(
             request=request, nickname=nickname,

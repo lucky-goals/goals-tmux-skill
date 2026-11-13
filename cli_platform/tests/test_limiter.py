@@ -33,10 +33,11 @@ class LimiterTest(unittest.TestCase):
         config = make_config(Path(self._tmp.name), raw)
         return Limiter(config, clock=self.clock, identity=self.alive.get)
 
-    def request(self, account="acct-a", stage="development", pid=1, session=None) -> LeaseRequest:
+    def request(self, account="acct-a", stage="development", pid=1, session=None,
+                variant="") -> LeaseRequest:
         self._sessions += 1
         session = session or f"run-{self._sessions:03d}"
-        return LeaseRequest(session, f"nick{self._sessions}", account, stage, pid=pid)
+        return LeaseRequest(session, f"nick{self._sessions}", account, stage, pid=pid, variant=variant)
 
     # -- caps -----------------------------------------------------------------
 
@@ -62,6 +63,22 @@ class LimiterTest(unittest.TestCase):
         self.assertTrue(limiter.acquire(self.request(stage="testing")).granted)
         second = limiter.acquire(self.request(account="acct-b", stage="testing"), queue=False)
         self.assertEqual(second.blocked_on, ("stage:testing",))
+
+    def test_variant_cap_is_enforced_inside_the_account_cap(self):
+        raw = raw_config()
+        raw["variants"]["gamma"]["max_parallel"] = 1     # gamma and beta share acct-b (cap 2)
+        limiter = self.limiter(raw)
+        self.assertTrue(limiter.acquire(self.request("acct-b", variant="gamma")).granted)
+        second = limiter.acquire(self.request("acct-b", variant="gamma"), queue=False)
+        self.assertEqual((second.status, second.blocked_on), ("busy", ("variant:gamma",)))
+        self.assertTrue(limiter.acquire(self.request("acct-b", variant="beta")).granted)
+        self.assertEqual(limiter.blocked_on("gamma", "acct-b", "development"),
+                         ("account:acct-b", "variant:gamma"))
+        self.assertEqual(limiter.snapshot()["variants"], {"gamma": {"in_use": 1, "cap": 1}})
+
+    def test_variant_must_bill_the_requested_account(self):
+        with self.assertRaises(PlatformError):
+            self.limiter().acquire(self.request("acct-a", variant="beta"))
 
     def test_release_frees_the_slot_and_is_idempotent(self):
         limiter = self.limiter()

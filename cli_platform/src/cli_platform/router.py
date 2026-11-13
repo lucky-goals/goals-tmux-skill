@@ -1,4 +1,4 @@
-"""Stage router: pick variant, model, effort and fast mode for a stage.
+"""Stage router: pick variant, model and effort for a stage.
 
 Resolution walks an ordered candidate list and records why each candidate was
 selected, adjusted or skipped. The trace is part of the result, so every
@@ -87,12 +87,12 @@ def _trace_lines(steps: tuple[Step, ...]) -> list[str]:
 
 class Router:
     def __init__(self, config: PlatformConfig, registry: VariantRegistry, catalog: ModelCatalog,
-                 blocked_on: Callable[[str, str], tuple[str, ...]] | None = None) -> None:
+                 blocked_on: Callable[[str, str, str], tuple[str, ...]] | None = None) -> None:
         self._config = config
         self._registry = registry
         self._catalog = catalog
-        # (account, stage) -> blocked scopes; the limiter's ``blocked_on``.
-        self._blocked_on = blocked_on or (lambda account, stage: ())
+        # (variant, account, stage) -> blocked scopes; the limiter's ``blocked_on``.
+        self._blocked_on = blocked_on or (lambda variant, account, stage: ())
 
     def resolve(self, request: RouteRequest) -> Resolution:
         stage = self._config.stages.get(request.stage)
@@ -114,7 +114,7 @@ class Router:
                 steps.append(Step(order, source, candidate, "skipped", reasons, adjustments))
                 continue
             account = self._registry.get(candidate.variant).account
-            blocked = tuple(self._blocked_on(account, stage.id))
+            blocked = tuple(self._blocked_on(candidate.variant, account, stage.id))
             if not blocked:
                 steps.append(Step(order, source, candidate, "selected", (), adjustments))
                 return self._result(stage, "run", effective, steps, ())
@@ -177,19 +177,14 @@ class Router:
         adjustments: list[str] = []
         effort = candidate.effort or entry.default_effort
         if effort and effort not in entry.efforts:
-            lower = [item for item in entry.efforts
-                     if EFFORT_ORDER.index(item) < EFFORT_ORDER.index(effort)]
+            # An effort outside the known scale (a malformed pin) has no lower level.
+            lower = [item for item in entry.efforts if effort in EFFORT_ORDER
+                     and EFFORT_ORDER.index(item) < EFFORT_ORDER.index(effort)]
             if strict or stage.effort_fallback == "skip" or not lower:
                 return candidate, ("EFFORT_UNSUPPORTED",), ()
             adjustments.append(f"EFFORT_LOWERED:{effort}->{lower[-1]}")
             effort = lower[-1]
-        fast = candidate.fast
-        if fast and entry.fast != "yes":
-            if strict or stage.fast_fallback == "skip":
-                return candidate, ("FAST_UNSUPPORTED",), ()
-            adjustments.append("FAST_DROPPED")
-            fast = False
-        return Candidate(candidate.variant, candidate.model, effort, fast), (), tuple(adjustments)
+        return Candidate(candidate.variant, candidate.model, effort), (), tuple(adjustments)
 
     def _result(self, stage: Stage, action: str, effective: Candidate, steps: list[Step],
                 blocked: tuple[str, ...]) -> Resolution:
@@ -206,4 +201,5 @@ def _busy_code(scope: str) -> str:
     if scope == "global":
         return "GLOBAL_BUSY"
     kind = scope.split(":", 1)[0]
-    return {"account": "ACCOUNT_BUSY", "cooldown": "ACCOUNT_COOLDOWN", "stage": "STAGE_BUSY"}[kind]
+    return {"account": "ACCOUNT_BUSY", "cooldown": "ACCOUNT_COOLDOWN", "stage": "STAGE_BUSY",
+            "variant": "VARIANT_BUSY"}[kind]

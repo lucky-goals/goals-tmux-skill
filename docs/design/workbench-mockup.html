@@ -14,7 +14,9 @@
   --purple: #a78bfa; --cyan: #4cc2d8; --gray: #6b7585;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
 }
+[hidden] { display: none !important; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -173,7 +175,7 @@ td .mono, td.mono { font-size: 12px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px; }
 
 /* ---- concurrency ---- */
-.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.meters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .meters > .panel { margin-top: 0; }
 .meter { padding: 9px 14px; border-bottom: 1px solid var(--line); }
 .meter:last-child { border-bottom: 0; }
@@ -205,7 +207,11 @@ td .mono, td.mono { font-size: 12px; }
 
 @media (max-width: 1200px) {
   .app { grid-template: "top" 44px "nav" auto "main" 1fr / 1fr; }
-  .nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 12px; overflow-x: auto; }
+  .nav { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 12px; overflow-x: auto; }
+  .nav .group { padding: 6px 4px 6px 8px; }
+  .nav .group + button { margin-left: 0; }
+  .cfg-note { margin: 12px 14px 0; }
+  .cfg-bar { padding: 8px 14px; }
   .nav .foot { display: none; }
   .view { padding: 14px 14px 24px; }
   .sessions { grid-template-columns: 300px minmax(0, 1fr); }
@@ -222,28 +228,164 @@ td .mono, td.mono { font-size: 12px; }
   @keyframes pulse { 50% { opacity: .35; } }
 }
 #t-variants td { overflow-wrap: anywhere; }
+
+/* ---- nav groups and settings marks ---- */
+.nav .group { font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 12px 10px 4px; white-space: nowrap; }
+.nav .group:first-child { padding-top: 2px; }
+.nav .group small { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }
+.nav .mark { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.nav .mark.err { background: var(--red); }
+
+/* ---- settings shell ---- */
+.cfg-note {
+  margin: 16px 20px 0; padding: 9px 12px; border: 1px solid #2c3b50; background: #111a26; border-radius: 8px;
+  color: #b9c7da; font-size: 12px; max-width: 1100px;
+}
+.cfg-note b { color: #cfe0ff; font-weight: 650; margin-right: 6px; }
+.cfg-note .layers { display: block; margin-top: 4px; color: var(--muted); }
+.cfg-bar {
+  position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 8px 20px; background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.cfg-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+.cfg-bar.dirty .dot { background: var(--amber); }
+.cfg-bar.invalid .dot { background: var(--red); }
+.cfg-bar .state { color: var(--muted); }
+.cfg-bar.dirty .state { color: var(--amber); }
+.cfg-bar .errsum { color: #ffaaa5; }
+.cfg-bar .spacer { flex: 1; }
+.cfg-bar .saved { color: var(--faint); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.eyebrow { font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 0 0 2px; }
+
+/* ---- buttons and form controls ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; cursor: pointer;
+  background: var(--panel-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 11px; font-size: 12.5px; color: var(--text);
+}
+.btn:hover:not(:disabled) { background: #232b38; border-color: #42506a; }
+.btn:disabled { opacity: .42; cursor: not-allowed; }
+.btn.sm { padding: 2px 9px; font-size: 12px; }
+.btn.primary { background: #2a5bd7; border-color: #3d6be0; color: #fff; }
+.btn.primary:hover:not(:disabled) { background: #3468e6; border-color: #4b78ea; }
+.btn.danger { color: #ffaaa5; background: #2d1616; border-color: #5c2624; }
+.btn.danger:hover:not(:disabled) { background: #3a1b1b; border-color: #7a3230; }
+.btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--panel-2); border-color: var(--line-2); }
+.btn.icon { font-family: var(--mono); padding: 2px 7px; min-width: 26px; }
+input[type="text"], select, textarea {
+  width: 100%; min-width: 0; background: #0a0d12; border: 1px solid var(--line-2); border-radius: 6px;
+  color: var(--text); padding: 5px 8px; font: 12.5px/1.4 var(--mono);
+}
+textarea { resize: vertical; font-family: var(--sans); }
+select { padding: 4px 6px; cursor: pointer; }
+input[readonly], input:disabled, select:disabled, textarea:disabled { color: var(--faint); background: var(--panel-2); cursor: not-allowed; }
+input:hover:not(:disabled):not([readonly]), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: #42506a; }
+[aria-invalid="true"] { border-color: var(--red) !important; background: #1c1213 !important; }
+input[type="checkbox"] { accent-color: var(--accent); margin: 0; width: 14px; height: 14px; cursor: pointer; }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; padding: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field.wide { grid-column: 1 / -1; }
+.field > label, .field > .lab { font-size: 12px; color: var(--muted); font-weight: 550; }
+.field .opt { color: var(--faint); font-weight: 400; }
+.err { color: #ffaaa5; font-size: 11.5px; overflow-wrap: anywhere; }
+.warnmsg { color: var(--amber); font-size: 11.5px; overflow-wrap: anywhere; }
+.hint { color: var(--faint); font-size: 11.5px; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 4px 0; }
+.rows { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.rows > .btn { align-self: flex-start; }
+.kvrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.unrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.formfoot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.callout { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 8px; padding: 9px 12px; color: var(--muted); font-size: 12px; margin: 0 0 14px; max-width: 1100px; }
+.callout b { color: var(--text); font-weight: 600; }
+
+/* ---- settings layouts ---- */
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 14px; align-items: start; }
+.split > .panel, .cgrid > .panel, .stages > .panel { margin-top: 0; }
+.list tr { cursor: pointer; }
+.list tr:hover td { background: var(--panel-2); }
+.list tr[aria-selected="true"] td { background: #152033; }
+.list tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.list td { vertical-align: middle; }
+.list th, .list td { padding: 7px 10px; }
+.list .acts { display: flex; gap: 4px; justify-content: flex-end; }
+.list .sub2 { display: block; color: var(--muted); font-family: var(--sans); font-size: 11.5px; }
+.stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap: 14px; }
+.crow { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--line); }
+.crow .n { width: 18px; height: 18px; border-radius: 50%; background: var(--panel-3); border: 1px solid var(--line-2); font-size: 11px; text-align: center; line-height: 16px; color: var(--muted); }
+.crow .acts { display: flex; gap: 4px; }
+.crow .err, .crow .warnmsg { grid-column: 2 / -1; }
+.crow.bad .n { border-color: var(--red); color: #ffaaa5; }
+.cempty { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.policy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 14px; }
+.policy .inl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.policy select { width: auto; }
+.cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+.cgrid .wide { grid-column: 1 / -1; }
+input.capin { width: 96px; }
+td .err, td .warnmsg { margin-top: 3px; }
+
+/* ---- modal and toast ---- */
+.modal-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 6, 10, .68); }
+.modal {
+  width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
+}
+.modal.wide { width: min(860px, 100%); }
+.modal > h2 { margin: 0; padding: 12px 16px; font-size: 14px; font-weight: 650; border-bottom: 1px solid var(--line); }
+.modal .mbody { padding: 12px 16px; overflow: auto; }
+.modal .mbody p { margin: 0 0 8px; }
+.modal .mbody ul { margin: 4px 0 10px; padding-left: 18px; }
+.modal .mbody li { margin: 2px 0; }
+.modal .mfoot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.modal pre { margin: 8px 0 0; padding: 10px 12px; font: 12px/1.5 var(--mono); color: #c9d4e3; white-space: pre; overflow: auto; max-height: 60vh; background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; }
+.modal .filters { padding: 0; border: 0; }
+.toast {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60; max-width: min(460px, calc(100vw - 32px));
+  padding: 9px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+  color: #bff0cb; background: #12261a; border: 1px solid #1e4a2b;
+}
+.toast.warn { color: #f3d58a; background: #2a2210; border-color: #57461a; }
+.s-deprecated { color: var(--orange); background: #2e1c10; border-color: #5e3719; }
+@media (max-width: 1200px) {
+  .split { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .form { grid-template-columns: 1fr; }
+  .crow { grid-template-columns: 20px minmax(0, 1fr); }
+  .crow > select, .crow .acts { grid-column: 2; }
+}
 </style>
 </head>
 <body>
 <div class="app">
   <header class="top">
     <div class="brand">CLI platform workbench<span>goals-tmux-skill</span></div>
-    <div class="ro-badge" title="The workbench has no mutating route. Closing it changes nothing in any run.">Read-only · sample data · mockup</div>
+    <div class="ro-badge" title="Observation views have no mutating route. Settings change configuration only. Closing the workbench changes nothing in any run.">Observation read-only · sample data · mockup</div>
     <div class="spacer"></div>
-    <div class="clock">2026-11-13 14:52:10 +08:00 · state dir ~/.local/state/goals-tmux-skill</div>
+    <div class="clock" id="clock">2026-11-13 14:52:10 +08:00 · state dir ~/.local/state/goals-tmux-skill</div>
   </header>
 
   <nav class="nav" id="nav" role="tablist" aria-label="Workbench views">
+    <div class="group" role="presentation">Observe<small>read-only</small></div>
     <button role="tab" data-view="sessions">Sessions <span class="count" id="n-sessions"></span></button>
     <button role="tab" data-view="registry">CLI registry <span class="count" id="n-registry"></span></button>
     <button role="tab" data-view="catalog">Model catalog <span class="count" id="n-catalog"></span></button>
     <button role="tab" data-view="routing">Stage routing <span class="count">5</span></button>
     <button role="tab" data-view="concurrency">Concurrency <span class="count" id="n-conc"></span></button>
     <button role="tab" data-view="incidents">Incidents <span class="count alert" id="n-incidents"></span></button>
-    <div class="foot">Zero-gate: this page only reads files that runs already write. No run can observe whether it is open.</div>
+    <div class="group" role="presentation">Configure<small>cli-platform.toml</small></div>
+    <button role="tab" data-view="set-variants">CLIs &amp; variants <span class="mark" id="mk-set-variants" hidden></span></button>
+    <button role="tab" data-view="set-models">Models <span class="mark" id="mk-set-models" hidden></span></button>
+    <button role="tab" data-view="set-routing">Stage routing <span class="mark" id="mk-set-routing" hidden></span></button>
+    <button role="tab" data-view="set-concurrency">Concurrency <span class="mark" id="mk-set-concurrency" hidden></span></button>
+    <button role="tab" data-view="set-nicknames">Nicknames <span class="mark" id="mk-set-nicknames" hidden></span></button>
+    <button role="tab" data-view="set-general">General <span class="mark" id="mk-set-general" hidden></span></button>
+    <div class="foot">Zero-gate: observation views only read files that runs already write; no run can observe whether they are open. Settings edit configuration, which the execution layer reads when it resolves a turn.</div>
   </nav>
 
-  <main class="main">
+  <main class="main" id="main">
     <section class="view" id="view-sessions" role="tabpanel">
       <h1>Sessions</h1>
       <p class="sub">Every session carries a nickname that is unique among live sessions. The nickname appears in the tmux session name, the run log path, the workbench URL and audit entries.</p>
@@ -262,7 +404,7 @@ td .mono, td.mono { font-size: 12px; }
 
     <section class="view" id="view-catalog" role="tabpanel">
       <h1>Model catalog</h1>
-      <p class="sub">Two layers: observations recorded by probes with their provenance, and a curated overlay from configuration. Status is the curated status and decides routability. Flags (unconfirmed, stale, version_drift, effort_mismatch) are warnings that never block routing: unconfirmed means curated but never observed on this host; unverified fast mode is treated as unsupported by the router.</p>
+      <p class="sub">Two layers: observations recorded by probes with their provenance, and a curated overlay from configuration. Status is the curated status and decides routability. Flags (unconfirmed, stale, version_drift, effort_mismatch) are warnings that never block routing: unconfirmed means curated but never observed on this host. Rows follow the saved configuration; observations and flags are sample data.</p>
       <div class="panel"><h2>Models by variant <small id="catalog-sub"></small></h2><div class="scroll"><table id="t-catalog"></table></div></div>
     </section>
 
@@ -276,7 +418,7 @@ td .mono, td.mono { font-size: 12px; }
 
     <section class="view" id="view-concurrency" role="tabpanel">
       <h1>Concurrency</h1>
-      <p class="sub">A turn needs one slot in each scope: global, its account and its stage. Slots are leases renewed by the run supervisor; a lease whose holder cannot be confirmed stays counted until it is reconciled.</p>
+      <p class="sub">A turn needs one slot in each scope that applies: global, its account, its variant when the variant has a cap, and its stage. Slots are leases renewed by the run supervisor; a lease whose holder cannot be confirmed stays counted until it is reconciled. Caps shown are the saved configuration.</p>
       <div class="keyrow">
         <span><i class="used"></i>lease held by a supervisor</span><span><i class="human"></i>held by a human (handed off)</span>
         <span><i class="stale"></i>stale lease</span><span><i class="cut"></i>slot removed by rate-limit cooldown</span><span><i></i>free</span>
@@ -284,10 +426,11 @@ td .mono, td.mono { font-size: 12px; }
       <div class="meters">
         <div class="panel"><h2>Global</h2><div id="m-global"></div></div>
         <div class="panel"><h2>Accounts <small>per CLI account</small></h2><div id="m-accounts"></div></div>
+        <div class="panel"><h2>Variants <small>only when capped</small></h2><div id="m-variants"></div></div>
         <div class="panel"><h2>Stages</h2><div id="m-stages"></div></div>
       </div>
-      <div class="panel" style="margin-top:14px"><h2>Queue <small>depth 1 of 32 · timeout 30:00</small></h2><div class="scroll"><table id="t-queue"></table></div></div>
-      <div class="panel"><h2>Active leases <small>TTL 60 s · renewed every 15 s</small></h2><div class="scroll"><table id="t-leases"></table></div></div>
+      <div class="panel" style="margin-top:14px"><h2>Queue <small id="queue-sub">depth 1 of 32 · timeout 30:00</small></h2><div class="scroll"><table id="t-queue"></table></div></div>
+      <div class="panel"><h2>Active leases <small id="leases-sub">TTL 60 s · renewed every 15 s</small></h2><div class="scroll"><table id="t-leases"></table></div></div>
     </section>
 
     <section class="view" id="view-incidents" role="tabpanel">
@@ -296,8 +439,63 @@ td .mono, td.mono { font-size: 12px; }
       <div class="panel"><h2>Open <small id="inc-open-sub"></small></h2><div id="inc-open"></div></div>
       <div class="panel"><h2>Checks passed and resolved</h2><div id="inc-done"></div></div>
     </section>
+
+    <!-- ===== Configure: settings. Only these sections contain inputs. ===== -->
+    <div class="cfg-note" id="cfg-note" role="note" hidden>
+      <b>Configure</b>Settings edit platform configuration (cli-platform.toml) only. They never start, stop, pause or gate a run: the execution layer reads the configuration when it resolves a turn, and a running turn keeps the values it was resolved with. Observation views are read-only.
+      <span class="layers">Execution layer: Run API, router, limiter, nickname allocator, supervisor; configuration is its input. Event layer: append-only run event logs, limiter journal, catalog observations, published state snapshots; never edited here. Observation layer: the workbench views, read-only.</span>
+    </div>
+    <div class="cfg-bar" id="cfg-bar" hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <span class="state" id="cfg-state" role="status">All changes saved</span>
+      <span class="errsum" id="cfg-errs"></span>
+      <span class="spacer"></span>
+      <span class="saved" id="cfg-saved"></span>
+      <button type="button" class="btn sm ghost" id="cfg-toml">Preview TOML</button>
+      <button type="button" class="btn sm ghost" id="cfg-reset">Reset demo data</button>
+      <button type="button" class="btn sm" id="cfg-cancel">Cancel</button>
+      <button type="button" class="btn sm primary" id="cfg-save">Save</button>
+    </div>
+
+    <section class="view" id="view-set-variants" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>CLIs &amp; variants</h1>
+      <p class="sub">A variant is a named way to launch an installed binary: adapter, binary, account, an optional settings file (by path) and non-secret environment overrides. Its id is permanent because run records, events and audit entries store it.</p>
+      <div id="body-set-variants"></div>
+    </section>
+    <section class="view" id="view-set-models" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>Models</h1>
+      <p class="sub">The curated overlay of the model catalog ([[models]]). A model belongs to one variant. Observations recorded by probes stay in the event layer and are not edited here.</p>
+      <div id="body-set-models"></div>
+    </section>
+    <section class="view" id="view-set-routing" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>Stage routing</h1>
+      <p class="sub">Each stage lists its allowed candidates in priority order. The router walks the list once per turn; the first serviceable candidate wins. Stage caps are on the Concurrency page.</p>
+      <div id="body-set-routing"></div>
+    </section>
+    <section class="view" id="view-set-concurrency" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>Concurrency</h1>
+      <p class="sub">Caps, queue bounds and lease timing used by the limiter.</p>
+      <div id="body-set-concurrency"></div>
+    </section>
+    <section class="view" id="view-set-nicknames" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>Nicknames</h1>
+      <p class="sub">The nickname library is generated and validated; it is not editable here. Reuse cooldown and the tmux prefix are configuration.</p>
+      <div id="body-set-nicknames"></div>
+    </section>
+    <section class="view" id="view-set-general" role="tabpanel">
+      <div class="eyebrow">Configure</div>
+      <h1>General</h1>
+      <p class="sub">State directory, catalog freshness and rate-limit cooldown.</p>
+      <div id="body-set-general"></div>
+    </section>
   </main>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
 "use strict";
@@ -320,6 +518,7 @@ function chips(values) {
 }
 function table(target, heads, rows) {
   var root = document.getElementById(target);
+  root.textContent = "";
   var head = el("tr");
   heads.forEach(function (name) { head.appendChild(el("th", null, name)); });
   root.appendChild(el("thead", null, null, [head]));
@@ -374,7 +573,7 @@ var SESSIONS = [
       ["14:31:02", "platform", "nickname_assigned", "kedo#1 bound to run-01JCQ8M4T7 (first use of this name; no cooldown waived)"],
       ["14:31:02", "platform", "route_resolved", "stage development · source: stage priority · selected claude / opus / high", { trace: [
         T(1, "claude / opus / high", "selected", "SELECTED", "account anthropic-sub 1/3 · stage 0/3 · global 2/6"),
-        T(2, "codex / gpt-6.1-sol / high + fast", "notrun", "—", "not evaluated"),
+        T(2, "codex / gpt-6.1-sol / high", "notrun", "—", "not evaluated"),
         T(3, "cursor / grok-4.7-xhigh", "notrun", "—", "not evaluated"),
         T(4, "kiro / @default / high", "notrun", "—", "not evaluated")] }],
       ["14:31:02", "platform", "lease_granted", "lease-c0e241 · account anthropic-sub 2/3 · stage development 1/3 · global 3/6"],
@@ -576,20 +775,20 @@ var VARIANTS = [
 
 var FULL = ["low", "medium", "high", "xhigh", "max"];
 var MODELS = [
-  { v: "claude", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
-  { v: "claude", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
-  { v: "claude", id: "fable", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
-  { v: "claude-gateway", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
-  { v: "claude-gateway", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
-  { v: "cursor", id: "grok-4.7-xhigh", efforts: [], effortNote: "embedded in model id · no --effort flag", fast: ["no", ""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "agent --list-models exists; not yet probed"], curated: true },
-  { v: "kiro", id: "@default", idNote: "no --model passed", efforts: FULL, fast: ["no", ""], status: "enabled", prov: ["help_text · kiro-cli chat --help", "CLI 2.34.0 · 2026-11-13 14:20", "effort levels listed in help"], curated: true },
-  { v: "codex", id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh"], fast: ["yes", "-c service_tier=\"priority\""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true },
-  { v: "agy", id: "gemini-4-argon-high", efforts: ["high"], fast: ["no", ""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true }
+  { v: "claude", id: "opus", efforts: FULL, status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude", id: "sonnet", efforts: FULL, status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude", id: "fable", efforts: FULL, status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude-gateway", id: "opus", efforts: FULL, status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "claude-gateway", id: "sonnet", efforts: FULL, status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "cursor", id: "grok-4.7-xhigh", efforts: [], effortNote: "embedded in model id · no --effort flag", status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "agent --list-models exists; not yet probed"], curated: true },
+  { v: "kiro", id: "@default", idNote: "no --model passed", efforts: FULL, status: "enabled", prov: ["help_text · kiro-cli chat --help", "CLI 2.34.0 · 2026-11-13 14:20", "effort levels listed in help"], curated: true },
+  { v: "codex", id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh"], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true },
+  { v: "agy", id: "gemini-4-argon-high", efforts: ["high"], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true }
 ];
 
 var STAGES = [
   { name: "design", cap: 2, busy: "queue", cands: [["claude / opus / max"], ["claude-gateway / opus / high", "ACCOUNT_COOLDOWN"], ["codex / gpt-6.1-sol / xhigh", "BINARY_NOT_FOUND"]] },
-  { name: "development", cap: 3, busy: "queue", cands: [["claude / opus / high"], ["codex / gpt-6.1-sol / high + fast", "BINARY_NOT_FOUND"], ["cursor / grok-4.7-xhigh"], ["kiro / @default / high"]] },
+  { name: "development", cap: 3, busy: "queue", cands: [["claude / opus / high"], ["codex / gpt-6.1-sol / high", "BINARY_NOT_FOUND"], ["cursor / grok-4.7-xhigh"], ["kiro / @default / high"]] },
   { name: "testing", cap: 2, busy: "next", cands: [["claude / sonnet / medium"], ["kiro / @default / medium"], ["cursor / grok-4.7-xhigh"]] },
   { name: "code_review", cap: 2, busy: "next", cands: [["codex / gpt-6.1-sol / xhigh", "BINARY_NOT_FOUND"], ["cursor / grok-4.7-xhigh"], ["claude-gateway / opus / high", "ACCOUNT_COOLDOWN"]] },
   { name: "ui_design", cap: 1, busy: "queue", cands: [["agy / gemini-4-argon-high / high", "BINARY_NOT_FOUND"], ["claude / opus / high"], ["cursor / grok-4.7-xhigh"]] }
@@ -604,9 +803,9 @@ var EXPLAINS = [
     trace: [T(1, "claude / opus / max", "queued", "QUEUED", "ACCOUNT_BUSY anthropic-sub 3/3"),
             T(2, "claude-gateway / opus / high", "notrun", "—", "not evaluated; would be ACCOUNT_COOLDOWN until 14:56:22"),
             T(3, "codex / gpt-6.1-sol / xhigh", "notrun", "—", "not evaluated; would be BINARY_NOT_FOUND")] },
-  { title: "Adjustment: development with fast requested (example)", facts: "source: dispatch pin with allow_fallback · fast_fallback = drop · result: SELECTED with one adjustment",
-    trace: [T(1, "claude / opus / high + fast", "adjusted", "FAST_DROPPED", "fast is unverified for claude / opus; fast_fallback = drop"),
-            T(1, "claude / opus / high", "selected", "SELECTED", "account anthropic-sub 2/3 · stage 1/3 · global 3/6")] },
+  { title: "Adjustment: ui_design pin above the model's efforts (example on a host with agy installed)", facts: "source: dispatch pin with allow_fallback · effort_fallback = lower · result: SELECTED with one adjustment",
+    trace: [T(1, "agy / gemini-4-argon-high / max", "adjusted", "EFFORT_LOWERED:max->high", "gemini-4-argon-high lists high only; effort_fallback = lower picks the highest supported level below max"),
+            T(1, "agy / gemini-4-argon-high / high", "selected", "SELECTED", "account google-agy 0/1 · stage 0/1 · global 2/6")] },
   { title: "Busy, next candidate: testing for kani", facts: "source: stage priority · on_busy = next · result: SELECTED candidate 2",
     trace: [T(1, "claude / sonnet / medium", "skipped", "ACCOUNT_BUSY", "anthropic-sub 3/3 · on_busy = next"),
             T(2, "kiro / @default / medium", "selected", "SELECTED", "account kiro-idc 0/2 · stage 1/2 · global 4/6"),
@@ -614,7 +813,7 @@ var EXPLAINS = [
 ];
 
 var CODES = ["VARIANT_DISABLED", "BINARY_NOT_FOUND", "SETTINGS_FILE_MISSING", "MODEL_UNREVIEWED", "MODEL_NOT_IN_CATALOG", "MODEL_DISABLED", "EFFORT_UNSUPPORTED",
-  "FAST_UNSUPPORTED", "ACCOUNT_COOLDOWN", "ACCOUNT_BUSY", "STAGE_BUSY", "GLOBAL_BUSY", "EFFORT_LOWERED", "FAST_DROPPED", "SELECTED", "QUEUED"];
+  "ACCOUNT_COOLDOWN", "ACCOUNT_BUSY", "VARIANT_BUSY", "STAGE_BUSY", "GLOBAL_BUSY", "EFFORT_LOWERED", "SELECTED", "QUEUED"];
 
 /* slots: u = supervisor lease, h = human lease, s = stale lease, c = cut by cooldown, f = free */
 var GLOBAL = [{ name: "global", slots: "uuuhsf", used: 5, cap: 6, hint: "4 active (kedo, nuvo, pega, lesi) + 1 stale (kani)" }];
@@ -753,49 +952,100 @@ function renderDetail() {
   root.appendChild(timeline);
 }
 
+/* Observation views render the saved configuration joined with sample runtime facts.
+   They have no inputs: nothing here writes configuration or touches a run. */
+var RUNTIME_VARIANT = {
+  "claude": { state: "ready", label: "ready" },
+  "claude-gateway": { state: "cooldown", label: "cooling down 04:12", check: "mode 0600 ok · owner ok · not a symlink" },
+  "cursor": { state: "ready", label: "ready" },
+  "kiro": { state: "ready", label: "ready" }
+};
+var INSTALLED = { claude: true, cursor: true, kiro: true, codex: false, agy: false };
+var COOLING = { "anthropic-gateway": true };
+
+function variantRuntime(v) {
+  if (!v.enabled) return { state: "disabled", label: "disabled" };
+  if (!INSTALLED[v.adapter]) return { state: "unavailable", label: "unavailable" };
+  return RUNTIME_VARIANT[v.id] || { state: "ready", label: "ready (no turn yet)" };
+}
+
 function renderRegistry() {
   table("t-scan", ["Adapter", "Binary", "Path", "Version", "Auth hint (not a model call)", "State"], SCAN.map(function (row) {
     return [{ mono: row[0] }, { mono: row[1] }, { mono: row[2] }, { mono: row[3], nowrap: true }, { mono: row[4] },
       badge(row[5] === "installed" ? "ok" : "unavailable", row[5] === "installed" ? "installed" : "not installed")];
   }));
-  table("t-variants", ["Variant id", "Adapter", "Binary", "Settings file", "Environment overrides", "Account", "State"], VARIANTS.map(function (v) {
-    return [{ mono: v.id, nowrap: true }, { mono: v.adapter }, { mono: v.binary },
-      stack(v.settings.map(function (line, i) { return el("div", i ? "muted" : "mono", line); })),
-      stack(v.env.map(function (line) { return el("div", line === "none" ? "faint" : "mono", line); })),
-      { mono: v.account, nowrap: true }, badge(v.state, v.label)];
+  var cfg = SAVED;
+  table("t-variants", ["Variant id", "Adapter", "Binary", "Settings file", "Environment overrides", "Account", "State"], cfg.variants.map(function (v) {
+    var rt = variantRuntime(v);
+    var settings = v.settings_file ? ["--settings " + v.settings_file, rt.check || "lstat check runs at the next scan", "contents never read or shown"] : ["none"];
+    var env = v.env.map(function (e) { return "set " + e.name + "=" + e.value; }).concat(v.env_unset.map(function (n) { return "unset " + n; }));
+    return [{ mono: v.id, nowrap: true }, { mono: v.adapter }, { mono: v.binary + (INSTALLED[v.adapter] ? "" : " (missing)") },
+      stack(settings.map(function (line, i) { return el("div", i ? "muted" : "mono", line); })),
+      stack((env.length ? env : ["none"]).map(function (line) { return el("div", line === "none" ? "faint" : "mono", line); })),
+      stack([el("div", "mono", v.account), v.max_parallel ? el("div", "faint", "variant cap " + v.max_parallel) : null].filter(Boolean)),
+      badge(rt.state, rt.label)];
   }));
-  document.getElementById("n-registry").textContent = String(VARIANTS.length);
+  document.getElementById("n-registry").textContent = String(cfg.variants.length);
 }
 
 function renderCatalog() {
-  table("t-catalog", ["Variant", "Model id", "Efforts", "Fast", "Status · flags", "Provenance", "Overlay"], MODELS.map(function (m) {
-    return [{ mono: m.v, nowrap: true },
-      stack([el("div", "mono", m.id), m.idNote ? el("div", "faint", m.idNote) : null].filter(Boolean)),
-      m.efforts.length ? chips(m.efforts) : el("span", "muted", m.effortNote),
-      stack([badge(m.fast[0], m.fast[0], true), m.fast[1] ? el("div", "faint mono", m.fast[1]) : null].filter(Boolean)),
-      stack([badge(m.status)].concat((m.flags || []).map(function (flag) { return badge(flag, flag, true); }))),
-      stack([el("div", "mono", m.prov[0]), el("div", "muted", m.prov[1]), el("div", "faint", m.prov[2])]),
-      m.curated ? badge("info", "curated", true) : el("span", "faint", "—")];
+  var cfg = SAVED, unconfirmed = 0;
+  table("t-catalog", ["Variant", "Model id", "Efforts", "Status · flags", "Provenance", "Overlay"], cfg.models.map(function (m) {
+    var v = variantByKey(cfg, m.variant) || { id: "?" };
+    var obs = MODELS.filter(function (o) { return o.v === v.id && o.id === m.id; })[0] ||
+      { flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "added in Settings"] };
+    if ((obs.flags || []).indexOf("unconfirmed") !== -1) unconfirmed += 1;
+    var efforts = m.efforts.length ? stack([chips(m.efforts), el("div", "faint", "default " + m.default_effort)])
+      : el("span", "muted", obs.effortNote || "no effort levels");
+    return [{ mono: v.id, nowrap: true },
+      stack([el("div", "mono", m.id), m.display_name ? el("div", "muted", m.display_name) : null, obs.idNote ? el("div", "faint", obs.idNote) : null].filter(Boolean)),
+      efforts,
+      stack([badge(m.status)].concat((obs.flags || []).map(function (flag) { return badge(flag, flag, true); }))),
+      stack([el("div", "mono", obs.prov[0]), el("div", "muted", obs.prov[1]), el("div", "faint", obs.prov[2])]),
+      badge("info", "curated", true)];
   }));
-  var unconfirmed = MODELS.filter(function (m) { return (m.flags || []).indexOf("unconfirmed") !== -1; }).length;
-  document.getElementById("catalog-sub").textContent = MODELS.length + " models · " + unconfirmed + " unconfirmed";
-  document.getElementById("n-catalog").textContent = String(MODELS.length);
+  document.getElementById("catalog-sub").textContent = cfg.models.length + " models · " + unconfirmed + " unconfirmed";
+  document.getElementById("n-catalog").textContent = String(cfg.models.length);
 }
 
+function candReason(cfg, c) {
+  var v = variantByKey(cfg, c.v), m = modelByKey(cfg, c.m);
+  if (!v || !m) return "MODEL_NOT_IN_CATALOG";
+  if (!v.enabled) return "VARIANT_DISABLED";
+  if (!INSTALLED[v.adapter]) return "BINARY_NOT_FOUND";
+  if (m.status !== "enabled") return "MODEL_DISABLED";
+  if (COOLING[v.account]) return "ACCOUNT_COOLDOWN";
+  return null;
+}
+
+function candCells(cfg, list) {
+  var cands = el("div");
+  list.forEach(function (c, index) {
+    var m = modelByKey(cfg, c.m), why = candReason(cfg, c);
+    var text = candText(cfg, c) + (!c.effort && m && m.efforts.length ? " (default " + m.default_effort + ")" : "");
+    var row = el("div", "cand" + (why ? " off" : ""), null, [el("span", "n", String(index + 1)), el("span", "c", text)]);
+    if (why) row.appendChild(el("span", "why mono", why));
+    cands.appendChild(row);
+  });
+  if (!list.length) cands.appendChild(el("span", "faint", "none"));
+  return cands;
+}
+
+var routingStaticDone = false;
 function renderRouting() {
-  table("t-matrix", ["Stage", "Priority order", "Policy"], STAGES.map(function (stage) {
-    var cands = el("div");
-    stage.cands.forEach(function (cand, index) {
-      var label = el("span", "c", cand[0]);
-      var row = el("div", "cand" + (cand[1] ? " off" : ""), null, [el("span", "n", String(index + 1)), label]);
-      if (cand[1]) row.appendChild(el("span", "why mono", cand[1]));
-      cands.appendChild(row);
-    });
+  var cfg = SAVED;
+  var rows = STAGE_IDS.map(function (name) {
+    var stage = cfg.stages[name];
     var policy = el("dl", "kv");
-    fact(policy, "on_busy", stage.busy); fact(policy, "effort_fallback", "lower");
-    fact(policy, "fast_fallback", "drop"); fact(policy, "stage cap", String(stage.cap));
-    return [{ mono: stage.name, nowrap: true }, cands, policy];
-  }));
+    fact(policy, "on_busy", stage.on_busy); fact(policy, "effort_fallback", stage.effort_fallback);
+    fact(policy, "allow_pins_outside", String(stage.allow_pins_outside)); fact(policy, "stage cap", String(stage.max_parallel));
+    return [{ mono: name, nowrap: true }, candCells(cfg, stage.candidates), policy];
+  });
+  rows.push([{ mono: "default", nowrap: true }, candCells(cfg, cfg.routing.default_candidates),
+    el("div", "muted", "routing.default_candidates: last resort when a stage's own list has no usable candidate")]);
+  table("t-matrix", ["Stage", "Priority order", "Policy"], rows);
+  if (routingStaticDone) return;
+  routingStaticDone = true;
   var wrap = document.getElementById("explains");
   EXPLAINS.forEach(function (item) {
     wrap.appendChild(el("div", "panel", null, [el("h2", null, "Resolution explain"),
@@ -803,26 +1053,50 @@ function renderRouting() {
   });
   var codes = document.getElementById("codes");
   CODES.forEach(function (code) {
-    var kind = code === "SELECTED" ? "selected" : code === "QUEUED" ? "queued" : (code === "EFFORT_LOWERED" || code === "FAST_DROPPED") ? "adjusted" : "skipped";
+    var kind = code === "SELECTED" ? "selected" : code === "QUEUED" ? "queued" : code === "EFFORT_LOWERED" ? "adjusted" : "skipped";
     codes.appendChild(badge(kind, code, true));
   });
 }
 
+/* Caps come from the saved configuration; the occupied slots are sample runtime state.
+   Lowering a cap below what is held never stops a running turn. */
 function meters(target, items) {
   var root = document.getElementById(target);
+  root.textContent = "";
   items.forEach(function (item) {
+    var cap = parseInt(item.cap, 10) || 0;
+    var held = item.slots.replace(/[fc]/g, "");
+    var cut = item.cooling ? cap - Math.max(1, Math.floor(cap / 2)) : 0;
+    var slots = held + new Array(Math.max(0, cap - cut - held.length) + 1).join("f") + new Array(cut + 1).join("c");
     var bar = el("div", "bar");
-    item.slots.split("").forEach(function (slot) {
+    slots.split("").forEach(function (slot) {
       bar.appendChild(el("i", { u: "used", h: "human", s: "stale", c: "cut", f: "" }[slot]));
     });
-    var num = el("span", "num", null, [el("b", null, String(item.used)), document.createTextNode(" / " + item.cap + (item.eff ? "  (effective " + item.eff + ")" : ""))]);
+    var over = held.length > cap;
+    var num = el("span", "num", null, [el("b", null, String(held.length)), document.createTextNode(" / " + cap + (cut ? "  (effective " + (cap - cut) + ")" : ""))]);
+    var hint = item.hint + (over ? " · over cap " + cap + ": running turns continue, no new lease until below it" : "");
     root.appendChild(el("div", "meter", null, [el("div", "row", null, [el("span", "name", item.name), num]), bar,
-      el("div", "hint" + (item.warn ? " warn" : ""), item.hint)]));
+      el("div", "hint" + (item.warn || over ? " warn" : ""), hint)]));
   });
+  if (!items.length) root.appendChild(el("div", "empty", "No variant caps set. Each variant is bounded by its account cap."));
 }
 
 function renderConcurrency() {
-  meters("m-global", GLOBAL); meters("m-accounts", ACCOUNTS); meters("m-stages", STAGE_METERS);
+  var cfg = SAVED;
+  var capOf = function (list, id) { var hit = list.filter(function (a) { return a.id === id; })[0]; return hit ? hit.max_parallel : "0"; };
+  meters("m-global", GLOBAL.map(function (g) { return { name: g.name, slots: g.slots, cap: cfg.concurrency.global_max_parallel, hint: g.hint }; }));
+  meters("m-accounts", ACCOUNTS.filter(function (a) { return cfg.accounts.some(function (b) { return b.id === a.name; }); }).map(function (a) {
+    return { name: a.name, slots: a.slots, cap: capOf(cfg.accounts, a.name), cooling: !!a.eff, hint: a.hint, warn: a.warn };
+  }));
+  meters("m-variants", cfg.variants.filter(function (v) { return v.max_parallel; }).map(function (v) {
+    var holders = SESSIONS.filter(function (s) { return s.variant === v.id && ["running", "handed_off", "lost"].indexOf(s.state) !== -1; });
+    var slots = holders.map(function (s) { return s.state === "handed_off" ? "h" : s.state === "lost" ? "s" : "u"; }).join("");
+    return { name: v.id, slots: slots, cap: v.max_parallel, hint: holders.length ? holders.map(function (s) { return s.nick; }).join(", ") : "none" };
+  }));
+  meters("m-stages", STAGE_METERS.map(function (s) { return { name: s.name, slots: s.slots, cap: cfg.stages[s.name].max_parallel, hint: s.hint, warn: s.warn }; }));
+  var minutes = Math.floor(Number(cfg.concurrency.queue_timeout_seconds) / 60), secs = Number(cfg.concurrency.queue_timeout_seconds) % 60;
+  document.getElementById("queue-sub").textContent = "depth " + QUEUE.length + " of " + cfg.concurrency.queue_max_depth + " · timeout " + minutes + ":" + (secs < 10 ? "0" : "") + secs;
+  document.getElementById("leases-sub").textContent = "TTL " + cfg.concurrency.lease_ttl_seconds + " s · renewed every " + cfg.concurrency.heartbeat_seconds + " s";
   table("t-queue", ["Ticket", "Nickname", "Stage", "Wanted account", "Position", "Blocked on", "Waited"], QUEUE.map(function (row) {
     return row.map(function (cell) { return { mono: cell, nowrap: true }; });
   }));
@@ -831,8 +1105,11 @@ function renderConcurrency() {
     cells.push(badge(row[6] === "human" ? "human" : row[6], row[6] === "running" ? "supervisor" : row[6]));
     return cells;
   }));
-  document.getElementById("n-conc").textContent = "5/6";
+  document.getElementById("n-conc").textContent = GLOBAL[0].used + "/" + cfg.concurrency.global_max_parallel;
+  document.getElementById("clock").textContent = "2026-11-13 14:52:10 +08:00 · state dir " + cfg.platform.state_dir;
 }
+
+function renderObservation() { renderRegistry(); renderCatalog(); renderRouting(); renderConcurrency(); }
 
 function renderIncidents() {
   var open = 0;
@@ -847,27 +1124,1062 @@ function renderIncidents() {
   document.getElementById("n-incidents").textContent = String(open);
 }
 
+/* ================= Configure: settings ================= */
+/* Settings edit a draft of cli-platform.toml. Save copies the draft to the saved
+   configuration, kept in localStorage in this mockup. Nothing here talks to a run:
+   the execution layer reads the saved configuration when it resolves a turn. */
+
+var ADAPTERS = ["claude", "cursor", "codex", "agy", "kiro"];
+var STAGE_IDS = ["design", "development", "testing", "code_review", "ui_design"];
+var STATUSES = ["enabled", "disabled", "deprecated"];
+var COST_TIERS = ["", "low", "medium", "high"];
+var STORE_KEY = "cli-platform-workbench-mockup:config:v1";
+var SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|AUTH)/i;
+var SECRET_VALUE = /^(sk-|ghp_|xox[abp]-|Bearer\s)|^[A-Za-z0-9+_=-]{40,}$/;
+var RE_VARIANT = /^[a-z][a-z0-9-]{1,31}$/;
+var RE_MODEL = /^@default$|^[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,127}$/;
+var RE_ENV = /^[A-Z_][A-Z0-9_]{0,63}$/;
+var RE_PREFIX = /^[a-z][a-z0-9]{0,7}$/;
+var INT_MSG = "Enter a whole number of 1 or more.";
+var SET_PAGES = [["set-variants", "CLIs & variants"], ["set-models", "Models"], ["set-routing", "Stage routing"],
+  ["set-concurrency", "Concurrency"], ["set-nicknames", "Nicknames"], ["set-general", "General"]];
+
+function seedConfig() {
+  function V(id, adapter, binary, account, extra) {
+    var v = { k: "v-" + id, id: id, adapter: adapter, binary: binary, account: account, enabled: true,
+      settings_file: "", env: [], env_unset: [], max_parallel: "", note: "" };
+    Object.keys(extra || {}).forEach(function (key) { v[key] = extra[key]; });
+    return v;
+  }
+  function M(variant, id, name, efforts, def, note) {
+    return { k: "m-" + variant + "-" + id, variant: "v-" + variant, id: id, display_name: name, efforts: efforts.slice(),
+      default_effort: def, context_tokens: "", cost_tier: "", status: "enabled", note: note || "" };
+  }
+  function C(variant, model, effort) { return { v: "v-" + variant, m: "m-" + variant + "-" + model, effort: effort || "" }; }
+  function S(cap, busy, cands) { return { max_parallel: String(cap), on_busy: busy, effort_fallback: "lower", allow_pins_outside: false, candidates: cands }; }
+  return {
+    platform: { state_dir: "~/.local/state/goals-tmux-skill" },
+    nicknames: { cooldown_days: "7", tmux_prefix: "gt" },
+    concurrency: { global_max_parallel: "6", queue_max_depth: "32", queue_timeout_seconds: "1800", lease_ttl_seconds: "60", heartbeat_seconds: "15" },
+    rate_limit: { cooldown_base_seconds: "60", cooldown_max_seconds: "900", recover_after_turns: "5" },
+    catalog: { stale_after_days: "14", allow_unreviewed: false },
+    accounts: [
+      { id: "anthropic-sub", vendor: "anthropic", max_parallel: "3" },
+      { id: "anthropic-gateway", vendor: "anthropic-compatible gateway", max_parallel: "2" },
+      { id: "cursor-pro", vendor: "cursor", max_parallel: "2" },
+      { id: "kiro-idc", vendor: "kiro", max_parallel: "2" },
+      { id: "openai-codex", vendor: "openai", max_parallel: "2" },
+      { id: "google-agy", vendor: "google", max_parallel: "1" }],
+    variants: [
+      V("claude", "claude", "claude", "anthropic-sub"),
+      V("claude-gateway", "claude", "claude", "anthropic-gateway", { settings_file: "../../gateway.json",
+        env: [{ name: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", value: "1" }], env_unset: ["ANTHROPIC_API_KEY"],
+        note: "Launches as: claude --settings <path>. The file must be owner-only (0600)." }),
+      V("cursor", "cursor", "agent", "cursor-pro"),
+      V("kiro", "kiro", "kiro-cli", "kiro-idc"),
+      V("codex", "codex", "codex", "openai-codex"),
+      V("agy", "agy", "agy", "google-agy")],
+    models: [
+      M("claude", "opus", "Claude Opus", FULL, "high", "Alias and effort levels from `claude --help` 2.1.311."),
+      M("claude", "sonnet", "Claude Sonnet", FULL, "medium"),
+      M("claude", "fable", "Claude Fable", FULL, "high"),
+      M("claude-gateway", "opus", "Opus via gateway", FULL, "high", "The settings file decides which upstream model the alias maps to."),
+      M("claude-gateway", "sonnet", "Sonnet via gateway", FULL, "medium"),
+      M("cursor", "grok-4.7-xhigh", "Grok 4.7 xhigh (Cursor)", [], "", "Cursor has no effort flag; the effort is part of the model id."),
+      M("kiro", "@default", "Kiro default model", FULL, "high", "No --model is passed. Effort levels from `kiro-cli chat --help` 2.34.0."),
+      M("codex", "gpt-6.1-sol", "GPT-6.1 Sol", ["low", "medium", "high", "xhigh"], "high", "From references/cli-adapters.md; codex is not installed on the verification host."),
+      M("agy", "gemini-4-argon-high", "Gemini 4 Argon high", ["high"], "high", "From references/cli-adapters.md; agy is not installed on the verification host.")],
+    stages: {
+      design: S(2, "queue", [C("claude", "opus", "max"), C("claude-gateway", "opus", "high"), C("codex", "gpt-6.1-sol", "xhigh")]),
+      development: S(3, "queue", [C("claude", "opus", "high"), C("codex", "gpt-6.1-sol", "high"), C("cursor", "grok-4.7-xhigh"), C("kiro", "@default", "high")]),
+      testing: S(2, "next", [C("claude", "sonnet", "medium"), C("kiro", "@default", "medium"), C("cursor", "grok-4.7-xhigh")]),
+      code_review: S(2, "next", [C("codex", "gpt-6.1-sol", "xhigh"), C("cursor", "grok-4.7-xhigh"), C("claude-gateway", "opus", "high")]),
+      ui_design: S(1, "queue", [C("agy", "gemini-4-argon-high", "high"), C("claude", "opus", "high"), C("cursor", "grok-4.7-xhigh")])
+    },
+    routing: { default_candidates: [C("claude", "sonnet", "medium")] }
+  };
+}
+
+/* ---- model helpers ---- */
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function variantByKey(cfg, key) { return cfg.variants.filter(function (v) { return v.k === key; })[0] || null; }
+function modelByKey(cfg, key) { return cfg.models.filter(function (m) { return m.k === key; })[0] || null; }
+function modelsOf(cfg, vkey) { return cfg.models.filter(function (m) { return m.variant === vkey; }); }
+function candText(cfg, c) {
+  var v = variantByKey(cfg, c.v), m = modelByKey(cfg, c.m);
+  return (v ? v.id : "?") + " / " + (m ? m.id : "?") + (c.effort ? " / " + c.effort : "");
+}
+function candRefs(cfg, test) {
+  var refs = [];
+  STAGE_IDS.forEach(function (s) {
+    cfg.stages[s].candidates.forEach(function (c, i) { if (test(c)) refs.push({ stage: s, index: i, label: candText(cfg, c) }); });
+  });
+  cfg.routing.default_candidates.forEach(function (c, i) { if (test(c)) refs.push({ stage: null, index: i, label: candText(cfg, c) }); });
+  return refs;
+}
+function posInt(value) { return /^[1-9][0-9]*$/.test(String(value).trim()); }
+function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+var keySeq = 0;
+function newKey(prefix) { keySeq += 1; return prefix + "-new-" + Date.now().toString(36) + "-" + keySeq; }
+
+/* ---- validation: returns { errors: {key: {pages, msg}}, warns: {...} } ---- */
+function validate(cfg) {
+  var errors = {}, warns = {};
+  function err(pages, key, msg) { if (!errors[key]) errors[key] = { pages: [].concat(pages), msg: msg }; }
+  function warn(pages, key, msg) { if (!warns[key] && !errors[key]) warns[key] = { pages: [].concat(pages), msg: msg }; }
+  function needInt(pages, key, value) { if (!posInt(value)) err(pages, key, INT_MSG); }
+  var PV = "set-variants", PM = "set-models", PR = "set-routing", PC = "set-concurrency";
+
+  var seenV = {};
+  cfg.variants.forEach(function (v) {
+    var b = "v." + v.k + ".";
+    if (!v.id) err(PV, b + "id", "Id is required.");
+    else if (!RE_VARIANT.test(v.id)) err(PV, b + "id", "Id must match ^[a-z][a-z0-9-]{1,31}$: a lowercase letter, then 1 to 31 lowercase letters, digits or hyphens.");
+    else if (seenV[v.id]) err(PV, b + "id", "Variant id " + v.id + " is already used.");
+    seenV[v.id] = true;
+    if (ADAPTERS.indexOf(v.adapter) === -1) err(PV, b + "adapter", "Choose an adapter.");
+    var bin = String(v.binary).trim();
+    if (!bin) err(PV, b + "binary", "Binary is required: a name on PATH or an absolute path.");
+    else if (!(/^\/[^\u0000-\u001f]+$/.test(bin) || /^[A-Za-z0-9._+-]+$/.test(bin))) err(PV, b + "binary", "Use a bare name found on PATH (for example claude) or an absolute path starting with /.");
+    if (!cfg.accounts.some(function (a) { return a.id === v.account; })) err(PV, b + "account", "Choose an account. It decides which concurrency cap the variant consumes.");
+    if (v.settings_file) {
+      if (v.adapter !== "claude") err(PV, b + "settings_file", "settings_file is supported for the claude adapter only. Clear it or switch the adapter to claude.");
+      else if (/[\u0000-\u001f]/.test(v.settings_file) || /^\s|\s$/.test(v.settings_file)) err(PV, b + "settings_file", "Path has control characters or leading/trailing spaces.");
+    }
+    var names = {};
+    v.env.forEach(function (e, i) {
+      var kb = b + "env." + i + ".";
+      if (!e.name) err(PV, kb + "name", "Name is required.");
+      else if (!RE_ENV.test(e.name)) err(PV, kb + "name", "Name must match ^[A-Z_][A-Z0-9_]{0,63}$ (upper-case letters, digits, underscore).");
+      else if (SECRET_NAME.test(e.name)) err(PV, kb + "name", "SECRET_IN_CONFIG: " + e.name + " looks like a credential name. Credentials stay in the CLI's own login or the settings file; use env_unset to remove an inherited one.");
+      else if (names[e.name]) err(PV, kb + "name", e.name + " is set twice.");
+      names[e.name] = true;
+      if (SECRET_VALUE.test(e.value)) err(PV, kb + "value", "SECRET_IN_CONFIG: the value of " + (e.name || "this variable") + " has the shape of a credential. It cannot be saved and is not repeated here.");
+    });
+    var unset = {};
+    v.env_unset.forEach(function (n, i) {
+      var kb = b + "unset." + i;
+      if (!n) err(PV, kb, "Name is required.");
+      else if (!RE_ENV.test(n)) err(PV, kb, "Name must match ^[A-Z_][A-Z0-9_]{0,63}$.");
+      else if (names[n]) err(PV, kb, n + " is both set and unset.");
+      else if (unset[n]) err(PV, kb, n + " is listed twice.");
+      unset[n] = true;
+    });
+    if (v.max_parallel !== "" && !posInt(v.max_parallel)) err([PV, PC], b + "max_parallel", INT_MSG + " Leave blank for no variant cap.");
+    else if (v.max_parallel !== "") {
+      var acct = cfg.accounts.filter(function (a) { return a.id === v.account; })[0];
+      if (acct && posInt(acct.max_parallel) && Number(v.max_parallel) >= Number(acct.max_parallel))
+        warn([PV, PC], b + "max_parallel", "Not below the account cap (" + acct.max_parallel + "), so it never binds.");
+    }
+  });
+
+  var seenM = {};
+  cfg.models.forEach(function (m) {
+    var b = "m." + m.k + ".", v = variantByKey(cfg, m.variant);
+    if (!v) err(PM, b + "variant", "Choose a variant.");
+    if (!m.id) err(PM, b + "id", "Id is required. Use @default to pass no model flag.");
+    else if (!RE_MODEL.test(m.id)) err(PM, b + "id", "Id must be @default or start with a letter or digit, followed by up to 127 of A-Z a-z 0-9 . _ : / [ ] -.");
+    else if (seenM[m.variant + "\n" + m.id]) err(PM, b + "id", "Variant " + (v ? v.id : "?") + " already has a model " + m.id + ".");
+    seenM[m.variant + "\n" + m.id] = true;
+    if (String(m.display_name).length > 80) err(PM, b + "display_name", "Keep the display name to 80 characters.");
+    if (m.efforts.length) {
+      if (!m.default_effort) err(PM, b + "default_effort", "Choose a default effort from the checked levels.");
+      else if (m.efforts.indexOf(m.default_effort) === -1) err(PM, b + "default_effort", "Default effort " + m.default_effort + " is not one of the checked levels.");
+    } else if (m.default_effort) err(PM, b + "default_effort", "No effort levels are checked, so there is no default effort.");
+    if (m.context_tokens !== "" && !posInt(m.context_tokens)) err(PM, b + "context_tokens", INT_MSG + " Leave blank when unknown.");
+    if (COST_TIERS.indexOf(m.cost_tier) === -1) err(PM, b + "cost_tier", "Choose low, medium, high or blank.");
+    if (STATUSES.indexOf(m.status) === -1) err(PM, b + "status", "Choose a status.");
+  });
+
+  function cands(list, base, title, requireOne) {
+    if (requireOne && !list.length) err(PR, base + ".list", "Stage " + title + " needs at least one candidate.");
+    var seen = {};
+    list.forEach(function (c, i) {
+      var kb = base + ".c." + i, v = variantByKey(cfg, c.v), m = modelByKey(cfg, c.m);
+      if (!v) { err(PR, kb, "Choose a variant."); return; }
+      if (!c.m) { err(PR, kb, modelsOf(cfg, c.v).length ? "Choose a model." : "Variant " + v.id + " has no models. Add one on the Models page."); return; }
+      if (!m || m.variant !== c.v) { err(PR, kb, "That model is not a model of variant " + v.id + "."); return; }
+      if (c.effort && m.efforts.indexOf(c.effort) === -1) {
+        err(PR, kb, "Effort " + c.effort + " is not one of " + m.id + "'s levels (" + (m.efforts.join(", ") || "none") + ")."); return;
+      }
+      var sig = c.v + "|" + c.m + "|" + (c.effort || m.default_effort || "");
+      if (seen[sig]) { err(PR, kb, "Duplicate of candidate " + seen[sig] + "."); return; }
+      seen[sig] = i + 1;
+      if (!v.enabled) warn(PR, kb, "Variant " + v.id + " is disabled: the router skips this row with VARIANT_DISABLED.");
+      else if (m.status === "disabled") warn(PR, kb, "Model " + m.id + " is disabled: the router skips this row with MODEL_DISABLED.");
+      else if (m.status === "deprecated") warn(PR, kb, "Model " + m.id + " is deprecated: like disabled, the router skips this row with MODEL_DISABLED.");
+    });
+  }
+  STAGE_IDS.forEach(function (s) {
+    var st = cfg.stages[s];
+    cands(st.candidates, "st." + s, s, true);
+    if (["queue", "next"].indexOf(st.on_busy) === -1) err(PR, "st." + s + ".on_busy", "Choose queue or next.");
+    if (["lower", "skip"].indexOf(st.effort_fallback) === -1) err(PR, "st." + s + ".effort_fallback", "Choose lower or skip.");
+    needInt(PC, "st." + s + ".max_parallel", st.max_parallel);
+  });
+  cands(cfg.routing.default_candidates, "st.default", "default", false);
+
+  var cc = cfg.concurrency, global = posInt(cc.global_max_parallel) ? Number(cc.global_max_parallel) : null;
+  ["global_max_parallel", "queue_max_depth", "queue_timeout_seconds", "lease_ttl_seconds", "heartbeat_seconds"].forEach(function (k) {
+    needInt(PC, "cc." + k, cc[k]);
+  });
+  if (posInt(cc.lease_ttl_seconds) && posInt(cc.heartbeat_seconds) && Number(cc.lease_ttl_seconds) < 2 * Number(cc.heartbeat_seconds))
+    err(PC, "cc.lease_ttl_seconds", "lease_ttl_seconds must be at least twice heartbeat_seconds (2 × " + cc.heartbeat_seconds + " = " + 2 * Number(cc.heartbeat_seconds) + ").");
+  cfg.accounts.forEach(function (a) {
+    needInt(PC, "acct." + a.id, a.max_parallel);
+    if (global && posInt(a.max_parallel) && Number(a.max_parallel) > global) warn(PC, "acct." + a.id, "Above the global cap (" + global + "); the global cap binds first.");
+  });
+  STAGE_IDS.forEach(function (s) {
+    var cap = cfg.stages[s].max_parallel;
+    if (global && posInt(cap) && Number(cap) > global) warn(PC, "st." + s + ".max_parallel", "Above the global cap (" + global + "); the global cap binds first.");
+  });
+
+  var nk = cfg.nicknames;
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(String(nk.cooldown_days).trim())) err("set-nicknames", "nk.cooldown_days", "Enter a number of 0 or more (days; decimals allowed).");
+  if (!RE_PREFIX.test(nk.tmux_prefix)) err("set-nicknames", "nk.tmux_prefix", "Prefix must match ^[a-z][a-z0-9]{0,7}$: a lowercase letter, then up to 7 lowercase letters or digits.");
+
+  var PG = "set-general", rl = cfg.rate_limit;
+  if (!String(cfg.platform.state_dir).trim()) err(PG, "gen.state_dir", "State directory is required.");
+  else if (/[\u0000-\u001f]/.test(cfg.platform.state_dir)) err(PG, "gen.state_dir", "Path has control characters.");
+  needInt(PG, "gen.stale_after_days", cfg.catalog.stale_after_days);
+  needInt(PG, "gen.cooldown_base_seconds", rl.cooldown_base_seconds);
+  needInt(PG, "gen.cooldown_max_seconds", rl.cooldown_max_seconds);
+  needInt(PG, "gen.recover_after_turns", rl.recover_after_turns);
+  if (posInt(rl.cooldown_base_seconds) && posInt(rl.cooldown_max_seconds) && Number(rl.cooldown_max_seconds) < Number(rl.cooldown_base_seconds))
+    err(PG, "gen.cooldown_max_seconds", "cooldown_max_seconds must be at least cooldown_base_seconds (" + rl.cooldown_base_seconds + ").");
+  return { errors: errors, warns: warns };
+}
+
+/* ---- state ---- */
+var SEED = seedConfig();
+var SAVED = null, DRAFT = null, SAVED_AT = null, STORAGE_OK = true;
+var ERR = { errors: {}, warns: {} };
+var UI = { variant: null, model: null };
+var current = null;
+
+function storageRead() {
+  try { var raw = window.localStorage.getItem(STORE_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (error) { STORAGE_OK = false; return null; }
+}
+function storageWrite(record) {
+  try { window.localStorage.setItem(STORE_KEY, JSON.stringify(record)); return true; }
+  catch (error) { STORAGE_OK = false; return false; }
+}
+function storageClear() {
+  try { window.localStorage.removeItem(STORE_KEY); } catch (error) { /* storage unavailable: nothing to clear */ }
+}
+function looksLikeConfig(c) {
+  return !!(c && Array.isArray(c.variants) && Array.isArray(c.models) && Array.isArray(c.accounts) && c.stages &&
+    STAGE_IDS.every(function (s) { return c.stages[s] && Array.isArray(c.stages[s].candidates); }) &&
+    c.routing && Array.isArray(c.routing.default_candidates) && c.concurrency && c.rate_limit && c.catalog && c.nicknames && c.platform);
+}
+(function loadSaved() {
+  var record = storageRead();
+  try {
+    if (record && looksLikeConfig(record.config) && !Object.keys(validate(record.config).errors).length) {
+      SAVED = record.config; SAVED_AT = record.savedAt || null;
+    }
+  } catch (error) { SAVED = null; }
+  if (!SAVED) SAVED = clone(SEED);
+  DRAFT = clone(SAVED);
+  ERR = validate(DRAFT);
+})();
+
+var PAGE_SLICE = {
+  "set-variants": function (c) { return c.variants; },
+  "set-models": function (c) { return c.models; },
+  "set-routing": function (c) {
+    return [STAGE_IDS.map(function (s) { var st = c.stages[s]; return [st.on_busy, st.effort_fallback, st.allow_pins_outside, st.candidates]; }), c.routing];
+  },
+  "set-concurrency": function (c) {
+    return [c.concurrency, c.accounts, c.variants.map(function (v) { return [v.k, v.max_parallel]; }),
+      STAGE_IDS.map(function (s) { return c.stages[s].max_parallel; })];
+  },
+  "set-nicknames": function (c) { return c.nicknames; },
+  "set-general": function (c) { return [c.platform, c.catalog, c.rate_limit]; }
+};
+function isSettings(view) { return !!view && view.indexOf("set-") === 0; }
+function isDirty() { return !same(DRAFT, SAVED); }
+function pageDirty(page) { return !same(PAGE_SLICE[page](DRAFT), PAGE_SLICE[page](SAVED)); }
+function errorCount(page) {
+  return Object.keys(ERR.errors).filter(function (k) { return !page || ERR.errors[k].pages.indexOf(page) !== -1; }).length;
+}
+function countPrefix(prefix) { return Object.keys(ERR.errors).filter(function (k) { return k.indexOf(prefix) === 0; }).length; }
+function pageName(page) { return SET_PAGES.filter(function (p) { return p[0] === page; })[0][1]; }
+function stamp(iso) {
+  var d = new Date(iso), p = function (n) { return (n < 10 ? "0" : "") + n; };
+  if (isNaN(d.getTime())) return String(iso);
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+/* ---- DOM builders ---- */
+function fid(key) { return "f-" + key.replace(/[^A-Za-z0-9_-]/g, "_"); }
+function btn(label, cls, onClick, aria) {
+  var node = el("button", cls, label);
+  node.type = "button";
+  if (aria) node.setAttribute("aria-label", aria);
+  node.addEventListener("click", onClick);
+  return node;
+}
+function msgNode(key) {
+  var e = ERR.errors[key], w = ERR.warns[key];
+  if (!e && !w) return null;
+  var node = el("div", e ? "err" : "warnmsg", e ? e.msg : w.msg);
+  node.id = fid(key) + "-msg";
+  node.dataset.msg = key;
+  return node;
+}
+function control(input, key, label) {
+  input.dataset.key = key;
+  input.id = fid(key);
+  if (label) input.setAttribute("aria-label", label);
+  if (ERR.errors[key]) input.setAttribute("aria-invalid", "true");
+  if (ERR.errors[key] || ERR.warns[key]) input.setAttribute("aria-describedby", fid(key) + "-msg");
+  return input;
+}
+function textInput(key, value, set, opts) {
+  opts = opts || {};
+  var input = el(opts.area ? "textarea" : "input");
+  if (!opts.area) input.type = "text"; else input.rows = 2;
+  input.value = value === undefined || value === null ? "" : String(value);
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  if (opts.placeholder) input.placeholder = opts.placeholder;
+  if (opts.numeric) input.inputMode = "numeric";
+  if (opts.readonly) input.readOnly = true;
+  if (opts.disabled) input.disabled = true;
+  if (opts.cls) input.className = opts.cls;
+  input.addEventListener("input", function () { set(input.value); changed(); });
+  return control(input, key, opts.label);
+}
+function selectInput(key, value, options, set, opts) {
+  opts = opts || {};
+  var select = el("select");
+  options.forEach(function (o) {
+    var option = el("option", null, o[1]);
+    option.value = o[0];
+    select.appendChild(option);
+  });
+  select.value = value;
+  if (opts.disabled) select.disabled = true;
+  select.addEventListener("change", function () { set(select.value); changed(key); });
+  return control(select, key, opts.label);
+}
+function checkInput(key, checked, set, text, opts) {
+  opts = opts || {};
+  var input = el("input");
+  input.type = "checkbox";
+  input.checked = !!checked;
+  if (opts.disabled) input.disabled = true;
+  input.addEventListener("change", function () { set(input.checked); changed(key); });
+  control(input, key);
+  var label = el("label", "check", null, [input, el("span", null, text)]);
+  return label;
+}
+function field(label, input, key, opts) {
+  opts = opts || {};
+  var lab;
+  if (input.tagName === "LABEL") lab = el("div", "lab", label);
+  else { lab = el("label", null, label); lab.htmlFor = input.id; }
+  if (opts.optional) lab.appendChild(el("span", "opt", " · optional"));
+  return el("div", "field" + (opts.wide ? " wide" : ""), null, [lab, input, key ? msgNode(key) : null, opts.hint ? el("div", "hint", opts.hint) : null]);
+}
+function panel(title, sub, kids, actions) {
+  var head = el("h2", null, null, [el("span", null, title, sub ? [el("small", null, "  " + sub)] : []), actions || null]);
+  return el("div", "panel", null, [head].concat(kids));
+}
+function fillTable(tbl, heads, rows) {
+  var head = el("tr");
+  heads.forEach(function (name) { head.appendChild(el("th", null, name)); });
+  tbl.appendChild(el("thead", null, null, [head]));
+  var body = el("tbody");
+  rows.forEach(function (row) { body.appendChild(row); });
+  tbl.appendChild(body);
+  return tbl;
+}
+function td(content, cls) {
+  var cell = el("td", cls || null);
+  if (content instanceof Node) cell.appendChild(content); else cell.textContent = content === undefined || content === null ? "" : content;
+  return cell;
+}
+function pageBody(page) { var root = document.getElementById("body-" + page); root.textContent = ""; return root; }
+
+/* ---- page: CLIs & variants ---- */
+function renderSetVariants() {
+  var root = pageBody("set-variants");
+  if (UI.variant && !variantByKey(DRAFT, UI.variant)) UI.variant = null;
+  if (!UI.variant && DRAFT.variants.length) UI.variant = DRAFT.variants[0].k;
+  var rows = DRAFT.variants.map(function (v) {
+    var saved = variantByKey(SAVED, v.k), errs = countPrefix("v." + v.k + ".");
+    var models = modelsOf(DRAFT, v.k).length, refs = candRefs(DRAFT, function (c) { return c.v === v.k; }).length;
+    var tags = el("span", null, null, [badge(v.enabled ? "enabled" : "disabled"),
+      !saved ? badge("info", "new", true) : !same(saved, v) ? badge("adjusted", "edited", true) : null,
+      errs ? badge("failed", plural(errs, "error"), true) : null]);
+    Array.prototype.forEach.call(tags.children, function (b) { b.style.marginRight = "4px"; });
+    var row = el("tr", null, null, [
+      td(el("span", "mono", null, [document.createTextNode(v.id || "(no id yet)"), el("span", "sub2", plural(models, "model") + " · " + plural(refs, "stage row"))])),
+      td(el("span", "mono", null, [document.createTextNode(v.adapter), el("span", "sub2", v.account || "no account")])),
+      td(tags),
+      td(el("div", "acts", null, [
+        btn("Edit", "btn sm", function (e) { e.stopPropagation(); UI.variant = v.k; changed("v." + v.k + ".binary"); }, "Edit variant " + (v.id || "new")),
+        btn("Delete", "btn sm danger", function (e) { e.stopPropagation(); deleteVariant(v.k); }, "Delete variant " + (v.id || "new"))]))]);
+    row.setAttribute("aria-selected", String(v.k === UI.variant));
+    row.addEventListener("click", function () { UI.variant = v.k; changed(); });
+    return row;
+  });
+  var list = panel("Variants", plural(DRAFT.variants.length, "variant"), [el("div", "scroll", null, [fillTable(el("table", "list"), ["Id · used by", "Adapter · account", "State", ""], rows)])],
+    btn("Add variant", "btn sm primary", addVariant));
+  var editor = UI.variant ? variantEditor(variantByKey(DRAFT, UI.variant)) : panel("Editor", null, [el("div", "empty", "No variants. Add one to start.")]);
+  root.appendChild(el("div", "split", null, [list, editor]));
+}
+
+function variantEditor(v) {
+  var saved = variantByKey(SAVED, v.k), b = "v." + v.k + ".";
+  var form = el("div", "form");
+  form.appendChild(field("Id", textInput(b + "id", v.id, function (x) { v.id = x; }, { readonly: !!saved, placeholder: "e.g. claude-work" }), b + "id", {
+    hint: saved ? "Permanent: run records, events and audit entries store this id. To change what it means, add a new id and disable this one."
+      : "Choose carefully: after the first save the id cannot change, because run records store it." }));
+  form.appendChild(field("Adapter", selectInput(b + "adapter", v.adapter, ADAPTERS.map(function (a) { return [a, a]; }), function (x) { v.adapter = x; }), b + "adapter"));
+  form.appendChild(field("Binary", textInput(b + "binary", v.binary, function (x) { v.binary = x; }, { placeholder: "claude or /opt/homebrew/bin/claude" }), b + "binary",
+    { hint: "A name resolved on PATH, or an absolute path. Never copied." }));
+  var acctOpts = [["", "Choose an account"]].concat(DRAFT.accounts.map(function (a) { return [a.id, a.id + " (" + a.vendor + ")"]; }));
+  form.appendChild(field("Account", selectInput(b + "account", v.account, acctOpts, function (x) { v.account = x; }), b + "account",
+    { hint: "Decides which account cap the variant consumes. Variants with different endpoints must not share one." }));
+  form.appendChild(field("Status", checkInput(b + "enabled", v.enabled, function (x) { v.enabled = x; }, "Enabled"), b + "enabled",
+    { hint: "A disabled variant stays in run records; the router skips it with VARIANT_DISABLED." }));
+  form.appendChild(field("Variant cap (max_parallel)", textInput(b + "max_parallel", v.max_parallel, function (x) { v.max_parallel = x.trim(); }, { numeric: true, placeholder: "blank = no variant cap" }), b + "max_parallel",
+    { optional: true, hint: "Blank = no variant cap; the account cap still applies." }));
+  var claude = v.adapter === "claude";
+  form.appendChild(field("Settings file", textInput(b + "settings_file", v.settings_file, function (x) { v.settings_file = x; },
+    { disabled: !claude && !v.settings_file, placeholder: claude ? "path, e.g. ../../gateway.json" : "claude adapter only" }), b + "settings_file", {
+    wide: true, optional: true,
+    hint: "Path only; the platform never opens the file, it lstat-checks owner/mode (exists, regular file, not a symlink, owned by you, no group or world bits). claude adapter only, passed as --settings <path>." }));
+  form.appendChild(el("div", "field wide", null, [el("div", "lab", "Environment overrides (env)"), envEditor(v, b),
+    el("div", "hint", "Non-secret values only. A credential-like name or a token-shaped value is refused with SECRET_IN_CONFIG, and the value is never echoed. Names are logged; values are not.")]));
+  form.appendChild(el("div", "field wide", null, [el("div", "lab", "Unset inherited variables (env_unset)"), unsetEditor(v, b),
+    el("div", "hint", "Removes ambient variables that would override the variant, for example an inherited API key.")]));
+  form.appendChild(field("Note", textInput(b + "note", v.note, function (x) { v.note = x; }, { area: true }), b + "note", { wide: true, optional: true }));
+  var foot = el("div", "formfoot", null, [
+    el("span", "faint", saved ? "Saved variant · changes apply to turns resolved after Save" : "New variant · not saved yet"),
+    btn("Delete variant", "btn sm danger", function () { deleteVariant(v.k); }, "Delete variant " + (v.id || "new") + " (editor)")]);
+  return panel(saved ? "Edit variant" : "New variant", v.id || "", [form, foot]);
+}
+
+function envEditor(v, b) {
+  var wrap = el("div", "rows");
+  v.env.forEach(function (e, i) {
+    var kb = b + "env." + i + ".";
+    wrap.appendChild(el("div", "kvrow", null, [
+      textInput(kb + "name", e.name, function (x) { e.name = x; }, { placeholder: "NAME", label: "Variable name " + (i + 1) }),
+      textInput(kb + "value", e.value, function (x) { e.value = x; }, { placeholder: "value", label: "Variable value " + (i + 1) }),
+      btn("Remove", "btn sm ghost", function () { v.env.splice(i, 1); changed(); }, "Remove variable " + (i + 1))]));
+    [msgNode(kb + "name"), msgNode(kb + "value")].forEach(function (n) { if (n) wrap.appendChild(n); });
+  });
+  if (!v.env.length) wrap.appendChild(el("div", "faint", "No overrides."));
+  wrap.appendChild(btn("Add variable", "btn sm", function () { v.env.push({ name: "", value: "" }); changed(b + "env." + (v.env.length - 1) + ".name"); }));
+  return wrap;
+}
+function unsetEditor(v, b) {
+  var wrap = el("div", "rows");
+  v.env_unset.forEach(function (n, i) {
+    var kb = b + "unset." + i;
+    wrap.appendChild(el("div", "unrow", null, [
+      textInput(kb, n, function (x) { v.env_unset[i] = x; }, { placeholder: "NAME", label: "Unset name " + (i + 1) }),
+      btn("Remove", "btn sm ghost", function () { v.env_unset.splice(i, 1); changed(); }, "Remove unset name " + (i + 1))]));
+    var m = msgNode(kb); if (m) wrap.appendChild(m);
+  });
+  if (!v.env_unset.length) wrap.appendChild(el("div", "faint", "Nothing unset."));
+  wrap.appendChild(btn("Add name", "btn sm", function () { v.env_unset.push(""); changed(b + "unset." + (v.env_unset.length - 1)); }));
+  return wrap;
+}
+
+function addVariant() {
+  var v = { k: newKey("v"), id: "", adapter: "claude", binary: "", account: "", enabled: true,
+    settings_file: "", env: [], env_unset: [], max_parallel: "", note: "" };
+  DRAFT.variants.push(v);
+  UI.variant = v.k;
+  changed("v." + v.k + ".id");
+}
+
+/* Cascade with listing: deleting removes the referencing candidate rows, unless a
+   stage would be left with no candidate, in which case the delete is blocked. */
+function emptiedStages(test) {
+  return STAGE_IDS.filter(function (s) {
+    var list = DRAFT.stages[s].candidates;
+    return list.length && list.every(test);
+  });
+}
+function refList(refs) {
+  var ul = el("ul");
+  refs.forEach(function (r) { ul.appendChild(el("li", "mono", (r.stage || "routing.default_candidates") + " #" + (r.index + 1) + "  " + r.label)); });
+  return ul;
+}
+function removeRefs(test) {
+  STAGE_IDS.forEach(function (s) { DRAFT.stages[s].candidates = DRAFT.stages[s].candidates.filter(function (c) { return !test(c); }); });
+  DRAFT.routing.default_candidates = DRAFT.routing.default_candidates.filter(function (c) { return !test(c); });
+}
+function deleteVariant(key) {
+  var v = variantByKey(DRAFT, key), name = v.id || "(new variant)";
+  var test = function (c) { return c.v === key; };
+  var blocked = emptiedStages(test);
+  if (blocked.length) {
+    openModal({ title: "Cannot delete variant " + name, alert: true, body: [
+      el("p", null, "Deleting it would leave " + (blocked.length === 1 ? "stage " : "stages ") + blocked.join(", ") + " with no candidate. Every stage needs at least one."),
+      el("p", "muted", "Add another candidate to " + (blocked.length === 1 ? "that stage" : "those stages") + " on Stage routing first, or disable the variant instead.")],
+      buttons: [{ label: "Close", focus: true }] });
+    return;
+  }
+  var models = modelsOf(DRAFT, key), refs = candRefs(DRAFT, test);
+  var body = [el("p", null, "This removes the variant from the draft. Nothing changes until you save.")];
+  if (models.length) body.push(el("p", null, "Its " + plural(models.length, "model") + " will be deleted: " + models.map(function (m) { return m.id; }).join(", ") + "."));
+  if (refs.length) { body.push(el("p", null, "These candidate rows will be removed:")); body.push(refList(refs)); }
+  else body.push(el("p", "muted", "No stage lists this variant."));
+  if (variantByKey(SAVED, key)) body.push(el("p", "muted", "Run records that name " + name + " keep it. Ids are permanent, so do not reuse this id for something else; to stop routing to it, disabling is enough."));
+  openModal({ title: "Delete variant " + name + "?", body: body, buttons: [
+    { label: "Cancel", focus: true },
+    { label: "Delete variant", cls: "danger", action: function () {
+      removeRefs(test);
+      DRAFT.models = DRAFT.models.filter(function (m) { return m.variant !== key; });
+      DRAFT.variants = DRAFT.variants.filter(function (x) { return x.k !== key; });
+      UI.variant = null;
+      changed();
+    } }] });
+}
+
+/* ---- page: Models ---- */
+function renderSetModels() {
+  var root = pageBody("set-models");
+  if (UI.model && !modelByKey(DRAFT, UI.model)) UI.model = null;
+  if (!UI.model && DRAFT.models.length) UI.model = DRAFT.models[0].k;
+  var ordered = [];
+  DRAFT.variants.forEach(function (v) { ordered = ordered.concat(modelsOf(DRAFT, v.k)); });
+  DRAFT.models.forEach(function (m) { if (ordered.indexOf(m) === -1) ordered.push(m); });
+  var rows = ordered.map(function (m) {
+    var v = variantByKey(DRAFT, m.variant), saved = modelByKey(SAVED, m.k), errs = countPrefix("m." + m.k + ".");
+    var refs = candRefs(DRAFT, function (c) { return c.m === m.k; }).length;
+    var label = (v ? v.id : "?") + " / " + (m.id || "(no id yet)");
+    var tags = el("span", null, null, [badge(m.status === "deprecated" ? "deprecated" : m.status),
+      !saved ? badge("info", "new", true) : !same(saved, m) ? badge("adjusted", "edited", true) : null,
+      errs ? badge("failed", plural(errs, "error"), true) : null]);
+    Array.prototype.forEach.call(tags.children, function (b) { b.style.marginRight = "4px"; });
+    var row = el("tr", null, null, [
+      td(el("span", "mono", null, [document.createTextNode(label), el("span", "sub2", (m.display_name ? m.display_name + " · " : "") + plural(refs, "stage row"))])),
+      td(m.efforts.length ? el("span", "mono nowrap", null, [document.createTextNode(effortRange(m.efforts)), el("span", "sub2", "default " + m.default_effort)]) : el("span", "faint", "no effort levels"), "nowrap"),
+      td(tags),
+      td(el("div", "acts", null, [
+        btn("Edit", "btn sm", function (e) { e.stopPropagation(); UI.model = m.k; changed("m." + m.k + ".display_name"); }, "Edit model " + label),
+        btn("Delete", "btn sm danger", function (e) { e.stopPropagation(); deleteModel(m.k); }, "Delete model " + label)]))]);
+    row.setAttribute("aria-selected", String(m.k === UI.model));
+    row.addEventListener("click", function () { UI.model = m.k; changed(); });
+    return row;
+  });
+  var list = panel("Curated models", plural(DRAFT.models.length, "model"), [el("div", "scroll", null, [fillTable(el("table", "list"), ["Variant / model · used by", "Efforts", "Status", ""], rows)])],
+    btn("Add model", "btn sm primary", addModel));
+  var editor = UI.model ? modelEditor(modelByKey(DRAFT, UI.model)) : panel("Editor", null, [el("div", "empty", "No models. Add one to start.")]);
+  root.appendChild(el("div", "split", null, [list, editor]));
+}
+
+function modelEditor(m) {
+  var saved = modelByKey(SAVED, m.k), b = "m." + m.k + ".";
+  var form = el("div", "form");
+  var vOpts = DRAFT.variants.map(function (v) { return [v.k, v.id || "(new variant)"]; });
+  if (!variantByKey(DRAFT, m.variant)) vOpts.unshift(["", "Choose a variant"]);
+  form.appendChild(field("Variant", selectInput(b + "variant", m.variant, vOpts, function (x) { m.variant = x; }, { disabled: !!saved }), b + "variant",
+    { hint: saved ? "A saved model stays with its variant. Add a model under another variant instead." : "The variant whose CLI serves this model." }));
+  form.appendChild(field("Model id", textInput(b + "id", m.id, function (x) { m.id = x; }, { readonly: !!saved, placeholder: "e.g. opus or @default" }), b + "id",
+    { hint: (saved ? "Permanent: run records store the model id. To change it, add a new model and disable this one. " : "")
+      + "Passed to the CLI's model flag. @default passes no model flag. Unique per variant." }));
+  form.appendChild(field("Display name (display_name)", textInput(b + "display_name", m.display_name, function (x) { m.display_name = x; }, { placeholder: "e.g. Claude Opus" }), b + "display_name",
+    { optional: true, hint: "Shown in the workbench only." }));
+  form.appendChild(field("Status", selectInput(b + "status", m.status, STATUSES.map(function (s) { return [s, s]; }), function (x) { m.status = x; }), b + "status",
+    { hint: "Only enabled models are routed. disabled and deprecated are both skipped with MODEL_DISABLED; deprecated also marks the model for removal." }));
+  var checks = el("div", "checks");
+  FULL.forEach(function (level) {
+    checks.appendChild(checkInput(b + "effort." + level, m.efforts.indexOf(level) !== -1, function (on) {
+      var set = FULL.filter(function (x) { return x === level ? on : m.efforts.indexOf(x) !== -1; });
+      m.efforts = set;
+      if (!set.length) m.default_effort = "";
+      else if (set.indexOf(m.default_effort) === -1 && (!m.default_effort || !on)) m.default_effort = set.indexOf("high") !== -1 ? "high" : set[set.length - 1];
+    }, level));
+  });
+  form.appendChild(el("div", "field wide", null, [el("div", "lab", "Effort levels (efforts)"), checks,
+    el("div", "hint", "Leave all unchecked when the CLI has no effort flag (for example Cursor, where the effort is part of the model id).")]));
+  var dOpts = m.efforts.length ? m.efforts.map(function (x) { return [x, x]; }) : [["", "none (no effort levels)"]];
+  if (m.efforts.length && m.efforts.indexOf(m.default_effort) === -1) dOpts.unshift([m.default_effort, m.default_effort ? m.default_effort + " (not checked)" : "Choose a default"]);
+  form.appendChild(field("Default effort (default_effort)", selectInput(b + "default_effort", m.default_effort, dOpts, function (x) { m.default_effort = x; }, { disabled: !m.efforts.length && !m.default_effort }), b + "default_effort",
+    { hint: "Used when a candidate leaves effort blank. Must be one of the checked levels." }));
+  form.appendChild(field("Context window (context_tokens)", textInput(b + "context_tokens", m.context_tokens, function (x) { m.context_tokens = x.trim(); }, { numeric: true, placeholder: "blank = unknown" }), b + "context_tokens",
+    { optional: true, hint: "Tokens. Blank = unknown; no verified value is recorded for the sample models." }));
+  form.appendChild(field("Cost tier (cost_tier)", selectInput(b + "cost_tier", m.cost_tier, COST_TIERS.map(function (c) { return [c, c || "blank (unknown)"]; }), function (x) { m.cost_tier = x; }), b + "cost_tier",
+    { optional: true, hint: "Informational: the router does not use it." }));
+  form.appendChild(field("Note", textInput(b + "note", m.note, function (x) { m.note = x; }, { area: true }), b + "note", { wide: true, optional: true }));
+  var foot = el("div", "formfoot", null, [
+    el("span", "faint", saved ? "Saved model · observations for it stay in the event layer" : "New model · not saved yet · flagged unconfirmed until observed"),
+    btn("Delete model", "btn sm danger", function () { deleteModel(m.k); }, "Delete model (editor)")]);
+  return panel(saved ? "Edit model" : "New model", m.id || "", [form, foot]);
+}
+
+function effortRange(efforts) {
+  var start = FULL.indexOf(efforts[0]);
+  var contiguous = efforts.every(function (e, i) { return FULL[start + i] === e; });
+  return contiguous && efforts.length > 2 ? efforts[0] + " – " + efforts[efforts.length - 1] : efforts.join(", ");
+}
+function addModel() {
+  var sel = UI.model && modelByKey(DRAFT, UI.model);
+  var vkey = sel ? sel.variant : (DRAFT.variants[0] ? DRAFT.variants[0].k : "");
+  var m = { k: newKey("m"), variant: vkey, id: "", display_name: "", efforts: [], default_effort: "",
+    context_tokens: "", cost_tier: "", status: "enabled", note: "" };
+  DRAFT.models.push(m);
+  UI.model = m.k;
+  changed("m." + m.k + ".id");
+}
+
+function deleteModel(key) {
+  var m = modelByKey(DRAFT, key), v = variantByKey(DRAFT, m.variant);
+  var name = (v ? v.id : "?") + " / " + (m.id || "(new model)");
+  var test = function (c) { return c.m === key; };
+  var blocked = emptiedStages(test);
+  if (blocked.length) {
+    openModal({ title: "Cannot delete model " + name, alert: true, body: [
+      el("p", null, "Deleting it would leave " + (blocked.length === 1 ? "stage " : "stages ") + blocked.join(", ") + " with no candidate. Every stage needs at least one."),
+      el("p", "muted", "Add another candidate to " + (blocked.length === 1 ? "that stage" : "those stages") + " first, or set the model's status to disabled.")],
+      buttons: [{ label: "Close", focus: true }] });
+    return;
+  }
+  var refs = candRefs(DRAFT, test);
+  var body = [el("p", null, "This removes the model from the curated overlay in the draft. Nothing changes until you save.")];
+  if (refs.length) { body.push(el("p", null, "These candidate rows will be removed:")); body.push(refList(refs)); }
+  else body.push(el("p", "muted", "No stage lists this model."));
+  body.push(el("p", "muted", "Observations recorded for it stay in the event layer. Without a curated entry it becomes observed-only (unreviewed)."));
+  openModal({ title: "Delete model " + name + "?", body: body, buttons: [
+    { label: "Cancel", focus: true },
+    { label: "Delete model", cls: "danger", action: function () {
+      removeRefs(test);
+      DRAFT.models = DRAFT.models.filter(function (x) { return x.k !== key; });
+      UI.model = null;
+      changed();
+    } }] });
+}
+
+/* ---- page: Stage routing ---- */
+function candEditor(list, base, title, sub) {
+  var rows = [];
+  list.forEach(function (c, i) {
+    var kb = base + ".c." + i, label = title + " candidate " + (i + 1);
+    var vOpts = DRAFT.variants.map(function (v) { return [v.k, (v.id || "(new variant)") + (v.enabled ? "" : " (disabled)")]; });
+    if (!variantByKey(DRAFT, c.v)) vOpts.unshift(["", "Choose a variant"]);
+    var vSel = selectInput(kb + ".v", c.v, vOpts, function (x) {
+      c.v = x;
+      var ms = modelsOf(DRAFT, x);
+      c.m = ms.length ? ms[0].k : "";
+      c.effort = "";
+    }, { label: label + " variant" });
+    var models = modelsOf(DRAFT, c.v), m = modelByKey(DRAFT, c.m);
+    var mOpts = models.map(function (x) { return [x.k, (x.id || "(new model)") + (x.status !== "enabled" ? " (" + x.status + ")" : "")]; });
+    if (!m || m.variant !== c.v) mOpts.unshift(["", models.length ? "Choose a model" : "No models"]);
+    var mSel = selectInput(kb + ".m", c.m, mOpts, function (x) {
+      c.m = x;
+      var nm = modelByKey(DRAFT, x);
+      if (nm && nm.efforts.indexOf(c.effort) === -1) c.effort = "";
+    }, { label: label + " model" });
+    var eOpts = [["", m ? (m.efforts.length ? "default (" + m.default_effort + ")" : "none") : "default"]].concat(m ? m.efforts.map(function (x) { return [x, x]; }) : []);
+    if (c.effort && (!m || m.efforts.indexOf(c.effort) === -1)) eOpts.push([c.effort, c.effort + " (unsupported)"]);
+    var eSel = selectInput(kb + ".e", c.effort, eOpts, function (x) { c.effort = x; }, { label: label + " effort", disabled: !!m && !m.efforts.length && !c.effort });
+    var up = btn("↑", "btn sm icon", function () { move(list, i, -1, kb.replace(/\.c\.\d+$/, ".c." + (i - 1)) + ".up"); }, "Move " + label + " up");
+    var down = btn("↓", "btn sm icon", function () { move(list, i, 1, kb.replace(/\.c\.\d+$/, ".c." + (i + 1)) + ".down"); }, "Move " + label + " down");
+    up.dataset.key = kb + ".up"; down.dataset.key = kb + ".down";
+    up.disabled = i === 0; down.disabled = i === list.length - 1;
+    var rm = btn("✕", "btn sm icon danger", function () { list.splice(i, 1); changed(); }, "Remove " + label);
+    var row = el("div", "crow" + (ERR.errors[kb] ? " bad" : ""), null, [el("span", "n", String(i + 1)), vSel, mSel, eSel, el("div", "acts", null, [up, down, rm]), msgNode(kb)]);
+    row.dataset.row = kb;
+    rows.push(row);
+  });
+  if (!list.length) rows.push(el("div", "cempty", null, [msgNode(base + ".list") || el("span", "faint", "No candidates. This list may be empty.")]));
+  var add = btn("Add candidate", "btn sm", function () {
+    var used = {};
+    list.forEach(function (c) { used[c.v + "|" + c.m] = true; });
+    var pick = null;
+    DRAFT.variants.some(function (v) {
+      return modelsOf(DRAFT, v.k).some(function (m) { if (!used[v.k + "|" + m.k]) { pick = { v: v.k, m: m.k, effort: "" }; return true; } return false; });
+    });
+    list.push(pick || { v: "", m: "", effort: "" });
+    changed(base + ".c." + (list.length - 1) + ".v");
+  }, "Add candidate to " + title);
+  return { rows: rows, add: add };
+}
+function move(list, i, d, focusKey) {
+  var j = i + d;
+  if (j < 0 || j >= list.length) return;
+  var tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+  if ((d < 0 && j === 0) || (d > 0 && j === list.length - 1)) focusKey = focusKey.replace(/\.(up|down)$/, d < 0 ? ".down" : ".up");
+  changed(focusKey);
+}
+function renderSetRouting() {
+  var root = pageBody("set-routing");
+  root.appendChild(el("div", "callout", null, [el("b", null, "on_busy"), document.createTextNode(": queue waits for the preferred account; next tries the following candidate when only that account is busy. "),
+    el("b", null, "effort_fallback"), document.createTextNode(": lower picks the highest supported level below the requested one; skip moves to the next candidate. "),
+    el("b", null, "allow_pins_outside"), document.createTextNode(": when off, a pin outside the stage's list is refused with PIN_NOT_ALLOWED_FOR_STAGE. A blank effort means the model's default effort.")]));
+  var grid = el("div", "stages");
+  STAGE_IDS.forEach(function (s) {
+    var st = DRAFT.stages[s], b = "st." + s, ed = candEditor(st.candidates, b, s);
+    var policy = el("div", "policy", null, [
+      el("label", "inl", null, [document.createTextNode("on_busy"), selectInput(b + ".on_busy", st.on_busy, [["queue", "queue"], ["next", "next"]], function (x) { st.on_busy = x; }, { label: s + " on_busy" })]),
+      el("label", "inl", null, [document.createTextNode("effort_fallback"), selectInput(b + ".effort_fallback", st.effort_fallback, [["lower", "lower"], ["skip", "skip"]], function (x) { st.effort_fallback = x; }, { label: s + " effort_fallback" })]),
+      checkInput(b + ".allow_pins_outside", st.allow_pins_outside, function (x) { st.allow_pins_outside = x; }, "allow_pins_outside")]);
+    var errs = countPrefix(b + ".c.") + countPrefix(b + ".list");
+    grid.appendChild(panel(s, "stage cap " + st.max_parallel + " (Concurrency)" + (errs ? " · " + plural(errs, "error") : ""), ed.rows.concat([policy]), ed.add));
+  });
+  var dd = candEditor(DRAFT.routing.default_candidates, "st.default", "default");
+  grid.appendChild(panel("routing.default_candidates", "last resort for any stage", dd.rows.concat([el("div", "policy", null, [el("span", "hint", "Tried after a stage's own list when none of its candidates can serve. May be empty.")])]), dd.add));
+  root.appendChild(grid);
+}
+
+/* ---- page: Concurrency ---- */
+function capInput(key, value, set, label, optional) {
+  return textInput(key, value, set, { numeric: true, cls: "capin", label: label, placeholder: optional ? "none" : "" });
+}
+function capCell(input, key) { return td(el("div", null, null, [input, msgNode(key)])); }
+function renderSetConcurrency() {
+  var root = pageBody("set-concurrency"), cc = DRAFT.concurrency;
+  root.appendChild(el("div", "callout", null, [el("b", null, "How caps combine. "),
+    document.createTextNode("A turn needs one free slot in every scope that applies: global, its account, its variant if that variant is capped, and its stage. Caps take effect for new leases; running turns are never stopped. Lowering a cap below what is held only delays new grants.")]));
+  var grid = el("div", "cgrid");
+  var form = el("div", "form");
+  function ccField(k, label, hint) {
+    form.appendChild(field(label, textInput("cc." + k, cc[k], function (x) { cc[k] = x.trim(); }, { numeric: true }), "cc." + k, { hint: hint }));
+  }
+  ccField("global_max_parallel", "Global cap (global_max_parallel)", "Bounds load on this machine.");
+  ccField("queue_max_depth", "Queue depth (queue_max_depth)", "At this depth a new request is refused with QUEUE_FULL.");
+  ccField("queue_timeout_seconds", "Queue timeout (queue_timeout_seconds)", "A ticket older than this fails with QUEUE_TIMEOUT.");
+  ccField("heartbeat_seconds", "Heartbeat (heartbeat_seconds)", "How often the supervisor renews its lease.");
+  ccField("lease_ttl_seconds", "Lease TTL (lease_ttl_seconds)", "Must be at least 2 × heartbeat_seconds.");
+  grid.appendChild(panel("Global, queue and leases", "[concurrency]", [form]));
+
+  var acctRows = DRAFT.accounts.map(function (a) {
+    var key = "acct." + a.id;
+    return el("tr", null, null, [td(el("span", "mono", a.id), "nowrap"), td(a.vendor, "muted"),
+      capCell(capInput(key, a.max_parallel, function (x) { a.max_parallel = x.trim(); }, "Account " + a.id + " max_parallel"), key),
+      td(DRAFT.variants.filter(function (v) { return v.account === a.id; }).map(function (v) { return v.id; }).join(", ") || "none", "mono muted")]);
+  });
+  grid.appendChild(panel("Accounts", "accounts.<id>.max_parallel", [el("div", "scroll", null, [fillTable(el("table"), ["Account", "Vendor", "max_parallel", "Variants"], acctRows)])]));
+
+  var varRows = DRAFT.variants.map(function (v) {
+    var key = "v." + v.k + ".max_parallel";
+    return el("tr", null, null, [td(el("span", "mono", v.id || "(new variant)")), td(v.account || "none", "mono muted"),
+      capCell(capInput(key, v.max_parallel, function (x) { v.max_parallel = x.trim(); }, "Variant " + (v.id || "new") + " max_parallel", true), key)]);
+  });
+  grid.appendChild(panel("Variants", "optional · blank = no variant cap; the account cap still applies", [el("div", "scroll", null, [fillTable(el("table"), ["Variant", "Account", "max_parallel"], varRows)])]));
+
+  var stRows = STAGE_IDS.map(function (s) {
+    var key = "st." + s + ".max_parallel";
+    return el("tr", null, null, [td(el("span", "mono", s)),
+      capCell(capInput(key, DRAFT.stages[s].max_parallel, function (x) { DRAFT.stages[s].max_parallel = x.trim(); }, "Stage " + s + " max_parallel"), key)]);
+  });
+  grid.appendChild(panel("Stages", "stages.<id>.max_parallel", [el("div", "scroll", null, [fillTable(el("table"), ["Stage", "max_parallel"], stRows)])]));
+  root.appendChild(grid);
+}
+
+/* ---- page: Nicknames ---- */
+function renderSetNicknames() {
+  var root = pageBody("set-nicknames"), nk = DRAFT.nicknames;
+  var info = el("dl", "kv");
+  [["library", "../data/nicknames.txt"], ["names", "1000, sorted, unique"], ["pattern", "^[a-z]{3,6}$, alternating consonant (bdfgjklmnprstvz) and vowel (aeiou)"],
+    ["lengths", "3 letters: 40 · 4: 320 · 5: 320 · 6: 320"], ["prefix-free", "yes: no name is a prefix of another"],
+    ["distance", "same-length names differ in at least 2 letters"], ["reserved", "run, task, tmux, kiro, agy, codex, agent, null, true, dead, lost, ..."],
+    ["library_digest", "sha256 dffb76305ac0b387f3497525b0b6042c25a426b8199539ca81c5d6f60e04f658 (sample)"]].forEach(function (r) { fact(info, r[0], r[1]); });
+  var lib = panel("Library", "read-only · generated and validated, not edited here", [el("div", "pad", null, [info])]);
+  var form = el("div", "form");
+  form.appendChild(field("Reuse cooldown (cooldown_days)", textInput("nk.cooldown_days", nk.cooldown_days, function (x) { nk.cooldown_days = x.trim(); }, { numeric: true }), "nk.cooldown_days",
+    { hint: "Days a released nickname rests before reuse. 0 allows immediate reuse." }));
+  form.appendChild(field("tmux prefix (tmux_prefix)", textInput("nk.tmux_prefix", nk.tmux_prefix, function (x) { nk.tmux_prefix = x; }), "nk.tmux_prefix",
+    { hint: "tmux session name: " + (RE_PREFIX.test(nk.tmux_prefix) ? nk.tmux_prefix : "?") + "-kedo. Applies to sessions created after Save; live sessions keep their names." }));
+  root.appendChild(el("div", "cgrid", null, [lib, panel("Allocation", "[nicknames]", [form])]));
+}
+
+/* ---- page: General ---- */
+function renderSetGeneral() {
+  var root = pageBody("set-general"), rl = DRAFT.rate_limit;
+  var p = el("div", "form");
+  p.appendChild(field("State directory (state_dir)", textInput("gen.state_dir", DRAFT.platform.state_dir, function (x) { DRAFT.platform.state_dir = x; }), "gen.state_dir",
+    { wide: true, hint: "Where run logs, nickname records, limiter state and catalog observations live. A relative path resolves against the config file's directory." }));
+  var c = el("div", "form");
+  c.appendChild(field("Stale after (stale_after_days)", textInput("gen.stale_after_days", DRAFT.catalog.stale_after_days, function (x) { DRAFT.catalog.stale_after_days = x.trim(); }, { numeric: true }), "gen.stale_after_days",
+    { hint: "An observation older than this flags the entry stale. Flags never block routing." }));
+  c.appendChild(field("Observed-only models", checkInput("gen.allow_unreviewed", DRAFT.catalog.allow_unreviewed, function (x) { DRAFT.catalog.allow_unreviewed = x; }, "allow_unreviewed"), "gen.allow_unreviewed",
+    { hint: "When off, a model seen by a probe but not curated is not routable." }));
+  var r = el("div", "form");
+  function rlField(k, label, hint) {
+    r.appendChild(field(label, textInput("gen." + k, rl[k], function (x) { rl[k] = x.trim(); }, { numeric: true }), "gen." + k, { hint: hint }));
+  }
+  rlField("cooldown_base_seconds", "Base cooldown (cooldown_base_seconds)", "Doubles per consecutive rate limit.");
+  rlField("cooldown_max_seconds", "Maximum cooldown (cooldown_max_seconds)", "Must be at least the base.");
+  rlField("recover_after_turns", "Recover after (recover_after_turns)", "Clean turns before the effective cap grows back by one.");
+  root.appendChild(el("div", "cgrid", null, [panel("Platform", "[platform]", [p]), panel("Catalog", "[catalog]", [c]),
+    el("div", "wide", null, [panel("Rate-limit cooldown", "[concurrency.rate_limit]", [r])])]));
+}
+
+var PAGES = { "set-variants": renderSetVariants, "set-models": renderSetModels, "set-routing": renderSetRouting,
+  "set-concurrency": renderSetConcurrency, "set-nicknames": renderSetNicknames, "set-general": renderSetGeneral };
+
+/* ---- chrome: bar, nav marks, re-render with focus restore ---- */
+function renderChrome() {
+  var dirty = isDirty(), errs = errorCount();
+  var bar = document.getElementById("cfg-bar");
+  bar.classList.toggle("dirty", dirty);
+  bar.classList.toggle("invalid", errs > 0);
+  var pages = SET_PAGES.filter(function (p) { return pageDirty(p[0]); }).map(function (p) { return p[1]; });
+  document.getElementById("cfg-state").textContent = dirty ? "Unsaved changes" + (pages.length ? ": " + pages.join(", ") : "") : "All changes saved";
+  var errPages = SET_PAGES.filter(function (p) { return errorCount(p[0]); }).map(function (p) { return p[1]; });
+  document.getElementById("cfg-errs").textContent = errs ? plural(errs, "error") + " on " + errPages.join(", ") + " · fix to save" : "";
+  document.getElementById("cfg-saved").textContent = SAVED_AT ? "Last saved " + stamp(SAVED_AT) : "Not saved yet · seeded demo data";
+  var save = document.getElementById("cfg-save");
+  save.disabled = !dirty || errs > 0;
+  save.title = !dirty ? "Nothing to save" : errs ? "Fix the validation errors first" : "Save the draft to cli-platform.toml";
+  document.getElementById("cfg-cancel").disabled = !dirty;
+  SET_PAGES.forEach(function (p) {
+    var mark = document.getElementById("mk-" + p[0]), n = errorCount(p[0]), d = pageDirty(p[0]);
+    mark.hidden = !n && !d;
+    mark.classList.toggle("err", n > 0);
+    mark.title = n ? plural(n, "validation error") : d ? "Unsaved changes" : "";
+    mark.setAttribute("aria-label", mark.title);
+    mark.setAttribute("role", mark.hidden ? "presentation" : "img");
+  });
+}
+function changed(focusKey) {
+  ERR = validate(DRAFT);
+  var active = document.activeElement;
+  var key = focusKey || (active && active.dataset ? active.dataset.key : null);
+  var range = !focusKey && active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.type === "text"))
+    ? [active.selectionStart, active.selectionEnd] : null;
+  var main = document.getElementById("main"), top = main.scrollTop;
+  if (isSettings(current)) PAGES[current]();
+  renderChrome();
+  main.scrollTop = top;
+  if (!key || !isSettings(current)) return;
+  var target = Array.prototype.filter.call(document.querySelectorAll("#view-" + current + " [data-key]"), function (n) { return n.dataset.key === key; })[0];
+  if (target && !target.disabled) {
+    target.focus({ preventScroll: !focusKey });
+    if (range && typeof target.setSelectionRange === "function") { try { target.setSelectionRange(range[0], range[1]); } catch (error) { /* not a text control */ } }
+  }
+}
+
+/* ---- modal, toast ---- */
+var modalState = null;
+function openModal(opts) {
+  closeModal();
+  var restore = document.activeElement, focusBtn = null;
+  var title = el("h2", null, opts.title);
+  title.id = "modal-title";
+  var foot = el("div", "mfoot");
+  var dialog = el("div", "modal" + (opts.wide ? " wide" : ""), null, [title, el("div", "mbody", null, opts.body), foot]);
+  dialog.setAttribute("role", opts.alert ? "alertdialog" : "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "modal-title");
+  (opts.buttons || []).forEach(function (b) {
+    var node = btn(b.label, "btn " + (b.cls || ""), function () { if (b.keepOpen) { b.action(); return; } closeModal(); if (b.action) b.action(); });
+    node.disabled = !!b.disabled;
+    if (b.focus) focusBtn = node;
+    foot.appendChild(node);
+  });
+  var back = el("div", "modal-back", null, [dialog]);
+  back.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") { event.preventDefault(); closeModal(); if (opts.onEscape) opts.onEscape(); return; }
+    if (event.key !== "Tab") return;
+    var items = Array.prototype.filter.call(dialog.querySelectorAll("button, select, input, textarea, [tabindex]"), function (n) { return !n.disabled; });
+    if (!items.length) return;
+    var first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  document.body.appendChild(back);
+  modalState = { node: back, restore: restore };
+  (focusBtn || foot.querySelector("button:not(:disabled)") || dialog).focus();
+  return dialog;
+}
+function closeModal() {
+  if (!modalState) return;
+  var state = modalState;
+  modalState = null;
+  state.node.parentNode.removeChild(state.node);
+  if (state.restore && document.contains(state.restore)) { try { state.restore.focus({ preventScroll: true }); } catch (error) { /* gone */ } }
+}
+var toastTimer = null;
+function toast(text, kind) {
+  var node = document.getElementById("toast");
+  node.textContent = text;
+  node.className = "toast" + (kind ? " " + kind : "");
+  node.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { node.hidden = true; }, 4500);
+}
+
+/* ---- save, cancel, reset ---- */
+function doSave() {
+  ERR = validate(DRAFT);
+  if (!isDirty() || errorCount()) { renderChrome(); return false; }
+  SAVED = clone(DRAFT);
+  SAVED_AT = new Date().toISOString();
+  var stored = storageWrite({ v: 1, savedAt: SAVED_AT, config: SAVED });
+  renderObservation();
+  changed();
+  toast(stored ? "Configuration saved. New turns resolve with it; running turns keep the values they were resolved with."
+    : "Saved for this page only: browser storage is unavailable, so a reload shows the previous configuration.", stored ? null : "warn");
+  return true;
+}
+function doCancel() {
+  DRAFT = clone(SAVED);
+  changed();
+  toast("Unsaved changes discarded.");
+}
+function doReset() {
+  openModal({ title: "Reset demo data?", body: [
+    el("p", null, "This replaces the saved configuration in this browser with the seeded sample and discards unsaved changes."),
+    el("p", "muted", "Mockup only: in the platform, configuration is a file under version control.")], buttons: [
+    { label: "Cancel", focus: true },
+    { label: "Reset demo data", cls: "danger", action: function () {
+      SAVED = clone(SEED); DRAFT = clone(SEED); SAVED_AT = null;
+      storageClear();
+      UI.variant = null; UI.model = null;
+      renderObservation();
+      changed();
+      toast("Demo data restored.");
+    } }] });
+}
+
+/* ---- TOML preview ---- */
+function tq(value) { return JSON.stringify(String(value)); }
+function tnum(value) { var t = String(value).trim(); return /^[0-9]+(\.[0-9]+)?$/.test(t) ? t : tq(t) + "  # invalid in draft"; }
+function tkey(key) { return /^[A-Za-z0-9_-]+$/.test(key) ? key : tq(key); }
+function tcands(cfg, list) {
+  if (!list.length) return "[]";
+  return "[\n" + list.map(function (c) {
+    var v = variantByKey(cfg, c.v), m = modelByKey(cfg, c.m);
+    return "  { variant = " + tq(v ? v.id : "") + ", model = " + tq(m ? m.id : "") + (c.effort ? ", effort = " + tq(c.effort) : "") + " },";
+  }).join("\n") + "\n]";
+}
+function toToml(cfg) {
+  var out = [], cc = cfg.concurrency, rl = cfg.rate_limit;
+  var line = function (s) { out.push(s); };
+  line("# cli-platform.toml (generated by the workbench mockup)");
+  line("schema_version = 1", ""); line("");
+  line("[platform]"); line("state_dir = " + tq(cfg.platform.state_dir)); line("");
+  line("[nicknames]"); line('library = "../data/nicknames.txt"'); line("cooldown_days = " + tnum(cfg.nicknames.cooldown_days)); line("tmux_prefix = " + tq(cfg.nicknames.tmux_prefix)); line("");
+  line("[concurrency]");
+  ["global_max_parallel", "lease_ttl_seconds", "heartbeat_seconds", "queue_max_depth", "queue_timeout_seconds"].forEach(function (k) { line(k + " = " + tnum(cc[k])); });
+  line(""); line("[concurrency.rate_limit]");
+  ["cooldown_base_seconds", "cooldown_max_seconds", "recover_after_turns"].forEach(function (k) { line(k + " = " + tnum(rl[k])); });
+  line(""); line("[catalog]"); line("stale_after_days = " + tnum(cfg.catalog.stale_after_days)); line("allow_unreviewed = " + !!cfg.catalog.allow_unreviewed);
+  cfg.accounts.forEach(function (a) { line(""); line("[accounts." + tkey(a.id) + "]"); line("vendor = " + tq(a.vendor)); line("max_parallel = " + tnum(a.max_parallel)); });
+  cfg.variants.forEach(function (v) {
+    line(""); line("[variants." + tkey(v.id || "unnamed") + "]");
+    line("adapter = " + tq(v.adapter)); line("binary = " + tq(v.binary)); line("account = " + tq(v.account));
+    if (!v.enabled) line("enabled = false");
+    if (v.settings_file) line("settings_file = " + tq(v.settings_file));
+    if (v.env.length) line("env = { " + v.env.map(function (e) {
+      var refused = SECRET_NAME.test(e.name) || SECRET_VALUE.test(e.value);
+      return tkey(e.name || "UNNAMED") + " = " + (refused ? '"<refused: SECRET_IN_CONFIG>"' : tq(e.value));
+    }).join(", ") + " }");
+    if (v.env_unset.length) line("env_unset = [" + v.env_unset.map(tq).join(", ") + "]");
+    if (v.max_parallel) line("max_parallel = " + tnum(v.max_parallel));
+    if (v.note) line("note = " + tq(v.note));
+  });
+  cfg.models.forEach(function (m) {
+    var v = variantByKey(cfg, m.variant);
+    line(""); line("[[models]]"); line("variant = " + tq(v ? v.id : "")); line("id = " + tq(m.id));
+    if (m.display_name) line("display_name = " + tq(m.display_name));
+    if (m.efforts.length) line("efforts = [" + m.efforts.map(tq).join(", ") + "]");
+    if (m.default_effort) line("default_effort = " + tq(m.default_effort));
+    if (m.context_tokens) line("context_tokens = " + tnum(m.context_tokens));
+    if (m.cost_tier) line("cost_tier = " + tq(m.cost_tier));
+    line("status = " + tq(m.status));
+    if (m.note) line("note = " + tq(m.note));
+  });
+  STAGE_IDS.forEach(function (s) {
+    var st = cfg.stages[s];
+    line(""); line("[stages." + s + "]");
+    line("max_parallel = " + tnum(st.max_parallel)); line("on_busy = " + tq(st.on_busy)); line("effort_fallback = " + tq(st.effort_fallback));
+    line("allow_pins_outside = " + !!st.allow_pins_outside); line("candidates = " + tcands(cfg, st.candidates));
+  });
+  // The loader refuses an empty list, so an empty one is left out.
+  if (cfg.routing.default_candidates.length) {
+    line(""); line("[routing]"); line("default_candidates = " + tcands(cfg, cfg.routing.default_candidates));
+  }
+  return out.join("\n") + "\n";
+}
+function previewToml() {
+  var which = isDirty() ? "draft" : "saved";
+  var pre = el("pre");
+  var bar = el("div", "filters");
+  function paint() {
+    pre.textContent = which === "draft" ? "# DRAFT: unsaved changes" + (errorCount() ? ", " + plural(errorCount(), "validation error") : "") + "\n" + toToml(DRAFT) : toToml(SAVED);
+    Array.prototype.forEach.call(bar.querySelectorAll("button"), function (b) { b.setAttribute("aria-pressed", String(b.dataset.which === which)); });
+  }
+  [["draft", "Draft"], ["saved", "Saved"]].forEach(function (o) {
+    var b = btn(o[1], null, function () { which = o[0]; paint(); });
+    b.dataset.which = o[0];
+    bar.appendChild(b);
+  });
+  paint();
+  openModal({ title: "Preview cli-platform.toml", wide: true, body: [bar, pre,
+    el("p", "note", "Read-only preview. Secret-shaped values are never shown; a draft with SECRET_IN_CONFIG errors cannot be saved.")],
+    buttons: [{ label: "Close", focus: true }] });
+}
+
+document.getElementById("cfg-save").addEventListener("click", doSave);
+document.getElementById("cfg-cancel").addEventListener("click", doCancel);
+document.getElementById("cfg-reset").addEventListener("click", doReset);
+document.getElementById("cfg-toml").addEventListener("click", previewToml);
+window.addEventListener("beforeunload", function (event) {
+  if (!isDirty()) return undefined;
+  event.preventDefault();
+  event.returnValue = "";
+  return "";
+});
+
 /* ---------------- navigation ---------------- */
 
-var VIEWS = ["sessions", "registry", "catalog", "routing", "concurrency", "incidents"];
+var VIEWS = ["sessions", "registry", "catalog", "routing", "concurrency", "incidents"].concat(SET_PAGES.map(function (p) { return p[0]; }));
 function show(view) {
   if (VIEWS.indexOf(view) === -1) view = "sessions";
+  current = view;
   VIEWS.forEach(function (name) {
     document.getElementById("view-" + name).classList.toggle("active", name === view);
   });
   Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function (button) {
     button.setAttribute("aria-selected", String(button.dataset.view === view));
   });
+  var settings = isSettings(view);
+  document.getElementById("cfg-note").hidden = !settings;
+  document.getElementById("cfg-bar").hidden = !settings;
+  SET_PAGES.forEach(function (p) { if (p[0] !== view) document.getElementById("body-" + p[0]).textContent = ""; });
+  if (settings) PAGES[view]();
+  renderChrome();
+  document.getElementById("main").scrollTop = 0;
+  try { history.replaceState(null, "", "#" + view); } catch (error) { /* file URLs may refuse */ }
+}
+function navigate(view) {
+  if (view === current) return;
+  if (isSettings(current) && isDirty()) { guard(view); return; }
+  show(view);
+}
+function guard(target) {
+  var n = errorCount();
+  var pages = SET_PAGES.filter(function (p) { return pageDirty(p[0]); }).map(function (p) { return p[1]; });
+  openModal({ title: "Unsaved changes", body: [
+    el("p", null, "You have unsaved changes on " + (pages.join(", ") || "Settings") + "."),
+    el("p", "muted", n ? "Save is unavailable while " + plural(n, "validation error") + " remain. Discard the changes, or stay and fix them."
+      : "Save them, discard them, or stay on this page.")], buttons: [
+    { label: "Stay", focus: true },
+    { label: "Discard changes", cls: "danger", action: function () { DRAFT = clone(SAVED); ERR = validate(DRAFT); show(target); } },
+    { label: "Save and continue", cls: "primary", disabled: n > 0, action: function () { if (doSave()) show(target); } }] });
 }
 Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function (button) {
   button.type = "button";
-  button.addEventListener("click", function () {
-    show(button.dataset.view);
-    try { history.replaceState(null, "", "#" + button.dataset.view); } catch (error) { /* file URLs may refuse */ }
-  });
+  button.addEventListener("click", function () { navigate(button.dataset.view); });
 });
 
-renderList(); renderDetail(); renderRegistry(); renderCatalog(); renderRouting(); renderConcurrency(); renderIncidents();
+renderList(); renderDetail(); renderObservation(); renderIncidents();
 show(location.hash.replace("#", ""));
 </script>
 </body>

@@ -1,13 +1,21 @@
 # CLI platform: final design
 
-Status: final design, 2026-11-13. The design is final for the items listed in
-section 2; the scaffold under `cli_platform/` implements and tests the
-platform logic (nicknames, configuration, variants, catalog merge, routing,
-limiter). The run supervisor, the MCP server and the workbench server are
-still not implemented. No existing runtime file, test, reference or earlier
-proposal was changed.
+Status: final design, 2026-11-13, revision 2. The design is final for the
+items listed in section 2. The scaffold under `cli_platform/` implements and
+tests the platform logic (nicknames, configuration, variants, catalog merge,
+routing, limiter) and the layer boundaries. The run supervisor, the MCP
+server, the workbench server and the settings editor are still not
+implemented. No existing runtime file, test, reference or earlier proposal
+was changed.
 
-- **Dispatch**: `cli-platform-final-design-20261113-g1-7c9d2ec0-C01-6f530449`
+Revision 2 removes the per-candidate service-tier option entirely: the
+router, configuration, catalog, launch rendering and mockup no longer know
+it, and a config that still sets one of its keys is refused as having an
+unknown key. It adds the layering model (section 5) and the settings interaction model
+(section 5.7, and the mockup's Configure pages).
+
+- **Dispatch**: `cli-platform-final-design-20261113-g1-7c9d2ec0-C01-6f530449`;
+  revision 2: `cli-platform-design-v2-20261113-g1-43213fb6-C01-f2cd19b6`
 - **Builds on**: [CLI gateway and workbench proposal](2026-11-13-cli-gateway-and-workbench.md)
   (called "the gateway proposal" below). Its recommendation stands: headless
   runner core, then MCP adapter, then read-only workbench, with no state of
@@ -28,8 +36,9 @@ accounts, without a human having to track identifiers:
    live sessions and appears wherever a human meets the session.
 2. The platform knows which **CLIs** are installed, and supports **variants**
    of one binary that differ by settings file and environment.
-3. Each variant has a **model catalog** with effort levels and fast-mode
-   support, built from recorded observations plus a curated overlay.
+3. Each variant has a **model catalog** with effort levels and descriptive
+   fields (display name, context window, cost tier), built from recorded
+   observations plus a curated overlay.
 4. Each development **stage** has an ordered list of allowed models, with
    fallback rules and a resolution result that explains itself.
 5. **Concurrency caps** per account, per stage and globally are enforced
@@ -48,8 +57,10 @@ automatic discovery of rate limits from vendor documentation.
 | Catalog | Two layers, provenance record, merge rules, flags, routability | The probes that write observations (`--list-models`, `run_event`); a review command for observed models |
 | Routing | Candidate order, eligibility checks, fallback policy, explain trace, error codes | Cost- or latency-aware ordering; per-user overrides |
 | Concurrency | Scopes, lease protocol, queue, backpressure, cooldown, reaping | Detecting rate limits in each CLI's stream (needs the Phase 0 fixtures); a fair-share policy between tasks |
-| Run lifecycle | The `queued` state and the events in section 10 | The supervisor process itself (gateway proposal, Phase 1) |
-| Workbench | Information architecture, routes, read model | The HTTP/SSE server (gateway proposal, Phase 4) |
+| Run lifecycle | The `queued` state and the events in section 11 | The supervisor process itself (gateway proposal, Phase 1) |
+| Layering | Three layers and the shared configuration input, placement of every component, dependency rules, contracts, failure isolation, import and behavior tests | Versioning the limiter journal (section 5.4) |
+| Workbench | Information architecture, routes, read model over files only | The HTTP/SSE server (gateway proposal, Phase 4) |
+| Settings | Pages, fields, validation, save, cancel, reset, delete confirmation, unsaved-changes guard (mockup); the write protocol of section 5.7 | The editor's entry point and server |
 
 Three points amend the gateway proposal. Everything else in it is unchanged.
 
@@ -70,67 +81,284 @@ Three points amend the gateway proposal. Everything else in it is unchanged.
 | Variant | A stable id for adapter + binary + optional settings file + environment overrides + account. |
 | Account | The unit a vendor rate-limits. Several variants may share one. |
 | Stage | One of `design`, `development`, `testing`, `code_review`, `ui_design`. |
-| Candidate | `variant/model[/effort][+fast]`, one entry of a priority list. |
+| Candidate | `variant/model[/effort]`, one entry of a priority list. |
 | Pin | A candidate the user asked for explicitly. |
 | Resolution | The router's result: the selected candidate, the action (`run` or `queue`) and the trace. |
-| Lease | The right to have one turn in flight. Holds one slot in each of three scopes. |
+| Lease | The right to have one turn in flight. Holds one slot in every scope that applies (section 10.1). |
 | Ticket | A place in the lease queue. |
+| Execution layer | The components that decide and run a turn and write all state (section 5.2). |
+| Event layer | The durable record: append-only streams, published snapshots, their formats and lock-free readers. |
+| Observation layer | Read-only views over the event layer and the configuration. |
+| Settings editor | The only writer of `cli-platform.toml` besides a person; it writes nothing else. |
 
 ## 4. Architecture
 
+The platform has three layers, the **execution layer**, the **event layer**
+and the **observation layer**, plus one shared input, the
+**configuration**. Section 5 defines them; this section shows where each
+component sits. The gateway proposal's "control plane" is the execution
+layer, its "observation plane" is the observation layer, and its run log
+and "files are the interface" rule are the event layer.
+
 ```mermaid
-flowchart LR
-    subgraph Control["Control plane (writes)"]
-        H["Host coordinator"] -->|"CLI or MCP tools"| API["Run API (library)"]
+flowchart TB
+    subgraph CONF["Configuration (shared input, not a layer)"]
+        SET["Settings editor"] -->|"validate, then atomic replace"| CFG["cli-platform.toml"]
     end
-    subgraph Platform["cli_platform (library, no daemon)"]
-        NICK["Nickname allocator"]
-        ROUTE["Stage router"]
-        LIM["Concurrency limiter"]
-        REG["Variant registry"]
-        CAT["Model catalog"]
-        SCAN["CLI scanner"]
-        ROUTE --> REG
-        ROUTE --> CAT
-        ROUTE -->|"blocked_on"| LIM
-        REG --> SCAN
+    subgraph EXEC["Execution layer: decides and runs; the only writer of state"]
+        H["Host coordinator"] -->|"tools or command line"| MCP["MCP adapter / command line"]
+        MCP --> API["Run API (library)"]
+        API -->|"1 allocate"| NICK["Nickname allocator"]
+        API -->|"2 resolve"| ROUTE["Stage router"]
+        ROUTE --> REG["Variant registry"]
+        ROUTE --> CAT["Catalog merge"]
+        ROUTE -->|"blocked_on"| LIM["Concurrency limiter"]
+        REG --> SCAN["CLI scanner"]
+        API -->|"spawn detached"| SUP["Run supervisor (one per run)"]
+        SUP -->|"3 acquire, renew, release"| LIM
+        SUP -->|"argv + env from the variant"| CLI["Coding CLI, headless"]
     end
-    API -->|"1 allocate"| NICK
-    API -->|"2 resolve"| ROUTE
-    API -->|"spawn detached"| SUP["Run supervisor (one per run)"]
-    SUP -->|"3 acquire, renew, release"| LIM
-    SUP -->|"argv + env from the variant"| CLI["Coding CLI, headless"]
-    SUP -->|"append-only"| LOG["runs/NICK-RUN_ID/events.jsonl"]
-    CFG["cli-platform.toml"] --> Platform
-    subgraph State["Private state (files, 0600)"]
-        LOG
-        NS["nicknames/"]
-        LS["limits/"]
-        OBS["catalog/observed/"]
+    subgraph EVT["Event layer: durable record, files 0600, no process"]
+        LOG["runs/NICK-RUN_ID/events.jsonl"]
+        JRN["limits/journal.jsonl"]
+        OBS["catalog/observed/VARIANT.jsonl"]
+        SNAP["Published snapshots: limits/state.json, nicknames/live/"]
     end
-    NICK --> NS
-    LIM --> LS
-    CAT --> OBS
-    State -.->|"read-only"| WB["Workbench"]
-    CFG -.->|"read-only"| WB
+    subgraph OBSV["Observation layer: read-only"]
+        WB["Workbench: read model, views, incidents, HTTP/SSE"]
+    end
+    SUP -->|"append (single writer)"| LOG
+    SUP -->|"append observed model"| OBS
+    LIM -->|"append"| JRN
+    LIM -->|"atomic replace"| SNAP
+    NICK -->|"exclusive create"| SNAP
+    CAT -->|"read"| OBS
+    CFG -.->|"read per command"| EXEC
+    CFG -.->|"read"| OBSV
+    EVT -.->|"read, no lock"| OBSV
 ```
 
-The three architecture rules of the gateway proposal hold, with one
-clarification for shared state:
+Architecture rules. Section 5 states them in full and names the test that
+enforces each one.
 
-1. **One writer per file.** A run's `events.jsonl` is written only by its
-   supervisor. The shared files (`limits/state.json`, the nickname ledger)
-   are written only inside an exclusive `flock`, so there is one writer at a
-   time and every write is an atomic replace or an exclusive create.
-2. **Nothing in the observation plane is read by the control plane.**
-   `cli_platform` does not import its `adapters.workbench` module.
-3. **Files are the interface.** There is still no daemon. The limiter and
-   the allocator are libraries over files; any process that can read the
-   state directory sees the same truth.
+1. **The execution layer is the only writer of state.** One writer per
+   file: a run's `events.jsonl` is written only by its supervisor. The
+   shared files (`limits/state.json`, the nickname ledger) are written only
+   inside an exclusive `flock`, so there is one writer at a time, and every
+   write is an atomic replace or an exclusive create.
+2. **The observation layer reads the event layer and the configuration,
+   nothing else.** It takes no lock, writes no file and does not import the
+   router, the limiter, the nickname allocator or the supervisor.
+3. **The execution layer never depends on the observation layer** (the
+   zero-gate rule). No execution path imports, calls or waits for the
+   workbench.
+4. **Files are the interface.** There is still no daemon. The limiter and
+   the allocator are libraries over files, and any process that can read
+   the state directory sees the same truth.
+5. **Configuration is written only by the settings editor or a person.**
+   No layer writes it at runtime, and the settings editor writes nothing
+   else (section 5.7).
 
-## 5. Session nicknames
+## 5. Layering model
 
-### 5.1 Library rules
+### 5.1 Diagnosis: did the design already separate the three layers?
+
+**Short answer: partly.** Before this revision the design separated a
+control plane from an observation plane, and it had an append-only run log.
+But it named only two planes. It never treated events as a layer of their
+own. It left the platform library, the supervisor and the state files in
+neither plane, and it enforced none of its boundaries. In one place the
+scaffold contradicted the design: the read model took the execution
+layer's lock.
+
+Assessment against explicit criteria (state before this revision):
+
+| Criterion | What the document and scaffold had | Verdict |
+| --- | --- | --- |
+| Named layers | Section 4 drew "Control plane (writes)" and a workbench box. The `cli_platform` library, the supervisor and the state directory sat outside both. | Partial: two of three |
+| Responsibilities per layer | Implied by "writes" and "read-only". The event record was spread over three sections: run events (11.3), limiter journal (10.2), catalog observations (8), with no common owner. | Implicit |
+| Allowed dependency direction | One rule: `cli_platform` does not import `adapters.workbench`. Nothing said what the observation side may depend on. | Partial: one direction only |
+| Write ownership | "One writer per file", with `flock` for the shared files. Correct. | Exists |
+| Data contracts | The v1 run event envelope (gateway proposal 6.3). The journal had another, unversioned shape. The files the workbench reads (`limits/state.json`, `nicknames/live/`) had no declared read contract. | Partial |
+| Failure isolation | The zero-gate rule was stated. The scaffold broke it: `adapters/workbench.read_model` took a `Platform`, the execution wiring, and called `limiter.snapshot()`. That call takes the limiter's exclusive `flock` and creates `limits/` when it is missing. A slow reader could therefore delay a lease grant, and a reader could create state. Section 13 said the opposite ("reads the limiter state without taking its lock"). | Conflated |
+| Enforcement tests | None. The import rule of section 4 was not tested. | Missing |
+
+What already existed and is kept:
+
+- the control/observation split and the zero-gate rule of the gateway
+  proposal;
+- one writer per file, atomic replace, exclusive create and `flock` for
+  shared state;
+- the append-only run log, with gap-free `seq`, torn-line recovery and the
+  v1 envelope;
+- a GET-only route table for the workbench.
+
+What was only implicit:
+
+- the event layer itself: three append-only streams and two snapshot files
+  with no common contract;
+- the observation layer's read set;
+- where the MCP adapter's read tools belong.
+
+What was missing or conflated, and what this revision does about it:
+
+| Gap | Change in this revision |
+| --- | --- |
+| No event layer | Section 5.2 names it. `snapshots.py` is its lock-free read side, next to `events.py`. |
+| Workbench read model built on execution wiring and the limiter lock | `read_model(config, state_dir)` reads files only. `summarize_limits` is one pure projection that the limiter and the workbench share, so the two cannot disagree. |
+| No rule for observation's dependencies | Section 5.3, with one named exception (the two pure evaluators). |
+| No contract for snapshot files | Section 5.4: versioned `limits/state.json`, the live-nickname records, and the reader functions. |
+| No enforcement | `tests/test_layering.py` (section 5.6). |
+| No place for configuration writes | Section 5.7: the settings editor writes configuration only and never gates execution. |
+| Journal envelope differs from the run log | Not changed in code. Section 5.4 records it as a gap for P1. |
+
+### 5.2 Layers and responsibilities
+
+| Layer | Responsibility | Writes | Components | Scaffold modules |
+| --- | --- | --- | --- | --- |
+| Configuration (shared input) | Say what may run, where and with which limits | `cli-platform.toml`, through the settings editor only | Loader, settings editor | `config.py`, `errors.py`, `fsutil.py` |
+| Execution | Decide and run: name, route, admit, launch, supervise, report back | Every file under the state directory, in event-layer formats | MCP adapter and command line, Run API, nickname allocator, stage router, variant registry, catalog merge, CLI scanner, concurrency limiter, run supervisor | `scanner`, `variants`, `catalog`, `nicknames`, `router`, `limiter`, `supervisor`, `__main__`, `adapters/mcp` |
+| Event | Keep the durable, ordered record and its formats. Give lock-free readers. Make no decision and own no process. | Nothing on its own; its write functions run inside execution components | Event log writer and reader, limiter journal, catalog observation store, published snapshots and their readers | `events.py`, `snapshots.py` |
+| Observation | Show state, derive incidents, stream events to people | Nothing | Workbench read model, views, incident rules, HTTP/SSE server (P4) | `adapters/workbench.py` |
+
+Placement of each named component, exactly one layer each:
+
+| Component | Layer | Why there |
+| --- | --- | --- |
+| Stage router | Execution | It decides what runs. It is a pure function of configuration, catalog, registry and the limiter's `blocked_on`, and it writes nothing itself. |
+| Concurrency limiter | Execution | It admits, queues or refuses a turn. It is the single writer of `limits/state.json` (a published snapshot) and `limits/journal.jsonl` (an event stream). |
+| Nickname allocator | Execution | It binds a name at `run_create` and releases it at `run_close`. It writes `nicknames/live/` (a published snapshot) and `nicknames/released/`. |
+| Run supervisor | Execution | It owns the CLI process and is the single writer of its run's event log. |
+| Event log | Event | Format, sequence and append discipline, whoever calls `append`. `EventLog`, `read_events`, the journal and observation formats, and the snapshot readers live here. |
+| MCP adapter | Execution (ingress) | Its mutating tools are the Run API. Its read tools (`route_explain`, `concurrency_status`, `catalog_list`, ...) answer a coordinator that is about to decide its next call, so they belong to the decision path and may use execution libraries. The workbench never calls them, and they never call the workbench. |
+| Workbench | Observation | Read-only views over the event layer and the configuration. |
+| Settings editor | Configuration (its only writer) | It changes what the execution layer will read next. It touches no run, lease, name or event (section 5.7). |
+
+Two execution modules are pure **evaluators** that the observation layer
+may call: the catalog merge (`ModelCatalog`) and the variant check
+(`VariantRegistry.state`, which uses only `which` and `lstat`). They hold no
+state, take no lock and write nothing. The registry and catalog views
+therefore apply the same rules the router applies. This is the one
+exception to rule 2 of section 4. The import test lists it by name, and a
+behavioral test shows that the read model built on the evaluators leaves
+the state directory unchanged. Phase 1 can remove the exception by
+publishing registry and catalog snapshots from the scanner.
+
+### 5.3 Dependency rules
+
+| From \ To | Configuration | Execution | Event | Observation |
+| --- | --- | --- | --- | --- |
+| Configuration | yes | **no** | **no** | **no** |
+| Execution | read | yes | append, replace, read for recovery and idempotency | **no** (zero-gate) |
+| Event | types only (caps for `summarize_limits`) | **no** | yes | **no** |
+| Observation | read | **no**, except the two evaluators of section 5.2 | read, without a lock | yes |
+| Settings editor | write, after validation | **no** | **no** | **no** |
+
+Forbidden, spelled out:
+
+- **Execution → observation.** No import, call, wait or read of anything
+  the workbench produces. A stopped, crashed or slow workbench changes
+  nothing.
+- **Observation → execution.** No import of the router, limiter, nickname
+  allocator, supervisor, scanner or MCP adapter. No `flock` on an execution
+  lock file. No file or directory creation. No signal or request to a
+  supervisor. No Run API call. No process spawn and no model call.
+- **Event → anything above it.** Event code makes no decision. It may read
+  configuration types, nothing else.
+- **Any layer → configuration.** Only the settings editor (or a person
+  with a text editor) writes `cli-platform.toml`, and the editor writes
+  nothing else.
+
+### 5.4 Contracts
+
+| Layer | Contract it exposes | Consumers |
+| --- | --- | --- |
+| Configuration | `cli-platform.toml`, `schema_version = 1` (section 12). `load_config` and `parse_config` refuse with `CONFIG_INVALID` or `SECRET_IN_CONFIG` and name the key. The settings editor validates with the same function. | Execution, observation, settings editor |
+| Execution | Run API and MCP tools (section 11.4) with their refusals. Library results `Resolution` (section 9.3), `Outcome` (lease, queue or busy, with `blocked_on`) and `LaunchSpec`. Only this layer produces them. | Host coordinator |
+| Event: run stream | `runs/<nickname>-<run_id>/events.jsonl`. v1 envelope plus `nickname`. `seq` is gap-free from 1 per run. One writer. Types from the closed list in `events.py`. Additive changes only within v1. Readers ignore a torn last line. Lifecycle, route, `nickname_assigned`, `lease_granted` and `rate_limited` events are fsynced before the writer continues. Reader: `read_events(path, after_seq)`. | Observation (timeline, SSE cursor), execution (recovery) |
+| Event: limiter journal | `limits/journal.jsonl`. One record per line: `ts`, `type` (`lease_queued`, `lease_granted`, `lease_released`, `lease_reaped`, `rate_limited`) and the lease, session, account, stage and variant ids. Written with the limiter lock held. **Gap:** no `v` field and no `seq`. Phase 1 adds both, or mirrors these records into the run stream (section 11.3). | Observation (concurrency history, incidents) |
+| Event: catalog observations | `catalog/observed/<variant>.jsonl`, the `Observation` record of section 8. Readers ignore lines with a bad model id, and fields they do not know. | Catalog merge |
+| Event: published snapshots | `limits/state.json` (`{"v": 1, "leases", "queue", "accounts"}`), written only by atomic replace. `nicknames/live/<name>.json`, written only by exclusive create and removed on release. `runs/<nickname>-<run_id>/state.json` (P1, supervisor, atomic replace). Readers: `snapshots.read_limits`, `snapshots.read_live_nicknames`. Projection: `snapshots.summarize_limits`, used by both `Limiter.snapshot` and the workbench. | Observation, execution |
+| Observation | GET routes and the read model JSON (section 13). SSE resumes from an event `seq`. No mutating route. | People, scripts |
+
+### 5.5 Failure isolation
+
+| Failure | Contained in | Effect on the other layers |
+| --- | --- | --- |
+| Workbench stopped, crashed, slow or hung | Observation | None. It holds no lock, and nothing in execution waits for it. A test holds both execution locks while the read model runs. |
+| Workbench bug | Observation | Cannot change state: the layer has no write path, and a test checks that the state tree is unchanged. Phase 4 adds a server test that every route is GET and that state files are opened read-only. |
+| Corrupt `limits/state.json` | Event | Execution fails closed: no lease is granted (section 15). Observation marks concurrency as unreadable and keeps rendering the other views. Both are tested. |
+| Torn last line after a crash | Event | The writer truncates it on reopen. Readers skip it. |
+| Event append fails (disk full, I/O error) | Event, surfacing in execution | The supervisor must not start a turn it cannot record. If appending `turn_started` fails, the turn fails before the CLI is spawned. A failing `heartbeat` append stops the turn like a failing lease renewal does. (Phase 1 supervisor test.) |
+| Supervisor dies | Execution | The lease is reaped (section 10.5) and the run shows as `lost`. The event log stays intact and readable. |
+| Invalid configuration saved by hand | Configuration | New commands refuse with the key named. Running turns keep their resolved values. Observation shows the loader error. |
+| Settings saved while turns run | Configuration | New values apply at the next resolution or acquisition. A lowered cap revokes no lease and stops no turn. A deleted variant stays in history under its id. |
+
+### 5.6 Enforcement tests
+
+`cli_platform/tests/test_layering.py`:
+
+| Test | Rule |
+| --- | --- |
+| `test_every_module_has_exactly_one_layer` | Each module of the package has one entry in the layer table. A new module fails the test until it is placed. |
+| `test_imports_follow_the_allowed_direction` | Every internal import follows the matrix of section 5.3, with the evaluator exception listed by name. |
+| `test_observation_never_imports_the_deciding_components` | The workbench imports neither the router, limiter, allocator, supervisor or scanner nor the MCP adapter. |
+| `test_loading_the_execution_layer_never_loads_the_workbench` | Zero-gate. Checked in a fresh interpreter. |
+| `test_workbench_routes_are_read_only` | Every route is GET. |
+| `test_read_model_on_a_missing_state_dir_creates_nothing` | Observation creates no directory. |
+| `test_read_model_writes_nothing` | Path, mtime and size of every state file are unchanged after a read. |
+| `test_read_model_does_not_wait_for_execution_locks` | The read model completes while the limiter and nickname locks are held. |
+| `test_observation_and_execution_agree_on_concurrency` | One projection: the workbench view equals `Limiter.snapshot()`. |
+| `test_corrupt_limiter_state_fails_closed_in_execution_only` | Execution refuses; observation degrades. |
+
+Existing tests that also guard a boundary:
+
+- `test_nickname_appears_everywhere_it_must`: gap-free `seq` and the
+  `nickname` field in the run stream.
+- `test_platform_state_is_private`: 0600 files and 0700 directories.
+
+Planned tests: the supervisor's append-failure behavior (P1); the server
+test of section 5.5 (P4); the settings editor's write test (section 5.7).
+
+### 5.7 Settings and execution
+
+The settings pages of the mockup (Configure: CLIs and variants, Models,
+Stage routing, Concurrency, Nicknames, General) edit `cli-platform.toml` and
+nothing else.
+
+- **Write protocol.** The editor reads the file and remembers its digest.
+  It validates the draft with `parse_config`, the same function the
+  execution layer uses. It then writes a temporary file and renames it over
+  the original. The save is refused if the digest changed in the meantime,
+  so two editors cannot overwrite each other silently. An invalid draft
+  cannot be saved, so a save cannot leave the execution layer without a
+  valid configuration.
+- **No gate.** The editor never touches the state directory and never
+  signals a supervisor. Execution reads the configuration on each command
+  and resolution, so a save takes effect at the next `run_send` or
+  `acquire`. A running turn keeps the values it was resolved with. Leaving
+  the editor with unsaved changes affects nothing.
+- **Separate from observation.** The editor is its own entry point, not a
+  route of the workbench server, so the workbench keeps "every route is
+  GET". The mockup shows both in one shell but in separate navigation
+  groups, and it states the rule on every settings page.
+- **Permanent ids.** Variant ids and model ids appear in run records. The
+  editor makes both read-only after their first save, keeps a saved model
+  under its variant, and suggests disabling over deleting. Only `enabled`
+  models are routed; `disabled` and `deprecated` are both skipped with
+  `MODEL_DISABLED`. Deleting a variant or a model that a stage lists removes
+  those candidate rows only after a confirmation that names the stages. It
+  is refused if a stage would be left with no candidate.
+- **Fields the pages need.** `variants.<id>.max_parallel` (section 10.1),
+  and `display_name`, `context_tokens` and `cost_tier` on `[[models]]`
+  (section 8). The scaffold's loader accepts and validates all of them.
+
+The editor itself is deferred (section 2). Its interaction design is final
+in the mockup.
+
+## 6. Session nicknames
+
+### 6.1 Library rules
 
 The library is `cli_platform/data/nicknames.txt`: one name per line, sorted,
 ASCII, trailing newline. It is generated by a deterministic function and
@@ -155,7 +383,7 @@ The library is versioned by its SHA-256 (`library_digest`). A future
 library may add names. It must never remove or change one while a state
 directory holds a live or cooling record for it.
 
-### 5.2 Allocation, uniqueness, release, reuse
+### 6.2 Allocation, uniqueness, release, reuse
 
 ```mermaid
 stateDiagram-v2
@@ -210,7 +438,7 @@ Example live record:
  "allocated_at": 1794551462.0, "cooldown_waived": false}
 ```
 
-### 5.3 Where the nickname appears
+### 6.3 Where the nickname appears
 
 | Place | Form | Notes |
 | --- | --- | --- |
@@ -226,9 +454,9 @@ Example live record:
 Rule for readers: a bare nickname identifies a session **now**. Anything
 stored for later must store the reference or the `run_id` with it.
 
-## 6. CLI inventory and variants
+## 7. CLI inventory and variants
 
-### 6.1 Scan
+### 7.1 Scan
 
 The scanner looks up each adapter's binary on `PATH`, then runs only local,
 non-model commands with a sanitized environment, closed stdin, an 8 second
@@ -268,7 +496,7 @@ have nothing to do with login (the two non-`ok` rows above are not proof of
 a logged-out CLI), so it never blocks routing. The authoritative signal is a
 turn that fails with `AUTH_REQUIRED`, which raises an incident.
 
-### 6.2 Variant model
+### 7.2 Variant model
 
 A variant never copies a binary. It is a named way to launch one.
 
@@ -321,17 +549,17 @@ env_unset = ["ANTHROPIC_API_KEY"]
 Launch rendering for model selection (headless and permission flags are
 added by the runner adapter of the gateway proposal):
 
-| Adapter | Model | Effort | Fast |
-| --- | --- | --- | --- |
-| `claude` | `--model <id>` | `--effort <level>` | no rendering known |
-| `cursor` | `--model <id>` | none; the effort is part of the model id | no rendering known |
-| `kiro` | `chat --model <id>` | `--effort <level>` | no rendering known |
-| `codex` (unverified) | `-m <id>` | `-c model_reasoning_effort="<level>"` | `-c service_tier="priority"` |
-| `agy` (unverified) | `--model <id>` | `--effort <level>` | no rendering known |
+| Adapter | Model | Effort |
+| --- | --- | --- |
+| `claude` | `--model <id>` | `--effort <level>` |
+| `cursor` | `--model <id>` | none; the effort is part of the model id |
+| `kiro` | `chat --model <id>` | `--effort <level>` |
+| `codex` (unverified) | `-m <id>` | `-c model_reasoning_effort="<level>"` |
+| `agy` (unverified) | `--model <id>` | `--effort <level>` |
 
 The model id `@default` means "pass no model flag".
 
-## 7. Model catalog
+## 8. Model catalog
 
 No installed CLI offers a model list that is both complete and stable, and
 two of them need an account call to list anything. The catalog therefore
@@ -357,7 +585,7 @@ append-only:
 {"variant": "kiro", "model_id": "@default", "method": "help_text",
  "command": "kiro-cli chat --help", "cli_version": "2.34.0",
  "observed_at": "2026-11-13T06:20:00+00:00",
- "efforts": ["low", "medium", "high", "xhigh", "max"], "fast": "unverified"}
+ "efforts": ["low", "medium", "high", "xhigh", "max"]}
 ```
 
 Methods, strongest first: `run_event` (a turn reported this model id),
@@ -370,15 +598,18 @@ CLI version and a timestamp.
 [[models]]
 variant = "codex"
 id = "gpt-6.1-sol"
+display_name = "GPT-6.1 Sol"
 efforts = ["low", "medium", "high", "xhigh"]
 default_effort = "high"
-fast = "yes"
-fast_via = '-c service_tier="priority"'
+# context_tokens = 200000     optional; unset means unknown
+# cost_tier = "high"          optional: low | medium | high
 ```
 
-`fast` has three values. `unverified` exists because a missing flag in
-`--help` does not prove a missing feature; the router treats it as `no`
-whenever fast mode is requested.
+`display_name`, `context_tokens` and `cost_tier` are for the person choosing
+a model in the settings pages and the catalog view. The router reads none of
+them: ordering stays the stage's candidate list (cost-aware ordering is
+deferred, section 2). The sample leaves `context_tokens` and `cost_tier`
+unset because no CLI on the verification host reports them.
 
 **Merge rules.**
 
@@ -399,29 +630,28 @@ that was never observed reads `enabled` plus `unconfirmed`, never
 
 Facts recorded for the sample catalog, and where each comes from:
 
-| Variant / model | Efforts | Fast | Source |
-| --- | --- | --- | --- |
-| `claude` / `opus`, `sonnet`, `fable` | low, medium, high, xhigh, max | unverified | `claude --help` 2.1.311 names the aliases and the levels; the word "fast" does not occur in that help |
-| `claude-gateway` / `opus`, `sonnet` | same | unverified | Curated. The settings file decides the upstream model; the platform does not read it |
-| `cursor` / `grok-4.7-xhigh` | none (in the id) | no | `references/cli-adapters.md`; `agent --help` has `--model` and `--list-models`, no `--effort` |
-| `kiro` / `@default` | low, medium, high, xhigh, max | no | `kiro-cli chat --help` 2.34.0 |
-| `codex` / `gpt-6.1-sol` | low, medium, high, xhigh | yes, service tier | `references/cli-adapters.md`; binary not installed, unconfirmed |
-| `agy` / `gemini-4-argon-high` | high | no | `references/cli-adapters.md`; binary not installed, unconfirmed |
+| Variant / model | Efforts | Source |
+| --- | --- | --- |
+| `claude` / `opus`, `sonnet`, `fable` | low, medium, high, xhigh, max | `claude --help` 2.1.311 names the aliases and the levels |
+| `claude-gateway` / `opus`, `sonnet` | same | Curated. The settings file decides the upstream model; the platform does not read it |
+| `cursor` / `grok-4.7-xhigh` | none (in the id) | `references/cli-adapters.md`; `agent --help` has `--model` and `--list-models`, no `--effort` |
+| `kiro` / `@default` | low, medium, high, xhigh, max | `kiro-cli chat --help` 2.34.0 |
+| `codex` / `gpt-6.1-sol` | low, medium, high, xhigh | `references/cli-adapters.md`; binary not installed, unconfirmed |
+| `agy` / `gemini-4-argon-high` | high | `references/cli-adapters.md`; binary not installed, unconfirmed |
 
-## 8. Stage routing
+## 9. Stage routing
 
-### 8.1 Configuration
+### 9.1 Configuration
 
 ```toml
 [stages.development]
 max_parallel = 3
 on_busy = "queue"            # queue | next
 effort_fallback = "lower"    # lower | skip
-fast_fallback = "drop"       # drop | skip
 allow_pins_outside = false
 candidates = [
   { variant = "claude", model = "opus", effort = "high" },
-  { variant = "codex", model = "gpt-6.1-sol", effort = "high", fast = true },
+  { variant = "codex", model = "gpt-6.1-sol", effort = "high" },
   { variant = "cursor", model = "grok-4.7-xhigh" },
   { variant = "kiro", model = "@default", effort = "high" },
 ]
@@ -434,12 +664,12 @@ required. The sample configuration:
 | Stage | 1 | 2 | 3 | 4 | on_busy | Cap |
 | --- | --- | --- | --- | --- | --- | --- |
 | `design` | claude/opus/max | claude-gateway/opus/high | codex/gpt-6.1-sol/xhigh | | queue | 2 |
-| `development` | claude/opus/high | codex/gpt-6.1-sol/high+fast | cursor/grok-4.7-xhigh | kiro/@default/high | queue | 3 |
+| `development` | claude/opus/high | codex/gpt-6.1-sol/high | cursor/grok-4.7-xhigh | kiro/@default/high | queue | 3 |
 | `testing` | claude/sonnet/medium | kiro/@default/medium | cursor/grok-4.7-xhigh | | next | 2 |
 | `code_review` | codex/gpt-6.1-sol/xhigh | cursor/grok-4.7-xhigh | claude-gateway/opus/high | | next | 2 |
 | `ui_design` | agy/gemini-4-argon-high/high | claude/opus/high | cursor/grok-4.7-xhigh | | queue | 1 |
 
-### 8.2 Resolution algorithm
+### 9.2 Resolution algorithm
 
 Candidate order, highest priority first:
 
@@ -462,16 +692,13 @@ flowchart TD
     D -->|yes| E{"model in catalog and routable?"}
     E -->|no| S
     E -->|yes| F{"effort supported?"}
-    F -->|"no: lower allowed"| F2["adjust: EFFORT_LOWERED"] --> G
+    F -->|"no: lower allowed"| F2["adjust: EFFORT_LOWERED"] --> H
     F -->|"no: skip policy or strict pin"| S
-    F -->|yes| G{"fast requested and supported?"}
-    G -->|"not supported: drop allowed"| G2["adjust: FAST_DROPPED"] --> H
-    G -->|"not supported: skip policy or strict pin"| S
-    G -->|"ok"| H{"limiter: blocked scopes for account + stage"}
+    F -->|yes| H{"limiter: blocked scopes for variant + account + stage"}
     H -->|none| OK["selected, action = run"]
     H -->|"only global or stage"| Q["queued, action = queue"]
-    H -->|"account busy, on_busy = queue, not cooling"| Q
-    H -->|"account busy with on_busy = next, or account cooling"| S2["step: skipped, remembered as waitable"] --> N
+    H -->|"account or variant busy, on_busy = queue, not cooling"| Q
+    H -->|"account or variant busy with on_busy = next, or account cooling"| S2["step: skipped, remembered as waitable"] --> N
     N -->|yes| C
     N -->|"no, a waitable candidate exists"| Q2["queue on the best-ranked waitable candidate"]
     N -->|"no"| R2["refuse NO_ROUTE or PIN_UNSATISFIABLE, with the trace"]
@@ -498,11 +725,12 @@ Rules behind the diagram:
 
 Skip reasons: `VARIANT_UNKNOWN`, `VARIANT_DISABLED`, `BINARY_NOT_FOUND`,
 `SETTINGS_FILE_*`, `NOT_ALLOWED_FOR_STAGE`, `MODEL_NOT_IN_CATALOG`,
-`MODEL_DISABLED`, `MODEL_UNREVIEWED`, `EFFORT_UNSUPPORTED`,
-`FAST_UNSUPPORTED`, `ACCOUNT_BUSY`, `ACCOUNT_COOLDOWN`, `STAGE_BUSY`,
-`GLOBAL_BUSY`. Adjustments: `EFFORT_LOWERED:<from>-><to>`, `FAST_DROPPED`.
+`MODEL_DISABLED`, `MODEL_UNREVIEWED`, `EFFORT_UNSUPPORTED` (also for an
+effort outside the known scale), `ACCOUNT_BUSY`, `VARIANT_BUSY`,
+`ACCOUNT_COOLDOWN`, `STAGE_BUSY`, `GLOBAL_BUSY`. Adjustment:
+`EFFORT_LOWERED:<from>-><to>`.
 
-### 8.3 Explainable result
+### 9.3 Explainable result
 
 Real output of `python -m cli_platform resolve code_review` on the
 verification host, where `codex` is not installed:
@@ -533,18 +761,19 @@ has the same answer format as "why did this run".
 Routing is resolved **once per turn**, at `run_send`. A run keeps its stage.
 A resumed conversation must stay on its variant, because a resume identifier
 belongs to one CLI: from the second turn on, the Run API sends the run's
-recorded variant and model as a strict pin, and only effort and fast may be
+recorded variant and model as a strict pin, and only the effort may be
 re-resolved.
 
-## 9. Concurrency limits
+## 10. Concurrency limits
 
-### 9.1 Scopes and what a lease is
+### 10.1 Scopes and what a lease is
 
 | Scope | Config | Why |
 | --- | --- | --- |
 | Account | `accounts.<id>.max_parallel` | Vendors rate-limit per account or key, not per binary. Variants of one binary with different endpoints have different accounts. |
 | Stage | `stages.<id>.max_parallel` | Keeps one kind of work from taking every slot. |
 | Global | `concurrency.global_max_parallel` | Bounds load on the machine. |
+| Variant (optional) | `variants.<id>.max_parallel` | A tighter limit for one way of launching inside its account, for example a gateway endpoint with a smaller quota. Unset means no variant scope; the account cap still applies. |
 
 A **lease** is held per turn, not per session. The gateway proposal runs one
 CLI process per turn, and an idle run has no process and makes no requests,
@@ -558,15 +787,15 @@ The "five session" limit mentioned in the 2026-11-12 postmortem was not
 found in the runtime (gateway proposal, section 3.8). With this design that
 kind of limit is an explicit, visible number.
 
-### 9.2 Lease protocol
+### 10.2 Lease protocol
 
 State: `<state-dir>/limits/state.json` (leases, queue, per-account rate-limit
 record), `limits/lock`, and `limits/journal.jsonl` (append-only history,
 written with the lock held).
 
 Every operation takes an exclusive `flock` on `limits/lock`, reads the
-state, changes it, and replaces the file atomically. A lease takes its three
-slots inside one critical section, so partial holds and lock-ordering
+state, changes it, and replaces the file atomically. A lease takes all its
+slots (three, or four with a variant cap) inside one critical section, so partial holds and lock-ordering
 deadlocks cannot occur. `flock` is released by the kernel when its holder
 dies, so a crashed process cannot leave the lock held.
 
@@ -578,7 +807,7 @@ sequenceDiagram
     participant C as CLI
     A->>S: spawn for run_send
     S->>L: acquire(session, account, stage)
-    alt slots free in all three scopes
+    alt slots free in every scope
         L-->>S: granted, lease_id
     else something is full
         L-->>S: queued, ticket_id, position, blocked_on
@@ -604,6 +833,7 @@ Lease record:
 ```json
 {"lease_id": "lease-6f0c2a91b3d4", "session_id": "run-01JCQ8M4T7",
  "nickname": "kedo", "account": "anthropic-sub", "stage": "development",
+ "variant": "claude",
  "holder": "runner", "pid": 4242, "pid_started": "Fri Nov 13 14:48:20 2026",
  "acquired_at": 1794552500.1, "expires_at": 1794552560.1}
 ```
@@ -611,10 +841,10 @@ Lease record:
 `acquire` is idempotent per session: a session that already holds a lease or
 a ticket gets the same one back, so a retried call cannot take two slots.
 
-### 9.3 Queue and backpressure
+### 10.3 Queue and backpressure
 
 - **Order.** First in, first out. A ticket is granted when, after every
-  *earlier* ticket that could run has been given its slots, its own three
+  *earlier* ticket that could run has been given its slots, its own
   scopes still have room. A later ticket therefore cannot overtake an
   earlier one, and a ticket stuck on a full account does not hold up a
   ticket for another account.
@@ -639,7 +869,7 @@ a ticket gets the same one back, so a retried call cannot take two slots.
   `acquire`. The run state follows the lease outcome; the resolution's
   action is a forecast.
 
-### 9.4 Rate-limit detection and cooldown
+### 10.4 Rate-limit detection and cooldown
 
 Detection belongs to the runner adapters: a stream error, a recognizable
 stderr line or a specific exit status is mapped to an `error` event with
@@ -662,10 +892,10 @@ cap, at which point the strikes reset. Halve on trouble, add one on
 success: the cap settles at what the account tolerates.
 
 The router sees the cooldown as `ACCOUNT_COOLDOWN` and prefers another
-account (section 8.2). The failed turn itself is not retried automatically;
+account (section 9.2). The failed turn itself is not retried automatically;
 the coordinator decides, with the resume identifier intact.
 
-### 9.5 Crash recovery
+### 10.5 Crash recovery
 
 | Failure | What remains | Recovery |
 | --- | --- | --- |
@@ -677,9 +907,9 @@ the coordinator decides, with the resume identifier intact.
 | `limits/state.json` is deleted | Empty state | Leases are re-created as supervisors renew: a `renew` for an unknown lease returns `LEASE_NOT_HELD`, and the supervisor must re-acquire or stop its turn. |
 | Run is `lost` | Its lease, stale | Kept until the run is reconciled, matching the rule that `lost` is never resolved by guessing. |
 
-## 10. Run and session lifecycle
+## 11. Run and session lifecycle
 
-### 10.1 State machine
+### 11.1 State machine
 
 The gateway proposal's machine with `queued` added. Only new or changed
 edges are labelled in bold terms; the rest is as before.
@@ -720,7 +950,7 @@ stateDiagram-v2
 A lease is held in `starting`, `running`, `cancelling`, `handed_off` and
 `lost`. No process exists in `queued`, so cancelling there is immediate.
 
-### 10.2 One turn, end to end
+### 11.2 One turn, end to end
 
 1. `run_create(stage, cwd, pin?)`: allocate the nickname, create
    `runs/<nickname>-<run_id>/`, write `run.json`, append
@@ -734,7 +964,7 @@ A lease is held in `starting`, `running`, `cancelling`, `handed_off` and
 4. The supervisor builds the launch from the variant (`build_launch`), adds
    the adapter's headless flags, checks the settings file again, and starts
    the CLI. `turn_started` records `variant`, `variant_fingerprint`,
-   `model`, `effort`, `fast`, `argv_digest` and the CLI version.
+   `model`, `effort`, `argv_digest` and the CLI version.
 5. Every `heartbeat_seconds` the supervisor appends `heartbeat` and renews
    the lease.
 6. At exit it reports success or a rate limit, releases the lease
@@ -746,14 +976,14 @@ A lease is held in `starting`, `running`, `cancelling`, `handed_off` and
 the launch spec; `python -m cli_platform plan <stage>` runs it in a
 temporary state directory.
 
-### 10.3 Events
+### 11.3 Events
 
 New types in the v1 envelope, all with `source: "supervisor"`:
 
 | Type | Payload |
 | --- | --- |
 | `nickname_assigned` | `nickname`, `ref`, `cooldown_waived` |
-| `route_resolved` | The resolution of section 8.3 |
+| `route_resolved` | The resolution of section 9.3 |
 | `lease_queued` | `ticket_id`, `position`, `blocked_on` |
 | `lease_granted` | `lease_id`, `account`, `stage` |
 | `lease_released` | `lease_id`, `reason` |
@@ -782,7 +1012,7 @@ Example:
              "stage": "development"}}
 ```
 
-### 10.4 Request changes
+### 11.4 Request changes
 
 `run_create` arguments gain:
 
@@ -791,7 +1021,7 @@ Example:
  "pin": {"type": "object", "additionalProperties": false,
          "required": ["variant", "model"],
          "properties": {"variant": {"type": "string"}, "model": {"type": "string"},
-                        "effort": {"type": "string"}, "fast": {"type": "boolean"}}},
+                        "effort": {"enum": ["low", "medium", "high", "xhigh", "max"]}}},
  "allow_fallback": {"type": "boolean", "default": false}}
 ```
 
@@ -802,7 +1032,7 @@ operations added to the command line and the MCP adapter: `cli_scan`,
 `session_lookup`. All run operations accept a nickname in place of a
 `run_id` for live sessions.
 
-## 11. Configuration
+## 12. Configuration
 
 One file, `cli-platform.toml`, TOML, read with the standard library. The
 complete example is `cli_platform/config/cli-platform.toml`.
@@ -816,14 +1046,15 @@ complete example is `cli_platform/config/cli-platform.toml`.
 | `[concurrency.rate_limit]` | `cooldown_base_seconds`, `cooldown_max_seconds`, `recover_after_turns` |
 | `[catalog]` | `stale_after_days`, `allow_unreviewed` |
 | `[accounts.<id>]` | `vendor`, `max_parallel` |
-| `[variants.<id>]` | `adapter`, `binary`, `account`, `enabled`, `settings_file`, `env`, `env_unset`, `extra_args`, `note` |
-| `[[models]]` | `variant`, `id`, `efforts`, `default_effort`, `fast`, `fast_via`, `status`, `verified_at`, `note` |
-| `[stages.<id>]` | `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `fast_fallback`, `allow_pins_outside` |
+| `[variants.<id>]` | `adapter`, `binary`, `account`, `enabled`, `settings_file`, `env`, `env_unset`, `extra_args`, `max_parallel`, `note` |
+| `[[models]]` | `variant`, `id`, `display_name`, `efforts`, `default_effort`, `context_tokens`, `cost_tier`, `status`, `verified_at`, `note` |
+| `[stages.<id>]` | `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `allow_pins_outside` |
 | `[routing]` | `default_candidates` |
 
 Loader rules: unknown keys are errors; every reference must resolve
 (variant to account, model to variant, candidate to a curated model); all
-five stages must be present; caps are positive integers;
+five stages must be present; caps and `context_tokens` are positive
+integers; `cost_tier` is `low`, `medium` or `high`;
 `lease_ttl_seconds` is at least twice `heartbeat_seconds`; relative paths
 resolve against the config file's directory. Errors are `CONFIG_INVALID` or
 `SECRET_IN_CONFIG` and name the offending key.
@@ -835,19 +1066,22 @@ workflow resolver exists, its "effective CLI/model/effort" becomes a pin or
 a task candidate list passed to the router; the mandatory disclosure in
 `SKILL.md` is then fed by the resolution trace.
 
-## 12. Workbench information architecture
+## 13. Workbench information architecture
 
-The workbench stays a read-only reader of files (gateway proposal, section
-7). The mockup at `docs/design/workbench-mockup.html` shows every view with
-sample data.
+The workbench is the observation layer (section 5): a read-only reader of
+files (gateway proposal, section 7). The mockup at
+`docs/design/workbench-mockup.html` shows every view with sample data in an
+**Observe** group. The settings pages sit in a separate **Configure** group;
+they belong to the settings editor of section 5.7, not to the workbench, and
+in the real system they are served by their own entry point.
 
 | View | Shows | Source |
 | --- | --- | --- |
 | Sessions | Nickname, state, task, stage, selection, turn, heartbeat age, lease or queue position | `nicknames/live/`, `runs/*/state.json`, `limits/state.json` |
 | Session detail | Reference, `run_id`, tmux session name, log path, URL, resume id, bypass marker, copyable takeover command, timeline with type filter | `runs/<nickname>-<run_id>/events.jsonl` |
 | CLI registry | Scan results and variants: binary, version, settings path and check, account, auth hint, availability reasons | Scan cache, config, `lstat` |
-| Model catalog | Per variant: model, efforts, fast, status and flags, provenance | `catalog/observed/`, config |
-| Stage routing | The matrix of section 8.1, policies, and recent resolution traces | Config, `route_resolved` events |
+| Model catalog | Per variant: model, display name, efforts, context window, cost tier, status and flags, provenance | `catalog/observed/`, config |
+| Stage routing | The matrix of section 9.1, policies, and recent resolution traces | Config, `route_resolved` events |
 | Concurrency | Meters per scope with effective caps and cooldown countdowns, queue, leases | `limits/state.json` |
 | Incidents | Derived list, also counted in the navigation | Rules below |
 
@@ -869,17 +1103,18 @@ Incident rules added to those of the gateway proposal:
 | Nickname cooldown waived | A `nickname_assigned` event with `cooldown_waived: true` |
 
 Derived incidents are shown inline in a session's timeline at the time they
-were first seen. The workbench reads the limiter state without taking its
-lock; because the file is replaced atomically, a reader always sees a
-complete snapshot.
+were first seen. The workbench reads the limiter state with
+`snapshots.read_limits`, without taking its lock. Because the file is
+replaced atomically, a reader always sees a complete snapshot. The scaffold
+tests this (section 5.6).
 
-## 13. Security
+## 14. Security
 
 Additions to section 6.6 of the gateway proposal:
 
 | Concern | Rule |
 | --- | --- |
-| Secrets in configuration | Refused at load (section 6.2). The config file can be committed. |
+| Secrets in configuration | Refused at load (section 7.2). The config file can be committed. |
 | Settings files | Never opened, hashed or copied by the platform. Permission-checked before every launch. Shown as a path and a check result. |
 | Credential in the repository directory | `gateway.json` stays ignored by Git. A variant should point at a file outside the repository where possible; the sample points inside only because that is where the file is today. |
 | Child environment | The supervisor's allowlisted environment, then `env_unset`, then `env`. Values are never written to events. |
@@ -888,8 +1123,9 @@ Additions to section 6.6 of the gateway proposal:
 | Nickname as input | Validated against `^[a-z]{3,6}$` before it touches a path, a tmux target or a URL route. |
 | Bypass mode | Unchanged. Routing never adds a permission flag. |
 | Untrusted text | Model ids from observations are validated against the id pattern before they can reach an argv. Observed-only models are not routable by default. |
+| Settings editor | Applies the loader's secret refusal to drafts, so a credential cannot be saved into `cli-platform.toml`. The error names the variable and never echoes the value. Settings-file paths are stored as paths; the editor never opens the file either. Writes only the config file, by atomic replace with a digest check (section 5.7). |
 
-## 14. Failure handling
+## 15. Failure handling
 
 | Failure | Behavior |
 | --- | --- |
@@ -900,13 +1136,13 @@ Additions to section 6.6 of the gateway proposal:
 | Settings file permissions loosened | Variant unavailable; incident raised; routing falls back per stage policy. |
 | No candidate usable | `NO_ROUTE` with the trace. Nothing is spawned or queued. |
 | Pin cannot be served | `PIN_UNSATISFIABLE` with the trace. No silent substitute. |
-| Account rate limited | Section 9.4. |
+| Account rate limited | Section 10.4. |
 | Queue full or wait too long | `QUEUE_FULL` at the call; `QUEUE_TIMEOUT` as a failed turn. |
 | Limiter state unreadable (corrupt JSON) | The call fails; no lease is granted. The file is replaced by the operator or rebuilt from live supervisors. Failing closed here is deliberate: guessing would break the caps. |
 | Clock jumps backwards | Leases live longer than intended, never shorter than their holder. Cooldowns may extend. No cap is exceeded. |
 | Two coordinators create the same run | Idempotent nickname allocation and lease acquisition return the same records. |
 
-## 15. Phased delivery
+## 16. Phased delivery
 
 Phases follow the gateway proposal's numbering; each row says what the
 platform adds to that phase.
@@ -914,17 +1150,17 @@ platform adds to that phase.
 | Phase | Platform deliverable | Acceptance gate |
 | --- | --- | --- |
 | P0. Scaffold (this change) | `cli_platform/` package, config, nickname library, tests, mockup | Library validator passes. The targeted tests pass. `python -m cli_platform check-config`, `scan`, `resolve` and `plan` run on the host. |
-| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 10.3 events. `tmuxctl run` accepts nicknames. Scan results cached in state. | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. |
+| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. `tmuxctl run` accepts nicknames. Scan results cached in state. Limiter journal gains `v` and `seq` (section 5.4). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
 | P2. With task integration | Nickname in task records, audit entries and `resource_report`. `stage` and `pin` on `run_create`. Fallback disclosure text from the resolution. Rate-limit mapping in each verified adapter. | A real task shows the nickname in its record, log path and audit index. A pin for an unavailable model is refused, not replaced. A recorded rate-limit fixture produces a cooldown. |
-| P3. With the MCP adapter | The read tools of section 10.4, nickname addressing | A host completes a task using stage names only, and can explain each choice from `route_explain`. |
-| P4. With the workbench | The views and routes of section 12 | `/s/<nickname>` opens the live session. Every route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. |
+| P3. With the MCP adapter | The read tools of section 11.4, nickname addressing | A host completes a task using stage names only, and can explain each choice from `route_explain`. |
+| P4. With the workbench | The views and routes of section 13. The settings editor as its own entry point (section 5.7). | `/s/<nickname>` opens the live session. Every workbench route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. A settings save changes only `cli-platform.toml`, refuses an invalid draft, and refuses when the file changed since it was opened. |
 | P5. Catalog probes | `list_models_command` and `run_event` observation writers; a review command that turns an observation into a curated entry | After a CLI upgrade the catalog flags `version_drift` and clears it after a re-probe. |
 
 Rollback at every phase: remove the `stage` argument and pass `cli`,
 `model`, `effort` as before; the platform is then not consulted. Setting
 every cap high disables queueing without code changes.
 
-## 16. Scaffold and verification
+## 17. Scaffold and verification
 
 The scaffold is described in [its README](../../cli_platform/README.md) and
 in [project-structure.md](../design/project-structure.md).
@@ -933,30 +1169,30 @@ in [project-structure.md](../design/project-structure.md).
 | --- | --- | --- |
 | Installed binaries | `command -v claude agent cursor-agent kiro-cli codex agy` | `claude`, `agent`, `cursor-agent`, `kiro-cli` found; `codex`, `agy`, `antigravity` not found |
 | Versions | `claude --version`, `agent --version`, `kiro-cli --version` | 2.1.311, 2026.04.08-a41fba1, 2.34.0 |
-| Claude flags | `claude --help` | `--settings <file-or-json>`, `--model`, `--effort (low, medium, high, xhigh, max)`, `--fallback-model`; no occurrence of "fast" |
+| Claude flags | `claude --help` | `--settings <file-or-json>`, `--model`, `--effort (low, medium, high, xhigh, max)`, `--fallback-model` |
 | Cursor flags | `agent --help` | `--model`, `--list-models`, `status`, `models`; no `--effort` |
 | Kiro flags | `kiro-cli chat --help`, `kiro-cli --help-all` | `--model`, `--effort`, `--list-models`, `whoami` |
-| Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. For this design only its key names were listed, with values hidden. |
+| Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. Revision 2 did not open the file. |
 | Nickname library | `python3 scripts/nicknames.py validate` | 1000 names, 1000 unique, lengths 3/4/5/6 = 40/320/320/320, matches the generator |
-| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | 101 tests, all pass |
-| Mockup | Headless Chrome screenshots: Sessions at 1440 and 1024 px, the other five views at 1024 px | All six views were rendered and inspected; none scrolls horizontally at page level and the file has no external reference. Interaction (tab clicks, session selection, timeline filter, copy button) was not exercised. |
+| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | 115 tests, all pass (101 before revision 2; 2 tests of the removed option deleted, 16 added, 10 of them in `test_layering.py`) |
+| Service-tier option removed | The dispatch's case-insensitive whole-word grep for the option's name over `cli_platform/`, this document and the mockup | no match |
+| Command line after the change | `check-config`, `resolve development`, `resolve code_review`, `plan development`, `catalog`, `variants` | All run. `resolve code_review` gives the trace of section 9.3. A pin with an effort outside the scale (for example a leftover suffix of the removed option) is refused with a usage message; before this revision it crashed the router. |
+| Mockup | Playwright with headless Chromium, `file://` URL, viewports 1440×900 and 1024×900, plus a context where `localStorage` throws | 257 scripted checks pass. Covered: add, edit, save (toast, timestamp, Save disabled afterwards), cancel, delete with confirmation (cancel, Escape and confirm, with cascade listing), blocked delete, inline validation (bad id, secret-shaped env name and value, non-claude settings file, non-integer caps, `lease_ttl` below twice `heartbeat`, `context_tokens`, duplicate model, `tmux_prefix`, `cooldown_days`, rate-limit bounds), unsaved-changes guard (Stay, Save, Discard, `beforeunload`), routing add, remove, reorder and duplicate, reload persistence, Reset demo data. Also checked: no page-level horizontal scroll on all 12 views at both widths, zero console errors, no network request besides the file. Not exercised: the blocked delete of a variant (same helper as the tested model path), Tab focus trapping in dialogs, the TOML preview's draft tab while errors exist. Observation views of sessions, incidents and traces remain fixed sample data. |
+| Mermaid diagrams | none | Not rendered: no Mermaid renderer is available offline on the host. The diagrams were checked by reading only. |
 | Model calls | none | none made |
 | Existing test suite | none | not run; no existing file changed |
 
-## 17. Open questions
+## 18. Open questions
 
-1. What does each CLI emit when rate-limited in headless mode? Section 9.4
+1. What does each CLI emit when rate-limited in headless mode? Section 10.4
    depends on the Phase 0 fixtures of the gateway proposal.
 2. Is a vendor's limit per account or per model within an account? If per
    model, the account scope gains an optional per-model sub-cap; the lease
    record already carries enough to add it.
-3. Does Claude Code expose fast mode to a headless launch (a setting or an
-   environment variable)? Until verified it stays `unverified` and is
-   never selected as fast.
-4. Do `agent status` and `kiro-cli whoami` need more of the user's
+3. Do `agent status` and `kiro-cli whoami` need more of the user's
    environment than the sanitized probe passes? The probe results on the
    host were inconclusive.
-5. Should the tmux backend's existing `create_session.name` values be
+4. Should the tmux backend's existing `create_session.name` values be
    migrated to `gt-<nickname>`, or only new sessions?
-6. Should a task be able to reserve capacity (for example one slot of
+5. Should a task be able to reserve capacity (for example one slot of
    `anthropic-sub`) so a long task is not starved by short ones?

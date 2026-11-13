@@ -29,9 +29,10 @@ src/cli_platform/
   router.py                  stage routing with an explain trace
   limiter.py                 leases, queue, cooldown, crash recovery
   supervisor.py              run states, supervisor contract, Platform wiring
-  events.py                  append-only run event log
+  events.py                  append-only run event log (event layer)
+  snapshots.py               lock-free readers of published state (event layer)
   fsutil.py                  private directory creation
-  adapters/workbench.py      placeholder: routes and read model
+  adapters/workbench.py      placeholder: routes and read model (observation layer)
   adapters/mcp.py            placeholder: tool table
   __main__.py                command line
 tests/                       unittest, no dependencies
@@ -47,7 +48,7 @@ python3 -m cli_platform check-config
 python3 -m cli_platform scan [--auth]
 python3 -m cli_platform variants
 python3 -m cli_platform catalog
-python3 -m cli_platform resolve code_review [--pin variant/model[/effort][+fast]]
+python3 -m cli_platform resolve code_review [--pin variant/model[/effort]]
 python3 -m cli_platform plan development      # dry run in a temporary state directory
 python3 scripts/nicknames.py validate
 ```
@@ -61,9 +62,11 @@ directory.
 python3 -m unittest discover -s tests -t tests
 ```
 
-101 tests: nickname library and allocation, router precedence and fallback,
+115 tests: nickname library and allocation, router precedence and fallback,
 limiter caps, queue, cooldown and crash recovery (including a cross-process
-check), config loading and settings-file checks, and the session flow.
+check), config loading and settings-file checks, the session flow, and the
+layer boundaries (import rules, and a read model that takes no lock and
+writes nothing).
 
 ## Notes
 

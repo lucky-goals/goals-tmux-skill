@@ -127,7 +127,9 @@ class ValidationTest(unittest.TestCase):
         cases = [
             lambda raw: raw["variants"].update({"Bad_Id": raw["variants"]["alpha"]}),
             lambda raw: raw["models"][0].update(efforts=["extreme"]),
-            lambda raw: raw["models"][0].update(fast="maybe"),
+            lambda raw: raw["models"][0].update(cost_tier="cheap"),
+            lambda raw: raw["models"][0].update(context_tokens=0),
+            lambda raw: raw["variants"]["alpha"].update(max_parallel=0),
             lambda raw: raw["stages"]["design"].update(on_busy="drop"),
             lambda raw: raw["stages"]["design"].update(candidates=[]),
             lambda raw: raw["variants"]["beta"].update(settings_file="x.json"),   # not claude
@@ -137,6 +139,18 @@ class ValidationTest(unittest.TestCase):
             raw = raw_config()
             mutate(raw)
             self.refuse(raw)
+
+    def test_settings_page_fields_are_loaded(self):
+        raw = raw_config()
+        raw["models"][0].update(display_name="Big", context_tokens=200000, cost_tier="high")
+        raw["variants"]["alpha"]["max_parallel"] = 1
+        config = make_config(self.tmp, raw)
+        entry = config.model("alpha", "big")
+        self.assertEqual((entry.display_name, entry.context_tokens, entry.cost_tier),
+                         ("Big", 200000, "high"))
+        self.assertEqual(config.variants["alpha"].max_parallel, 1)
+        self.assertIsNone(config.variants["beta"].max_parallel)
+        self.assertIsNone(config.model("alpha", "small").context_tokens)
 
     def test_unreadable_or_malformed_file(self):
         with self.assertRaises(PlatformError):

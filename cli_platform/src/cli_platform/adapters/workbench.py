@@ -1,17 +1,30 @@
-"""Placeholder for the read-only workbench adapter.
+"""Placeholder for the read-only workbench adapter (observation layer).
 
 The HTTP/SSE server is Phase 4 of the gateway proposal and is not built here.
 This module fixes the two things the platform owes it: the route table (GET
 only, addressed by nickname) and the read model behind the registry, catalog,
-routing and concurrency views. Nothing in ``cli_platform`` imports this
-module; that one-way dependency is the zero-gate rule.
+routing and concurrency views.
+
+Layer rules (design section 5, enforced by ``tests/test_layering.py``):
+
+- Nothing in the execution layer imports this module: the zero-gate rule.
+- This module reads configuration and the event layer's files only. It does
+  not import the router, limiter, nickname allocator or supervisor, takes no
+  lock and writes nothing. The two execution modules it calls, the catalog
+  merge and the variant check, are pure evaluations over configuration and
+  file metadata.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
+from pathlib import Path
 
-from ..supervisor import Platform
+from ..catalog import ModelCatalog, ObservationStore
+from ..config import PlatformConfig
+from ..snapshots import read_limits, read_live_nicknames, summarize_limits
+from ..variants import VariantRegistry
 
 # (method, path, purpose). A test in Phase 4 asserts every method is GET.
 ROUTES: tuple[tuple[str, str, str], ...] = (
@@ -31,30 +44,42 @@ ROUTES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def read_model(platform: Platform) -> dict:
+def read_model(config: PlatformConfig, state_dir: Path | None = None, *,
+               registry: VariantRegistry | None = None, now: float | None = None) -> dict:
     """Snapshot for the registry, catalog, routing and concurrency views."""
-    config = platform.config
+    state_dir = Path(state_dir or config.state_dir)
+    registry = registry or VariantRegistry(config)
+    states = registry.all()
+    observations = [item for variant in config.variants
+                    for item in ObservationStore(state_dir).load(variant)]
+    versions = {state.variant.id: state.version for state in states if state.version}
+    catalog = ModelCatalog(config, observations, cli_versions=versions)
+    try:
+        concurrency = summarize_limits(config, read_limits(state_dir),
+                                       time.time() if now is None else now)
+    except ValueError:
+        # The limiter fails closed on this file; the view says so and goes on.
+        concurrency = {"unreadable": "limits/state.json is not valid JSON"}
     return {
         "registry": [
             {"variant": state.variant.id, "adapter": state.variant.adapter,
              "account": state.variant.account, "available": state.available,
              "reasons": list(state.reasons), "binary_path": state.binary_path,
              "version": state.version, "auth_state": state.auth_state,
-             "fingerprint": state.fingerprint,
+             "fingerprint": state.fingerprint, "max_parallel": state.variant.max_parallel,
              # Path and check result only; the file is never opened.
              "settings": asdict(state.settings) if state.settings else None,
              "env_names": sorted(state.variant.env), "env_unset": list(state.variant.env_unset)}
-            for state in platform.registry.all()
+            for state in states
         ],
-        "catalog": [asdict(entry) for variant in config.variants
-                    for entry in platform.catalog.entries(variant)],
+        "catalog": [asdict(entry) for variant in config.variants for entry in catalog.entries(variant)],
         "routing": {
             stage_id: {"candidates": [item.label() for item in stage.candidates],
                        "max_parallel": stage.max_parallel, "on_busy": stage.on_busy,
                        "effort_fallback": stage.effort_fallback,
-                       "fast_fallback": stage.fast_fallback}
+                       "allow_pins_outside": stage.allow_pins_outside}
             for stage_id, stage in config.stages.items()
         },
-        "concurrency": platform.limiter.snapshot(),
-        "nicknames": [asdict(lease) | {"ref": lease.ref} for lease in platform.nicknames.live()],
+        "concurrency": concurrency,
+        "nicknames": read_live_nicknames(state_dir),
     }
