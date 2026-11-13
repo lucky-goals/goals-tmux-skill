@@ -18,7 +18,7 @@ from .operation_store import OperationStore, state_dir_path
 from .policy import Policy
 from .registry import Registry
 from .service import Service, _context
-from .viewer import Viewer
+from .viewer import Viewer, diagnose_viewers
 
 
 def parser():
@@ -41,6 +41,7 @@ def parser():
         if command == "doctor":
             q.add_argument("--live", action="store_true", help="Read the explicitly selected endpoint")
             q.add_argument("--cli-check", action="store_true", help="Check installed CLI versions without model requests")
+            q.add_argument("--viewers", action="store_true", help="Inspect registered and live tmux viewers read-only")
     q = sub.add_parser("invoke")
     q.add_argument("--request-file", required=True, help="Private UTF-8 JSON file, or - for stdin")
     q = sub.add_parser("operation-status")
@@ -237,6 +238,12 @@ def run(args):
             if args.cli_check:
                 from .cli_adapters import describe_clis
                 data["clis"] = describe_clis()
+            if args.viewers:
+                data["viewers"] = (
+                    {"available": False, "reason": "ssh_viewer_requires_manual_attach",
+                     "entries": [], "live_clients": []}
+                    if namespace else diagnose_viewers(root, socket, tmux_binary=service.tmux.binary)
+                )
         return contract.result(None, data=data)
     if args.command == "registry":
         registry = service.registry

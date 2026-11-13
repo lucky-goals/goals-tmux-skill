@@ -365,6 +365,124 @@ class Viewer:
             "warnings": warnings,
         }
 
+    def _live_diagnostic_clients(self, tmux_binary: str, socket_path: str) -> tuple[bool, list[dict[str, object]]]:
+        client_format = (
+            "#{client_tty}\t#{client_pid}\t#{session_id}\t#{window_id}\t#{pane_id}"
+            "\t#{window_zoomed_flag}\t#{client_flags}\t#{client_control_mode}\t#{client_readonly}"
+        )
+        result = self._run_tmux(tmux_binary, socket_path, ["list-clients", "-F", client_format], timeout=3)
+        if result.returncode != 0:
+            return False, []
+        clients: list[dict[str, object]] = []
+        for raw_line in result.stdout.splitlines():
+            if not raw_line:
+                continue
+            fields = raw_line.split("\t")
+            if len(fields) < 6:
+                continue
+            try:
+                pid = int(fields[1])
+            except ValueError:
+                continue
+            flags_raw = fields[6] if len(fields) >= 7 else ""
+            flags = set(flags_raw.split(",")) if flags_raw else set()
+            clients.append({
+                "client_tty": fields[0],
+                "client_pid": pid,
+                "session_id": fields[2],
+                "window_id": fields[3],
+                "pane_id": fields[4],
+                "window_zoomed_flag": fields[5],
+                "client_flags": flags,
+                "client_control_mode": fields[7] if len(fields) >= 8 else None,
+                "client_readonly": fields[8] if len(fields) >= 9 else None,
+            })
+        return True, clients
+
+    def _summarize_viewer_entry(
+        self, path: Path, socket_path: str, raw_clients: list[dict[str, object]]
+    ) -> dict[str, object] | None:
+        try:
+            entry = self._read_registry(path)
+        except DomainError as exc:
+            return {"file": path.name, "error": exc.code, "message": exc.message}
+        if not isinstance(entry, dict):
+            return None
+        record = entry.get("record")
+        if not isinstance(record, dict):
+            return {"file": path.name, "state": entry.get("state"), "error": "VIEWER_RECORD_INVALID"}
+        rec_session_id = record.get("session_id")
+        rec_socket = record.get("socket_path")
+        viewer_pid = record.get("viewer_pid")
+        expected_tty = record.get("_client_tty")
+        allow_input = self._recorded_allow_input(record)
+        native_mode = record.get("mode") == "iterm2-native"
+        matched = None
+        if (
+            isinstance(rec_socket, str)
+            and os.path.abspath(rec_socket) == os.path.abspath(socket_path)
+            and isinstance(rec_session_id, str)
+        ):
+            matched = self._match_client(
+                raw_clients, rec_session_id, viewer_pid,
+                readonly=not allow_input, control_mode=native_mode,
+            )
+        return {
+            "file": path.name,
+            "state": entry.get("state"),
+            "socket_path": rec_socket,
+            "session_id": rec_session_id,
+            "server_instance_id": record.get("server_instance_id"),
+            "viewer_token": record.get("viewer_token"),
+            "viewer_pid": viewer_pid,
+            "client_tty": expected_tty,
+            "terminal": record.get("terminal"),
+            "mode": record.get("mode"),
+            "attached": matched is not None and matched.get("client_tty") == expected_tty,
+            "live_window_id": matched.get("window_id") if matched else None,
+            "live_pane_id": matched.get("pane_id") if matched else None,
+        }
+
+    def diagnose_viewers(self, socket_path: str, *, tmux_binary: str | None = None) -> dict:
+        """Inspect registered viewer state and live tmux clients strictly read-only."""
+        tmux_bin = tmux_binary or shutil.which("tmux") or "tmux"
+        tmux_server_running, raw_clients = self._live_diagnostic_clients(tmux_bin, socket_path)
+        live_clients = [
+            {**client, "client_flags": sorted(client["client_flags"])}
+            for client in raw_clients
+        ]
+        entries: list[dict[str, object]] = []
+        receipt_count = 0
+        state_error: str | None = None
+        state_root_exists = os.path.lexists(self._state_root)
+        if state_root_exists:
+            try:
+                _private_path(self._state_root, expected_dir=True)
+                for path in sorted(self._state_root.iterdir(), key=lambda item: item.name):
+                    if path.name.startswith(".") or path.suffix != ".json":
+                        continue
+                    if path.name.startswith("owner-"):
+                        receipt_count += 1
+                        continue
+                    summary = self._summarize_viewer_entry(path, socket_path, raw_clients)
+                    if summary is not None:
+                        entries.append(summary)
+            except DomainError as exc:
+                state_error = exc.message
+            except OSError as exc:
+                state_error = str(exc)
+        return {
+            "state_dir": str(self.state_dir),
+            "state_root": str(self._state_root),
+            "state_root_exists": state_root_exists,
+            "state_error": state_error,
+            "socket_path": str(socket_path),
+            "tmux_server_running": tmux_server_running,
+            "live_clients": live_clients,
+            "entries": entries,
+            "receipt_count": receipt_count,
+        }
+
     def open(
         self,
         socket_path: str,
@@ -792,16 +910,18 @@ class Viewer:
                 registered.get("viewer_gui_session_id"), evidence,
             )
 
-        # Read the current tmux window for this exact client and the requested
+        # Read the current tmux window for this exact client via list-clients
+        # (on tmux 3.6a, client-targeted display-message without -t can resolve
+        # to the server's most-recently-active session) and query the requested
         # target pane. All identifiers are validated and passed as argv items.
         view_format = "#{session_id}|#{window_id}|#{pane_id}|#{window_zoomed_flag}"
-        def parse_view(result: subprocess.CompletedProcess[str]) -> dict[str, str] | None:
-            if result.returncode != 0 or not isinstance(result.stdout, str):
-                return None
-            fields = result.stdout.strip().split("|")
-            if len(fields) != 4:
-                return None
-            current_session, current_window, current_pane, zoomed = fields
+        client_view_format = (
+            "#{client_tty}\t#{client_pid}\t#{session_id}\t#{window_id}\t#{pane_id}\t#{window_zoomed_flag}"
+        )
+
+        def validate_view(
+            current_session: str, current_window: str, current_pane: str, zoomed: str
+        ) -> dict[str, str] | None:
             if (
                 not current_session.startswith("$") or not current_session[1:].isdigit()
                 or len(current_window) < 2 or current_window[0] != "@" or not current_window[1:].isdigit()
@@ -816,16 +936,50 @@ class Viewer:
                 "window_zoomed_flag": zoomed,
             }
 
+        def parse_view(result: subprocess.CompletedProcess[str]) -> dict[str, str] | None:
+            if result.returncode != 0 or not isinstance(result.stdout, str):
+                return None
+            fields = result.stdout.strip().split("|")
+            if len(fields) != 4:
+                return None
+            return validate_view(*fields)
+
+        def parse_client_view(result: subprocess.CompletedProcess[str]) -> dict[str, str] | None:
+            if result.returncode != 0 or not isinstance(result.stdout, str):
+                return None
+            matches: list[dict[str, str]] = []
+            for raw_line in result.stdout.splitlines():
+                if not raw_line:
+                    continue
+                fields = raw_line.split("\t")
+                if len(fields) != 6:
+                    continue
+                client_tty, client_pid_raw, current_session, current_window, current_pane, zoomed = fields
+                if client_tty != expected_tty:
+                    continue
+                try:
+                    pid = int(client_pid_raw)
+                except ValueError:
+                    continue
+                if pid != viewer_pid:
+                    continue
+                parsed = validate_view(current_session, current_window, current_pane, zoomed)
+                if parsed is not None:
+                    matches.append(parsed)
+            if len(matches) != 1:
+                return None
+            return matches[0]
+
         def read_tmux_views() -> tuple[dict[str, str], dict[str, str]] | None:
             current_result = self._run_tmux(
                 tmux_binary, socket_path,
-                ["display-message", "-p", "-c", expected_tty, view_format], timeout=3,
+                ["list-clients", "-F", client_view_format], timeout=3,
             )
             target_result = self._run_tmux(
                 tmux_binary, socket_path,
                 ["display-message", "-p", "-t", pane_id, view_format], timeout=3,
             )
-            current = parse_view(current_result)
+            current = parse_client_view(current_result)
             target = parse_view(target_result)
             if current is None or target is None:
                 return None
@@ -2147,3 +2301,13 @@ class Viewer:
         if not isinstance(detail, str) or not detail.strip():
             detail = str(exc)
         return cls._short_error(detail)
+
+
+def diagnose_viewers(
+    state_dir: Path | str,
+    socket_path: str,
+    *,
+    tmux_binary: str | None = None,
+) -> dict:
+    """Return read-only viewer and live tmux client diagnostics without mutating state_dir."""
+    return Viewer(Path(state_dir)).diagnose_viewers(socket_path, tmux_binary=tmux_binary)

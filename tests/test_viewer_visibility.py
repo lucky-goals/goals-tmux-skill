@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import contextlib
 import copy
+import hashlib
+import io
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
 from unittest.mock import patch
 
+from runtime.goals_tmux import cli as cli_module
 import runtime.goals_tmux.viewer as viewer_module
 from runtime.goals_tmux.viewer import Viewer
 
@@ -87,6 +93,16 @@ class ViewerVisibilityTests(unittest.TestCase):
     def _run_tmux(self, _binary: str, _socket: str, args: list[str], *, timeout: float = 3):
         if "-c" in args:
             output = self.current_view
+        elif args and args[0] == "list-clients":
+            parts = self.current_view.split("|")
+            if len(parts) == 4:
+                session_id, window_id, pane_id, zoomed = parts
+                output = (
+                    f"{self.record['_client_tty']}\t{self.record['viewer_pid']}\t"
+                    f"{session_id}\t{window_id}\t{pane_id}\t{zoomed}"
+                )
+            else:
+                output = self.current_view
         elif "-t" in args and args[args.index("-t") + 1] == "%2":
             output = self.target_view
         else:
@@ -267,6 +283,375 @@ class ViewerVisibilityTests(unittest.TestCase):
         result = self._verify(record=record, clients=[native_client])
         self.assertEqual("unavailable", result["status"])
         self.assertEqual("native_mapped_visibility_unverified", result["reason"])
+
+    def _write_fake_tmux(
+        self,
+        name: str,
+        *,
+        clients: list[dict[str, str]],
+        display_by_c: dict[str, dict[str, str]] | None = None,
+        display_by_t: dict[str, dict[str, str]] | None = None,
+    ) -> Path:
+        scenario_path = Path(self.temp.name) / f"{name}.json"
+        scenario_path.write_text(
+            json.dumps(
+                {
+                    "clients": clients,
+                    "display_by_c": display_by_c or {},
+                    "display_by_t": display_by_t or {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        script_path = Path(self.temp.name) / name
+        script_path.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"DATA = json.loads(open({str(scenario_path)!r}, encoding='utf-8').read())\n"
+            "args = sys.argv[1:]\n"
+            "while args:\n"
+            "    if args[0] in ('-f', '-S', '-L') and len(args) >= 2:\n"
+            "        args = args[2:]\n"
+            "    elif args[0] == '-N':\n"
+            "        args = args[1:]\n"
+            "    else:\n"
+            "        break\n"
+            "def fmt_row(template, row):\n"
+            "    out = template\n"
+            "    for k, v in row.items():\n"
+            "        out = out.replace('#{' + k + '}', str(v))\n"
+            "    return out\n"
+            "if args == ['-V']:\n"
+            "    print('tmux 3.6a')\n"
+            "    raise SystemExit(0)\n"
+            "cmd = args[0] if args else ''\n"
+            "rest = args[1:]\n"
+            "if cmd == 'list-clients':\n"
+            "    fmt = '#{client_tty}|#{client_pid}|#{session_id}|#{window_id}|#{pane_id}|#{window_zoomed_flag}'\n"
+            "    target = None\n"
+            "    i = 0\n"
+            "    while i < len(rest):\n"
+            "        if rest[i] == '-F' and i + 1 < len(rest):\n"
+            "            fmt = rest[i + 1]\n"
+            "            i += 2\n"
+            "        elif rest[i] == '-t' and i + 1 < len(rest):\n"
+            "            target = rest[i + 1]\n"
+            "            i += 2\n"
+            "        else:\n"
+            "            i += 1\n"
+            "    for row in DATA['clients']:\n"
+            "        if target and target.startswith('$') and row.get('session_id') != target:\n"
+            "            continue\n"
+            "        print(fmt_row(fmt, row))\n"
+            "    raise SystemExit(0)\n"
+            "if cmd == 'display-message':\n"
+            "    client_key = None\n"
+            "    target_key = None\n"
+            "    fmt = '#{session_id}|#{window_id}|#{pane_id}|#{window_zoomed_flag}'\n"
+            "    i = 0\n"
+            "    while i < len(rest):\n"
+            "        if rest[i] == '-p':\n"
+            "            i += 1\n"
+            "        elif rest[i] == '-c' and i + 1 < len(rest):\n"
+            "            client_key = rest[i + 1]\n"
+            "            i += 2\n"
+            "        elif rest[i] == '-t' and i + 1 < len(rest):\n"
+            "            target_key = rest[i + 1]\n"
+            "            i += 2\n"
+            "        elif rest[i] == '-F' and i + 1 < len(rest):\n"
+            "            fmt = rest[i + 1]\n"
+            "            i += 2\n"
+            "        else:\n"
+            "            fmt = rest[i]\n"
+            "            i += 1\n"
+            "    row = None\n"
+            "    if client_key is not None:\n"
+            "        row = DATA['display_by_c'].get(client_key)\n"
+            "    elif target_key is not None:\n"
+            "        row = DATA['display_by_t'].get(target_key)\n"
+            "    if row is None:\n"
+            "        raise SystemExit(1)\n"
+            "    print(fmt_row(fmt, row))\n"
+            "    raise SystemExit(0)\n"
+            "raise SystemExit(0)\n",
+            encoding="utf-8",
+        )
+        os.chmod(script_path, 0o755)
+        return script_path
+
+    def _setup_multi_session_record(self, *, session_id: str = "$1") -> tuple[dict, dict]:
+        record = copy.deepcopy(self.record)
+        record["session_id"] = session_id
+        record["server_instance_id"] = "server-instance-1"
+        server = copy.deepcopy(self.server)
+        server["session_id"] = session_id
+        server["server_instance_id"] = "server-instance-1"
+        self.viewer._ensure_state_root()
+        key = self.viewer._registry_key(
+            record["socket_path"], record["session_id"], record["server_instance_id"]
+        )
+        self.viewer._write_entry(
+            self.viewer._registry_path(key),
+            {"state": "attached", "record": copy.deepcopy(record), "server": copy.deepcopy(server)},
+        )
+        return record, server
+
+    @staticmethod
+    def _tree_snapshot(root: Path) -> list[tuple[str, int, int, int, str]]:
+        entries: list[tuple[str, int, int, int, str]] = []
+        paths = [root, *sorted(root.rglob("*"))]
+        for path in paths:
+            st = path.lstat()
+            rel = "." if path == root else path.relative_to(root).as_posix()
+            digest = (
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                if path.is_file() and not path.is_symlink()
+                else ""
+            )
+            entries.append((rel, st.st_mode, st.st_size, st.st_mtime_ns, digest))
+        return entries
+
+    def test_verify_visible_matches_expected_tty_via_list_clients_when_two_sessions_attached(self) -> None:
+        record, server = self._setup_multi_session_record(session_id="$1")
+        fake_tmux = self._write_fake_tmux(
+            "fake_tmux_multi",
+            clients=[
+                {
+                    "client_tty": "/dev/ttys007",
+                    "client_pid": "456",
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%1",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached,read-only",
+                    "client_control_mode": "0",
+                    "client_readonly": "1",
+                },
+                {
+                    "client_tty": "/dev/ttys099",
+                    "client_pid": "789",
+                    "session_id": "$2",
+                    "window_id": "@2",
+                    "pane_id": "%2",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached",
+                    "client_control_mode": "0",
+                    "client_readonly": "0",
+                },
+            ],
+            # Simulate tmux 3.6a display-message -p -c returning the most-recently-active session ($2).
+            display_by_c={
+                "/dev/ttys007": {
+                    "session_id": "$2",
+                    "window_id": "@2",
+                    "pane_id": "%2",
+                    "window_zoomed_flag": "0",
+                }
+            },
+            display_by_t={
+                "%1": {
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%1",
+                    "window_zoomed_flag": "0",
+                }
+            },
+        )
+        with patch.object(self.viewer, "_server_snapshot", return_value=copy.deepcopy(server)), \
+             patch.object(self.viewer, "_run_iterm_script", side_effect=self._run_iterm_script):
+            result = self.viewer.verify_visible(
+                record, tmux_binary=str(fake_tmux), pane_id="%1", window_id="@1",
+            )
+        self.assertEqual("verified", result["status"])
+        self.assertEqual("verified_visible", result["reason"])
+        self.assertEqual("/dev/ttys007", result["evidence"]["tmux_client"]["tty"])
+        self.assertEqual("%1", result["evidence"]["target"]["pane_id"])
+
+    def test_verify_visible_fails_when_expected_tty_detached_or_on_wrong_pane(self) -> None:
+        record, server = self._setup_multi_session_record(session_id="$1")
+        detached_tmux = self._write_fake_tmux(
+            "fake_tmux_detached",
+            clients=[
+                {
+                    "client_tty": "/dev/ttys099",
+                    "client_pid": "789",
+                    "session_id": "$2",
+                    "window_id": "@2",
+                    "pane_id": "%2",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached",
+                    "client_control_mode": "0",
+                    "client_readonly": "0",
+                },
+            ],
+        )
+        wrong_window_tmux = self._write_fake_tmux(
+            "fake_tmux_wrong_window",
+            clients=[
+                {
+                    "client_tty": "/dev/ttys007",
+                    "client_pid": "456",
+                    "session_id": "$1",
+                    "window_id": "@9",
+                    "pane_id": "%9",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached,read-only",
+                    "client_control_mode": "0",
+                    "client_readonly": "1",
+                },
+                {
+                    "client_tty": "/dev/ttys099",
+                    "client_pid": "789",
+                    "session_id": "$2",
+                    "window_id": "@2",
+                    "pane_id": "%2",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached",
+                    "client_control_mode": "0",
+                    "client_readonly": "0",
+                },
+            ],
+            display_by_c={
+                "/dev/ttys007": {
+                    "session_id": "$1",
+                    "window_id": "@9",
+                    "pane_id": "%9",
+                    "window_zoomed_flag": "0",
+                }
+            },
+            display_by_t={
+                "%1": {
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%1",
+                    "window_zoomed_flag": "0",
+                }
+            },
+        )
+        zoomed_other_tmux = self._write_fake_tmux(
+            "fake_tmux_zoomed_other",
+            clients=[
+                {
+                    "client_tty": "/dev/ttys007",
+                    "client_pid": "456",
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%9",
+                    "window_zoomed_flag": "1",
+                    "client_flags": "attached,read-only",
+                    "client_control_mode": "0",
+                    "client_readonly": "1",
+                },
+            ],
+            display_by_c={
+                "/dev/ttys007": {
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%9",
+                    "window_zoomed_flag": "1",
+                }
+            },
+            display_by_t={
+                "%1": {
+                    "session_id": "$1",
+                    "window_id": "@1",
+                    "pane_id": "%1",
+                    "window_zoomed_flag": "1",
+                }
+            },
+        )
+        with patch.object(self.viewer, "_server_snapshot", return_value=copy.deepcopy(server)), \
+             patch.object(self.viewer, "_run_iterm_script", side_effect=self._run_iterm_script):
+            detached_res = self.viewer.verify_visible(
+                record, tmux_binary=str(detached_tmux), pane_id="%1", window_id="@1",
+            )
+            self.assertEqual("unavailable", detached_res["status"])
+            self.assertEqual("viewer_client_detached", detached_res["reason"])
+
+            wrong_win_res = self.viewer.verify_visible(
+                record, tmux_binary=str(wrong_window_tmux), pane_id="%1", window_id="@1",
+            )
+            self.assertEqual("unavailable", wrong_win_res["status"])
+            self.assertEqual("target_window_not_current", wrong_win_res["reason"])
+
+            zoomed_res = self.viewer.verify_visible(
+                record, tmux_binary=str(zoomed_other_tmux), pane_id="%1", window_id="@1",
+            )
+            self.assertEqual("unavailable", zoomed_res["status"])
+            self.assertEqual("target_pane_hidden_by_zoom", zoomed_res["reason"])
+
+    def test_doctor_viewers_reports_json_without_creating_or_mutating_state_files(self) -> None:
+        doctor_root = Path(self.temp.name) / "doctor-root"
+        doctor_root.mkdir(mode=0o700)
+        state_dir = doctor_root / "state"
+        state_dir.mkdir(mode=0o700)
+        socket_path = doctor_root / "server.sock"
+        config_path = doctor_root / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tui": {
+                        "enabled": True,
+                        "terminal": "auto",
+                        "mode": "tmux",
+                        "keep_open": False,
+                        "allow_input": True,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        os.chmod(config_path, 0o600)
+        seeded_viewer = Viewer(state_dir)
+        seeded_viewer._ensure_state_root()
+        seeded_record = copy.deepcopy(self.record)
+        seeded_record["socket_path"] = str(socket_path)
+        seeded_server = copy.deepcopy(self.server)
+        seeded_server["socket_path"] = str(socket_path)
+        key = seeded_viewer._registry_key(
+            seeded_record["socket_path"], seeded_record["session_id"], seeded_record["server_instance_id"]
+        )
+        seeded_viewer._write_entry(
+            seeded_viewer._registry_path(key),
+            {"state": "attached", "record": seeded_record, "server": seeded_server},
+        )
+
+        fake_tmux = self._write_fake_tmux(
+            "fake_tmux_doctor",
+            clients=[
+                {
+                    "client_tty": "/dev/ttys007",
+                    "client_pid": "456",
+                    "session_id": "$7",
+                    "window_id": "@8",
+                    "pane_id": "%2",
+                    "window_zoomed_flag": "0",
+                    "client_flags": "attached,read-only",
+                    "client_control_mode": "0",
+                    "client_readonly": "1",
+                }
+            ],
+        )
+        before = self._tree_snapshot(doctor_root)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exit_code = cli_module.main(
+                [
+                    "--state-dir", str(state_dir),
+                    "--config", str(config_path),
+                    "--socket", str(socket_path),
+                    "--tmux-binary", str(fake_tmux),
+                    "doctor",
+                    "--viewers",
+                ]
+            )
+        after = self._tree_snapshot(doctor_root)
+        self.assertEqual(before, after)
+        self.assertEqual(0, exit_code)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual("ok", payload["status"])
+        self.assertIn("viewers", payload["data"])
 
 
 if __name__ == "__main__":
