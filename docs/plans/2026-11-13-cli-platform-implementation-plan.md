@@ -23,6 +23,118 @@
   - Viewer-isolation incident postmortems: `docs/incidents/2026-11-12-viewer-isolation-agy-handoff.md` and `docs/incidents/2026-11-13-viewer-isolation-diagnosis-and-orchestration-plan.md`
   - Interactive UI prototype: `docs/design/workbench-mockup.html` (2,382 lines)
   - Package layout note (requires refresh in `T1.2`): `docs/design/project-structure.md`
+- **Revision Note (2026-11-13, TDD & SDD Encoding):** Planning-only revision over initial plan commit `61ce9c9` (`1,111` lines; repo `HEAD` `53863f6`). Adds the TDD + SDD diagnosis and methodology (`§0`), per-phase Mermaid parallel/barrier topologies (`§2`), mechanical per-task TDD/SDD/integration/review fields across all 25 tasks (`T0.1`–`T5.2`, `TX.1`–`TX.5`), per-task Definition of Ready and extended Definition of Done (`§4.2`), and the phase-level compliance audit table (`§5.4`). No product or test code was modified and no tests were executed in this planning revision; verified baseline counts from `6f488bf` remain unchanged.
+
+---
+
+## 0. Plan Revision Diagnosis & Methodology (TDD + SDD)
+
+### 0.1 Diagnosis of Prior Plan Revision (Commit `61ce9c9`, Lines `1`–`1111`)
+
+Plainly stated: the initial plan (`61ce9c9`) included a single TDD bullet block in its execution loop (`§4.1` Step 3, lines `956`–`964`) and a single generic review-subagent gate (`§4.1` Step 5, lines `969`–`971`; `§4.2` DoD, lines `989`, `993`), **but it did not encode those contracts per task, and it had no Subagent-Driven Development (SDD) role, exclusive file-ownership, or conflict-serialization model.** Judged against explicit TDD and SDD criteria (line numbers below cite `61ce9c9`):
+
+- **TDD Coverage vs. Gaps:**
+  - *What `61ce9c9` covered:* `§4.1` Step 3 (lines `956`–`959`) instructed future sessions to write Step 1 tests first, confirm RED failure, and write minimal code; `§4.2` DoD (line `989`) had one generic `"TDD proven"` checkbox; `§3` (lines `878`–`924`) listed test-matrix commands; and 22 of the 25 tasks (`§2` lines `174`–`849`) put test authoring in Step 1 and a failure run in Step 2.
+  - *What `61ce9c9` lacked:*
+    1. **Missing RED runs and missing RED failure signatures:** Three tasks omitted a pre-code RED run altogether (`TX.1` lines `711`–`720`, `TX.5` lines `812`–`816`, `T5.2` lines `859`–`864`), and 20 of the remaining 22 tasks said only `"and confirm failure"` (lines `184`, `229`, `251`, `275`, `304`, `337`, `365`, `396`, `422`, `457`, `479`, `524`, `563`, `594`, `627`, `659`, `686`, `743`, `767`, `840`) — only `T0.2` (line `205`) and `TX.4` (line `791`) named an expected RED error signature.
+    2. **No structured per-task test-first specification or negative/edge scope rule:** None of the 25 tasks (`§2` lines `174`–`870`) carried a `Test-first plan (TDD)` field naming positive, negative/refusal, and boundary/edge test cases to commit/exist in the repo before touching production files, and several numbered steps abbreviated GREEN runs to bare filenames (`Run test_worktree.py`, lines `337`, `365`, `396`, `422`, `524`, `563`, `594`, `627`, `659`, `686`, `743`, `767`).
+    3. **Missing TDD invariants, fake rules, and refactor discipline:** `§4.1` (lines `956`–`964`) did not state how to record RED/GREEN evidence, omitted refactor rules (refactor only after GREEN while keeping tests green, zero new behavior), lacked an explicit ban on production changes without a failing test and on weakening tests to pass, and gave no protocol for deterministic fakes (`fake_acp_agent.py`, `fake_headless_cli.py`, fake `tmux`).
+- **SDD Coverage vs. Gaps:**
+  - *What `61ce9c9` covered:* `§4.1` Step 5 (lines `969`–`971`) required one `auto-review-gate` subagent pass (`"at most 2 concurrent subagents, no deeper fan-out"` on line `970`), and `§4.4` (lines `1008`–`1024`) distinguished legacy `goals_tmux` pane workers from task settlement.
+  - *What `61ce9c9` lacked:*
+    1. **Zero SDD role or ownership model:** Neither `§2` (lines `120`–`870`) nor `§4` (lines `928`–`1024`) defined `Planner`, `Test Author`, `Implementer`, `Integrator`, or `Verifier`, nor enforced exclusive single-writer file ownership per subagent.
+    2. **Unresolved write collisions across implied parallel branches:** The ASCII dependency tree (`§2` lines `130`–`168`) visually grouped tasks that touch the exact same files without serialization barriers — specifically `T0.2` vs. `T0.3` (`runtime/goals_tmux/coordination.py`, `tests/test_coordination.py`), `T0.3` vs. `T0.4` (`runtime/goals_tmux/cli.py`), `T2.1` vs. `T2.2` (10 shared files including `events.py`, `errors.py`, `supervisor.py`, `__main__.py`, `i18n/*.json`, `workbench-mockup.html`, `test_i18n.py`, `test_layering.py`), `T4.1` vs. `T4.2` (`__main__.py`, `i18n/*.json`, `workbench-mockup.html`, `test_i18n.py`, `test_layering.py`), and `TX.3` / `TX.4` / `TX.5` (`supervisor.py`, `adapters/headless.py`, `cli-platform.toml`).
+    3. **Missing per-task SDD fields, topologies, handoffs, and DoR:** Tasks lacked `Subagent assignment (SDD)`, `Integration checkpoint`, and task-specific `Review gate` fields; phases lacked Mermaid parallel-group/barrier/integrator topologies; `§4` lacked a handoff packet schema and lacked any Definition of Ready (`DoR`, `§4.2` lines `985`–`995`).
+
+---
+
+### 0.2 Test-Driven Development (TDD) Protocol
+
+1. **Iron Law (Tests Exist Before Production Code):**
+   - **No production file, configuration file, i18n catalog, HTML mockup, or runtime script may be created or modified without a failing test already written in the repository.**
+   - If any production code is written before its test exists and fails, that production change must be reverted (`git checkout -- <path>` / `rm`) and re-implemented cleanly from the failing test.
+   - **Never weaken a test to pass:** A test authored in `RED` may never be deleted, `@unittest.skip`ped, loosened (`assertEqual` -> `assertTrue`), wrapped in broad `except`, or satisfied by adding forbidden entries to `test_layering.py` (`MAY_IMPORT` / `OBSERVATION_MAY_EVALUATE`). Under SDD (`§0.3`), `Implementer` has zero write ownership over test files; if a test genuinely contradicts `Final Design` or `ACP Assessment`, `Implementer` halts and escalates via `open_questions` for `Planner` + `Test Author`.
+
+2. **Four-Step Cycle (`RED -> Verify RED -> GREEN -> REFACTOR`):**
+   - **Step A — Author Failing Tests (`RED`):** `Test Author` writes named test cases in the task's target `tests/*.py` or `cli_platform/tests/*.py` file(s) (and registers any new `cli_platform` module in `test_layering.py` `LAYER`). Every task's test suite must cover:
+     - *Positive behavior:* primary contract and state/event outputs;
+     - *Negative / refusal cases:* expected `PlatformError` / `DomainError` codes, HTTP `401`/`403`/`405`/`409`/`422`, `PERMISSION_PROFILE_UNSUPPORTED`, `COORDINATOR_SETTLED`, `TASK_SCOPE_VIOLATION`, etc.;
+     - *Boundary / edge cases:* size caps (`16 KiB` / `64 KiB`), torn trailing JSONL lines without `\n`, `SIGKILL` `flock` release, stale SHA-256 CAS digests, `zh-CN` non-coercion to `zh-Hant`, `retry_after > cooldown_max_seconds`, etc.
+   - **Step B — Observe & Record `RED` Signature:** Run the targeted `unittest` command using `tempfile.TemporaryDirectory()` (never touching `~/.local/state/`). Confirm non-zero exit for the **expected missing-feature signature** (`ModuleNotFoundError`, `ImportError`, `AttributeError`, `AssertionError`, or expected `DomainError`/`PlatformError` mismatch) — never syntax typos in the test itself. *(When a brand-new module fails at import with `ModuleNotFoundError`, `Implementer` must verify that an empty stub fails on behavioral `AssertionError` before completing logic so every negative/edge assertion is proven live.)*
+   - **Step C — Minimum Implementation to `GREEN`:** `Implementer` writes the minimal code in owned production/config/i18n/doc files (including 3-locale `en.json`/`ja.json`/`zh-Hant.json` + `i18n_embed.py embed` parity whenever codes/events/incidents change) until the targeted `GREEN` command + `test_layering.py` exit `0`.
+   - **Step D — Refactor Under `GREEN`:** Deduplicate helpers and tighten clarity **only after `GREEN`**, adding zero untested behavior. Re-run the `GREEN` command + `test_layering.py` after every refactor edit to confirm tests stay green.
+
+3. **Recording `RED` and `GREEN` Evidence:**
+   - Every task captures two structured blocks inside its SDD handoff packet (`§0.3`) and summarizes them in `§5.1` at integration:
+     - `RED` record: `{command, exit_code (!= 0), failing_tests: ["<module>.<Class>.<method>", ...], failure_signature: "<ExceptionOrCode>: <exact message>", prod_files_modified: []}` (verified by `git diff --name-only` listing only test/fixture files).
+     - `GREEN` record: `{command, exit_code: 0, pass_summary: "Ran <N> tests ... OK", layering_check: "exit 0", i18n_check: "exit 0 | n/a", post_refactor_rerun: "exit 0"}`.
+
+4. **Deterministic Fakes Protocol (`fake_acp_agent`, `fake_headless_cli`, Fake `tmux`):**
+   - Automated TDD suites run 100% offline with zero live vendor CLI calls, zero network sockets (except loopback `127.0.0.1:0` ephemeral ports in `T4.3`–`T4.5`), and zero touches to live tmux servers:
+     - **`cli_platform/tests/fake_acp_agent.py`:** Scripted stdio JSON-RPC 2.0 ACP agent supporting `--scenario {ok,permission,slow,ignore_cancel,hang_init,bad_version,auth,crash,garbage,not_found,load_only,no_eof_exit}`, `--tool-kind <kind>`, and `--record <jsonl_file>`. Used for `T1.3`, `T2.2`, `T2.3`, `T3.1`, and `TX.2`. Only `Test Author` may add a scenario flag if explicitly listed in owned files; otherwise wrap or parameterize via existing flags in a temp directory.
+     - **`cli_platform/tests/fake_headless_cli.py`:** Replays Phase 0 wire fixtures (`docs/research/phase0-20261113/fixtures/*.json`) or synthetic fixtures (`cli_platform/tests/fixtures/...`) via `--fixture <file> [--record <argv_log>] [--delay <s>] [--hang] [--exit <rc>]`. Used for `T1.1`, `T1.2`, `T2.3`, `TX.2`, `TX.3`, and `TX.4` to assert exact rendered launch flags (`--tools`, `--trust`, `--resume*`) and sanitized environment behavior.
+     - **Fake `tmux` (two repository-standard modes):**
+       1. *Scripted shim / boundary patch (`T0.1`, `T0.4`):* Executable Python/shell `tmux` shim in `tempfile.TemporaryDirectory()` (passed via `PATH` or `tmux_binary`) emitting deterministic `os.getsid(os.getpid())`, `%begin/%end` frames, or multi-session `list-clients -F` rows, or narrow `unittest.mock.patch` on `_run_tmux` (matching `tests/test_events38.py` and `tests/test_viewer_visibility.py`). Never mock the method under test.
+       2. *Disposable isolated tmux server (`T0.5`, `T2.4`, `T5.1`):* `tmux -f /dev/null -S <tempdir>/server.sock` with `TMUX` and `TMUX_PANE` stripped from `env`, guarded by `@unittest.skipUnless(shutil.which("tmux"), ...)` and unconditional `kill-server` + child reap in `tearDown()` (matching `tests/test_native_control.py`).
+
+---
+
+### 0.3 Subagent-Driven Development (SDD) Protocol & Conflict Rule
+
+1. **Roles and Exclusive Write Ownership (One Writer per File):**
+
+   | Role | Session Context | Exclusive File Ownership | Responsibilities |
+   | :--- | :--- | :--- | :--- |
+   | **`Planner`** | Root coordinator | `docs/plans/2026-11-13-cli-platform-implementation-plan.md` (pre-dispatch status / blockers only) | Verifies task Definition of Ready (`§4.2.1`), proves zero file overlap across the active parallel group, enforces `<= 2` active subagents, and sends self-contained task briefs (full task block + owned file list). |
+   | **`Test Author`** | Worker subagent (Stage `RED`) | Task's **test files & test fixtures** only (including `test_layering.py` `LAYER` entry when specified) | Authors failing positive/negative/edge tests + fake wiring before any production edit, runs targeted `RED` command, verifies zero production files in `git status --short`, returns `RED` handoff packet. |
+   | **`Implementer`** | Worker subagent (Stage `GREEN` + `REFACTOR`) | Task's **production, config, i18n, mockup, and doc files** only (**zero** write access to test files) | Consumes `RED` handoff packet, implements minimal production code to pass tests, runs `i18n_embed.py embed`/`check` when required, refactors while staying `GREEN`, never edits/weakens test files, returns `GREEN` handoff packet. |
+   | **`Verifier`** | Independent review subagent (read-only `research` or fresh reviewer; never `Test Author` or `Implementer`) | **None (`0` writable files; read-only)** | Executes two-stage review gate: (1) Spec & TDD compliance (`RED` preceded code, tests unweakened, exact file scope, layer & i18n rules) then (2) Code quality & security (`0600`/`0700`, `O_NOFOLLOW`, `flock`, redaction). Emits `PASS` or `FAIL` with `file:line` citations. |
+   | **`Integrator`** | Root coordinator at Barrier `B-*` | `docs/plans/2026-11-13-cli-platform-implementation-plan.md` (`§5.1` ledger) + Git index / `master` commits | Collects `GREEN` handoffs + `Verifier` `PASS` results for the parallel group, merges `workspace: "share"` branches if used, runs each task's **Integration checkpoint**, updates `§5.1`, creates one atomic conventional commit per task (never pushing), and opens barrier `B-*`. |
+
+2. **Conflict Rule (Hard Serialization Invariant):**
+   - **Rule:** *If two tasks touch the same file — whether a production module (`supervisor.py`, `__main__.py`, `errors.py`, `events.py`, `service.py`, `cli.py`, `coordination.py`, `registry.py`), config file (`cli-platform.toml`), i18n catalog (`en.json`, `ja.json`, `zh-Hant.json`), HTML mockup (`workbench-mockup.html`), doc, or test file (`test_layering.py`, `test_i18n.py`, `test_coordination.py`, `test_viewer_cleanup.py`) — they **cannot** run in the same parallel group.*
+   - Tasks with shared logical `Depends-on` that collide on files (specifically `T0.3` vs. `T0.2`/`T0.4`, `T2.1` vs. `T2.2`, `T4.1` vs. `T4.2`, and `TX.4` vs. `TX.3`/`TX.5`) are separated into sequential groups gated by an explicit dependency barrier `B-*`.
+   - Because `docs/plans/2026-11-13-cli-platform-implementation-plan.md` is owned exclusively by `Integrator` at barriers (never edited by worker subagents), plan-ledger updates never create cross-worker file conflicts.
+
+3. **Parallel Groups, Dependency Barriers, and Concurrency Cap (`<= 2`, Zero Deeper Fan-Out):**
+   - **Hard concurrency cap:** At most **2** subagents may run concurrently across the entire coordinator session (`max_concurrent_subagents = 2`). When a parallel group contains 2 disjoint tasks (`L0-G1: {T0.2, T0.4}`, `L0-G2: {T0.1, T0.3}`, `XC-G1: {TX.3, TX.5}`, `XC-G3: {TX.2, TX.1}`), each task occupies at most 1 active subagent slot at a time (`Test Author` -> `Implementer` -> `Verifier`), preferably using `workspace: "share"` worktrees merged by `Integrator` at the group barrier.
+   - **No deeper fan-out:** Subagents run strictly at depth `1` and are forbidden from invoking nested subagents or swarms (`EnableSubagentTools = false`).
+   - **Barrier semantics:** No task in group `G(k+1)` may enter `RED` until `Integrator` has verified `Verifier = PASS`, passed the `Integration checkpoint`, updated `§5.1`, and committed every required upstream task at barrier `B(k)`.
+
+4. **Handoff Artifact Schema:**
+   - Every `Test Author` (`stage: "RED"`) and `Implementer` (`stage: "GREEN"`) reply must include this exact 5-part handoff artifact:
+     ```yaml
+     handoff:
+       spec:
+         task_id: "<T0.1..T5.2 | TX.1..TX.5>"
+         phase: "<L0 | P1.5 | P2 | P3 | P4 | XC | P5>"
+         parallel_group: "<group_id>"
+         waits_on_barrier: "<B-*>"
+         stage: "<RED | GREEN>"
+       owned_files:
+         role: "<Test Author | Implementer>"
+         allowed: ["<exact/path/1>", "..."]
+         touched: ["<exact/path/1>", "..."]   # from git status --short; must be subset of allowed
+       diff:
+         stat: "<git diff --stat summary>"
+         summary: "<1-3 mechanical bullets; for GREEN confirm 0 test-file edits>"
+       red_green_output:
+         red:
+           command: "<exact unittest command>"
+           exit_code: 1
+           signature: "<ExceptionType/ErrorCode: exact failing line>"
+         green:                              # null in RED handoff; populated in GREEN handoff
+           command: "<exact unittest command>"
+           exit_code: 0
+           summary: "Ran <N> tests in <T>s - OK"
+       open_questions: []                    # empty if clean; otherwise blocker/spec questions for Planner
+     ```
+
+5. **Independent Review Gate (`Verifier` Two-Stage Check):**
+   - Triggered mandatory per task after `Implementer` `GREEN` handoff and before `Integrator` checkpoint/commit:
+     - **Stage 1 (Spec & TDD Compliance — checked first):** Confirms `RED` handoff preceded `GREEN`, `Test Author` tests cover positive + negative + edge cases, `Implementer` touched zero test assertions and zero unowned files, and every task requirement (and nothing extra) is implemented.
+     - **Stage 2 (Code Quality, Layering & Security — checked only after Stage 1 passes):** Confirms `test_layering.py` / `i18n_embed.py check` invariants, `0600`/`0700` + `O_NOFOLLOW` + atomic `fsync`/`os.replace` hygiene, secret redaction, and clean resource teardown.
+   - Any `Critical` or `Important` defect yields `Review Gate: FAIL` (`file:line` cited); after fixes, `Verifier` re-reviews (mandatory re-dispatch whenever `> 5` lines change or any `Critical`/`Important` issue was fixed) until `Review Gate: PASS`.
 
 ---
 
@@ -171,6 +283,31 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 
 ### Phase L0 — Legacy `goals_tmux` Runtime Stabilization (First Priority)
 
+#### Phase L0 SDD Topology (`cap <= 2`, Conflict-Free File Partition)
+
+`T0.3` shares `coordination.py` / `test_coordination.py` with `T0.2` and `cli.py` with `T0.4`, so the §0.3 Conflict Rule separates `T0.2 || T0.4` (`L0-G1`) from `T0.1 || T0.3` (`L0-G2`), followed by `T0.5` (`L0-G3`):
+
+```mermaid
+flowchart LR
+  B0["Barrier B-START (TM-BASE02 green)"] --> G1A & G1B
+  subgraph L0G1["Parallel Group L0-G1 (cap = 2, disjoint files)"]
+    G1A["T0.2: settlement-report.json (coordination.py, test_coordination.py)"]
+    G1B["T0.4: verify_visible + doctor --viewers (viewer.py, cli.py, test_viewer_visibility.py)"]
+  end
+  G1A & G1B --> INT1["Integrator + Verifier"] --> BL01["Barrier B-L0.1"]
+  BL01 --> G2A & G2B
+  subgraph L0G2["Parallel Group L0-G2 (cap = 2, disjoint files)"]
+    G2A["T0.1: collector setsid (collector.py, test_events38.py)"]
+    G2B["T0.3: task abort phase (registry.py, coordination.py, service.py, cli.py, test_coordination/service/viewer_cleanup)"]
+  end
+  G2A & G2B --> INT2["Integrator + Verifier"] --> BL02["Barrier B-L0.2"]
+  BL02 --> G3A
+  subgraph L0G3["Parallel Group L0-G3 (cap = 1, depends on T0.1-T0.4)"]
+    G3A["T0.5: reconcile-orphans (registry.py, service.py, cli.py, test_reconciliation.py, test_viewer_cleanup.py)"]
+  end
+  G3A --> INT3["Integrator (Full L0 Suite + Commit)"] --> BL03["Barrier B-L0.3 (Phase L0 Complete)"]
+```
+
 #### Task `T0.1`: Detach Control Mode Collector via `setsid` (`start_new_session=True`)
 - **Phase:** `L0` (Legacy tmux Runtime Stabilization)
 - **Depends-on:** None
@@ -179,6 +316,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 - **Exact files to touch:**
   - Modify: `runtime/goals_tmux/collector.py:445-485` (`watch()` `subprocess.Popen` call and termination cleanup)
   - Test: `tests/test_events38.py`
+- **Test-first plan (TDD):** Add to `tests/test_events38.py` before editing `collector.py`: (1) `test_watch_spawns_control_client_in_new_session` (fake `tmux` script prints `os.getsid(0)`; asserts `start_new_session=True` and `child_sid != os.getsid(os.getpid())`), (2) negative/edge `test_watch_timeout_and_eof_reap_detached_child_without_zombie` (`os.waitpid(pid, os.WNOHANG)` raises `ChildProcessError` after `watch()` exits or times out). Expected `RED` signature: `AssertionError: child_sid == parent_sid` (`collector.py:445` omits `start_new_session=True`).
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_events38.py`; `Implementer` owns `runtime/goals_tmux/collector.py`; parallel group `L0-G2` (paired with `T0.3`, zero shared files); waits on `B-L0.1` (`B-START` if run standalone).
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest tests.test_events38 tests.test_native_control -v` exits `0`; artifact: handoff transcript recording `child_sid != parent_sid` and `OK` summary.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `start_new_session=True` in `collector.py:watch()`, deterministic child reap on EOF/timeout, zero edits outside owned files, and unweakened `RED -> GREEN` evidence.
 - **Numbered implementation steps:**
   1. Write a failing test in `tests/test_events38.py` spawning `collector.watch()` against a scripted fake tmux Control Mode binary that prints its `os.getsid(os.getpid())`, asserting `start_new_session=True` and `child_sid != os.getsid(os.getpid())`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_events38 -v` and confirm failure.
@@ -200,6 +341,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 - **Exact files to touch:**
   - Modify: `runtime/goals_tmux/coordination.py:390-410` (`_task_view` hydration) and `runtime/goals_tmux/coordination.py:1019-1056` (`settle()`)
   - Test: `tests/test_coordination.py`
+- **Test-first plan (TDD):** Add to `tests/test_coordination.py` before editing `coordination.py`: (1) `test_settle_large_resource_report_writes_artifact_and_avoids_metadata_too_large` (64 KiB `resource_report`, `count=12`, `unsettled_count=0`, hydrated via `_task_view()`), (2) edge `test_settle_idempotent_replay_and_legacy_inline_compat` (identical re-settle succeeds; legacy inline `task_settled` still hydrates), (3) negative `test_settle_rejects_unsettled_or_mismatched_re_settle` (`unsettled_count=1` raises `RESOURCES_UNSETTLED`; altered re-settle report raises conflict). Expected `RED` signature: `CoordinationError: METADATA_TOO_LARGE: resource_report exceeds 16384 bytes`.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_coordination.py`; `Implementer` owns `runtime/goals_tmux/coordination.py`; parallel group `L0-G1` (paired with `T0.4`, zero shared files); waits on `B-START`.
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest tests.test_coordination tests.test_service -v` exits `0`; artifact: `<tmp_state>/audits/<task_id>/settlement-report.json` (`0600`, `>= 65536` bytes) paired with `< 4096`-byte `task_settled` line in `events.jsonl`.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `0600` + `O_NOFOLLOW` + `fsync` + `os.replace` write of `settlement-report.json`, `< 4096`-byte event line, intact `RESOURCES_UNSETTLED` refusal, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Add `test_settle_large_resource_report_writes_artifact_and_avoids_metadata_too_large` in `tests/test_coordination.py` passing a 64 KiB `resource_report` (`count=12, unsettled_count=0`) to `TaskStore.settle()`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_coordination -v` and confirm failure (`METADATA_TOO_LARGE: resource_report exceeds 16384 bytes`).
@@ -224,6 +369,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/service.py:285-287,364-367,1335-1342,1424-1430` (block new dispatches when `aborted`, and allow `cleanup_task_viewers()` + `auto_owned` pane close when `phase in {"finalizing", "aborted", "settled"}`)
   - Modify: `runtime/goals_tmux/cli.py:75-96,184-212` (add `task abort` subcommand, transitioning open registry records to `coordinator_phase = "aborted"`, `monitor_status = "stopped"`)
   - Test: `tests/test_coordination.py`, `tests/test_service.py`, `tests/test_viewer_cleanup.py`
+- **Test-first plan (TDD):** Add to `tests/test_coordination.py`, `tests/test_service.py`, and `tests/test_viewer_cleanup.py` before code: (1) `test_abort_unaccepted_task_unblocks_pane_close_viewer_cleanup_and_settle` (`active -> aborted -> settled` with `accepted is None`), (2) negative `test_aborted_task_rejects_new_dispatch_and_empty_reason` (business dispatch blocked when `phase == "aborted"`; blank `--reason` refused), (3) edge `test_abort_rejects_already_settled_task` (`settled -> aborted` refused). Expected `RED` signature: `AttributeError: 'TaskStore' object has no attribute 'abort'` and CLI `SystemExit: 2` (`invalid choice: 'abort'`).
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_coordination.py`, `tests/test_service.py`, `tests/test_viewer_cleanup.py`; `Implementer` owns `runtime/goals_tmux/registry.py`, `runtime/goals_tmux/coordination.py`, `runtime/goals_tmux/service.py`, `runtime/goals_tmux/cli.py`; parallel group `L0-G2` (paired with `T0.1`, zero shared files); waits on `B-L0.1` (serialized after `T0.2` on `coordination.py` and `T0.4` on `cli.py`).
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest tests.test_coordination tests.test_service tests.test_viewer_cleanup -v` and `PYTHONPATH=runtime python3 -m goals_tmux.cli task abort --help` both exit `0`; artifact: post-abort `task show` JSON (`"phase": "settled"`, `"accepted": null`).
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires all 4 `service.py` phase guards updated, `"aborted"` in `COORDINATOR_PHASES`, no fabricated `accepted` record, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write failing tests across `tests/test_coordination.py` and `tests/test_service.py`: create an active task with an `auto_owned` pane and a viewer receipt, confirm `close` and `cleanup_task_viewers` fail with `FINALIZATION_REQUIRED`, then call `task abort --reason "superseded" --monitor-stopped`, close the pane, run `cleanup_task_viewers`, and run `task settle`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_coordination tests.test_service tests.test_viewer_cleanup -v` and confirm failure.
@@ -246,6 +395,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/viewer.py:819-855` (`read_tmux_views` in `verify_visible` + `diagnose_viewers`)
   - Modify: `runtime/goals_tmux/cli.py:41-48,228-240` (`doctor --viewers`)
   - Test: `tests/test_viewer_visibility.py`
+- **Test-first plan (TDD):** Add to `tests/test_viewer_visibility.py` before editing `viewer.py`/`cli.py`: (1) `test_verify_visible_matches_expected_tty_via_list_clients_when_two_sessions_attached` (fake `tmux` returns wrong session `$2` on `display-message -p -c` and both `$1`/`$2` on `list-clients -F`), (2) negative `test_verify_visible_fails_when_expected_tty_detached_or_on_wrong_pane`, (3) edge `test_doctor_viewers_reports_json_without_creating_or_mutating_state_files` (read-only tree digest check). Expected `RED` signature: `ViewerError` / `AssertionError` (`verify_visible` reads `$2` from `display-message -p -c`) and CLI `unrecognized arguments: --viewers`.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_viewer_visibility.py`; `Implementer` owns `runtime/goals_tmux/viewer.py`, `runtime/goals_tmux/cli.py`; parallel group `L0-G1` (paired with `T0.2`, zero shared files); waits on `B-START`.
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest tests.test_viewer_visibility tests.test_viewer_cleanup -v` and `PYTHONPATH=runtime python3 -m goals_tmux.cli --state-dir <tmp> doctor --viewers` both exit `0`; artifact: read-only `doctor --viewers` JSON + unchanged `<tmp>` tree digest.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires zero `display-message.*-c` calls in `verify_visible`, `list-clients -F` matched by `expected_tty`, zero writes in `doctor --viewers`, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Add a failing test in `tests/test_viewer_visibility.py` simulating two attached clients on sessions `$1` and `$2` where `display-message -p -c` returns `$2` while `list-clients -F` shows `expected_tty` attached to `$1` / `pane_id`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_viewer_visibility -v` and confirm failure.
@@ -270,6 +423,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/service.py:1410-1450`
   - Modify: `runtime/goals_tmux/cli.py:110-125,241-265`
   - Test: `tests/test_reconciliation.py`, `tests/test_viewer_cleanup.py`
+- **Test-first plan (TDD):** Add to `tests/test_reconciliation.py` and `tests/test_viewer_cleanup.py` before code: (1) `test_reconcile_orphans_reaps_settled_auto_owned_session_and_open_viewer_receipt`, (2) edge `test_reconcile_orphans_dry_run_reports_without_mutating_registry_or_tmux`, (3) negative `test_settled_pane_still_refuses_send_input_and_never_reaps_adopted_user_sessions` (`COORDINATOR_SETTLED` preserved on `invoke`; non-`auto_owned` sessions untouched). Expected `RED` signature: `AttributeError: 'Service' object has no attribute 'reconcile_orphans'` / `RegistryError: COORDINATOR_SETTLED`.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_reconciliation.py`, `tests/test_viewer_cleanup.py`; `Implementer` owns `runtime/goals_tmux/registry.py`, `runtime/goals_tmux/service.py`, `runtime/goals_tmux/cli.py`; parallel group `L0-G3` (solo); waits on `B-L0.2` (`T0.1`–`T0.4` integrated).
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest discover -s tests -t . && PYTHONPATH=runtime python3 -m unittest discover -s runtime/tests -t runtime/tests -v` exits `0` (full Phase `L0` boundary suite); artifact: `--dry-run` vs live `registry reconcile-orphans` JSON report.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `allow_post_settlement_reap` restricted strictly to `cleanup_status="closed"`/`reaped_at`, `COORDINATOR_SETTLED` intact on `invoke`, adopted sessions untouched, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write a failing test in `tests/test_reconciliation.py` with a `settled` task that still has a live `auto_owned` session and open viewer receipt: verify `--dry-run` lists both without mutation, and live mode kills the session, closes the receipt, and succeeds without `COORDINATOR_SETTLED`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_reconciliation -v` and confirm failure.
@@ -287,6 +444,29 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 
 ### Phase P1.5 — Platform Hardening: Write-Time Redaction, `D07`/`D08` Snapshots & Detached Turn Worker
 
+#### Phase P1.5 SDD Topology (`cap = 1`, Sequential Dependency + Shared `events.py` / `supervisor.py`)
+
+`T1.1 -> T1.2 -> T1.3` form a strict dependency chain and share `events.py` (`T1.1`, `T1.2`), `supervisor.py` (`T1.1`, `T1.2`, `T1.3`), and `test_layering.py` (`T1.1`, `T1.2`, `T1.3`), so each task runs in its own single-task group:
+
+```mermaid
+flowchart LR
+  BP0["Barrier B-START / B-L0.3 (TM-BASE01 green)"] --> P15G1
+  subgraph P15G1["Parallel Group P1.5-G1 (cap = 1)"]
+    T11["T1.1: Write-time redaction (redact.py, events.py, normalize.py, supervisor.py)"]
+  end
+  P15G1 --> INT11["Integrator + Verifier"] --> BP151["Barrier B-P1.5.1"]
+  BP151 --> P15G2
+  subgraph P15G2["Parallel Group P1.5-G2 (cap = 1, depends on T1.1)"]
+    T12["T1.2: D07/D08 snapshots, config stream, fold_limits, section 19.6 fields"]
+  end
+  P15G2 --> INT12["Integrator + Verifier"] --> BP152["Barrier B-P1.5.2"]
+  BP152 --> P15G3
+  subgraph P15G3["Parallel Group P1.5-G3 (cap = 1, depends on T1.2)"]
+    T13["T1.3: Detached setsid _run-turn worker + RunService.wait"]
+  end
+  P15G3 --> INT13["Integrator (Full P1.5 Suite + Commit)"] --> BP153["Barrier B-P1.5.3 (Phase P1.5 Complete)"]
+```
+
 #### Task `T1.1`: End-to-End Write-Time Secret Redaction (`redact.py`, `RawLog`, `StreamLog`, `redactions` Counter)
 - **Phase:** `P1.5` (Security & Event Foundation)
 - **Depends-on:** None
@@ -299,6 +479,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/supervisor.py:213-232` (`RawLog.append` scrubs `line` and records `"redactions": count`)
   - Modify: `cli_platform/tests/test_layering.py:28-38` (register `"redact": "configuration"` in `LAYER`)
   - Test: `cli_platform/tests/test_redact.py` (new), `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Register `"redact": "configuration"` in `cli_platform/tests/test_layering.py` and create `cli_platform/tests/test_redact.py` before `redact.py`: (1) `test_raw_log_and_stream_log_scrub_tokens_headers_urls_secret_keys_and_env_allow_values` (via `fake_headless_cli.py`), (2) `test_written_events_record_exact_integer_redactions_count`, (3) negative/edge `test_sha256_digests_run_ids_paths_and_short_env_values_under_8_chars_are_not_false_redacted`. Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.redact'` (and `test_layering.py` missing-module failure).
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_redact.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/redact.py`, `cli_platform/src/cli_platform/events.py`, `cli_platform/src/cli_platform/normalize.py`, `cli_platform/src/cli_platform/supervisor.py`; parallel group `P1.5-G1` (solo); waits on `B-START` (`B-L0.3` in priority order).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_*.py" -v` exits `0` (shared `configuration`/`event` boundary suite); artifact: `grep -R "secret9876543210" <tmp_state>` exit code `1` + `events.jsonl` `"redactions"` lines.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `redact.py` importing only `"configuration"`, scrubbing before disk write in both `RawLog.append` and `StreamLog.append`, zero secret persistence in memory/config, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Register `"redact": "configuration"` in `test_layering.py` and create `cli_platform/tests/test_redact.py` testing: (a) a fake CLI turn echoing `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-secret9876543210`, `Authorization: Bearer eyJhbG...`, `https://u:p@example.com`, and `{"api_key": "topsecret123"}` leaves zero raw secret substrings in `runs/<nickname>-<run_id>/raw.jsonl` or `events.jsonl`; (b) written event dicts in `events.jsonl` include `"redactions": N` (`N >= 1` when scrubbed, `0` otherwise); (c) 64-hex SHA-256 digests, run IDs, and file paths are not falsely redacted.
   2. Run `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_redact.py"` and confirm failure.
@@ -332,6 +516,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Modify: `docs/design/project-structure.md`
   - Test: `cli_platform/tests/test_events.py`, `cli_platform/tests/test_limiter.py`, `cli_platform/tests/test_runner.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Add to `test_events.py`, `test_limiter.py`, `test_runner.py`, `test_i18n.py`, and `test_layering.py` before code: (1) `test_config_stream_and_snapshot_as_of_seq_roundtrip`, (2) `test_fold_limits_matches_limits_state_json_across_queue_grant_release_reap_and_rate_limit`, (3) `test_runs_index_and_section_19_6_event_and_state_fields_populated` (via `fake_acp_agent.py`), (4) negative/edge `test_invalid_config_appends_config_rejected_and_unchanged_sha256_skips_duplicate_config_applied`. Expected `RED` signature: `ValueError: unknown stream 'config'` and `ImportError: cannot import name 'fold_limits' from 'cli_platform.limiter'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_events.py`, `cli_platform/tests/test_limiter.py`, `cli_platform/tests/test_runner.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{events,snapshots,scanner,limiter,nicknames,supervisor,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`, `docs/design/project-structure.md`; parallel group `P1.5-G2` (solo); waits on `B-P1.5.1` (`T1.1` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_*.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: snapshot `as_of_seq` dump across all 6 snapshot files + `mockup catalogs match`.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires journal-before-snapshot ordering under `limits/lock`, exact `fold_limits(events) == state`, 3-locale parity on `event.config_applied`/`event.config_rejected`, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write failing tests in `test_events.py`, `test_limiter.py`, and `test_runner.py` asserting `"config"` stream round-trip, `limits/state.json["as_of_seq"]` + `fold_limits` equality, `runs/index.jsonl` updates, `adapters/registry.json` + `catalog/state.json` publication, and §19.6 fields on `runs/<nickname>-<run_id>/events.jsonl` & `state.json`.
   2. Run `test_events.py`, `test_limiter.py`, and `test_runner.py` and confirm failure.
@@ -360,6 +548,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/supervisor.py` (`RunService.send(..., detach=False)`, `RunService.wait(...)`)
   - Modify: `cli_platform/src/cli_platform/__main__.py:80-96,169-190` (`run send --detach`, `run wait <run>`, `_run-turn`)
   - Test: `cli_platform/tests/test_detached_supervisor.py` (new), `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_detached_supervisor.py` before editing `supervisor.py`/`__main__.py`: (1) `test_send_detach_survives_parent_exit_and_wait_resolves_idle` (`fake_acp_agent.py` `0.6s` delay; `os.getsid(worker_pid) == worker_pid`), (2) `test_cancel_stops_detached_turn_cleanly`, (3) negative/edge `test_sigkill_worker_reconciles_immediately_and_concurrent_send_refuses_lock_busy` (`SIGKILL` mid-turn resolves `"lost"`/`"failed"` in `< 1s`; second concurrent `send` while locked fails without corrupting state). Expected `RED` signature: `TypeError: RunService.send() got an unexpected keyword argument 'detach'` and `AttributeError: 'RunService' object has no attribute 'wait'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_detached_supervisor.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/supervisor.py`, `cli_platform/src/cli_platform/__main__.py`; parallel group `P1.5-G3` (solo); waits on `B-P1.5.2` (`T1.2` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -v` exits `0` (full Phase `P1.5` boundary suite); artifact: `run send --detach` + `run wait` JSON outputs and `pgrep -fl "cli_platform.*_run-turn"` empty check after test completion.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires close-on-ready pipe after `handle.lock()` acquisition, `start_new_session=True`, zero idle per-run daemons, kernel `flock` death detection without raw PID signal races, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Create `cli_platform/tests/test_detached_supervisor.py` with failing tests: (a) `send(nick, "slow prompt", detach=True)` returns while `fake_acp_agent.py` sleeps `0.6s` (`_holder_alive(handle) == True`), then `wait(nick, timeout_seconds=5)` returns `"state": "idle"` with lease released; (b) spawning `run send <nick> ... --detach` inside a short-lived parent subprocess that exits immediately still completes the turn in a second `run wait <nick>` subprocess (`os.getsid(worker_pid) == worker_pid`); (c) `cancel(nick)` writes `cancel.json` and stops the detached turn cleanly (`state == "cancelled"`); (d) `SIGKILL` of the detached worker releases kernel `flock` on `runs/<nickname>-<run_id>/lock`, and `wait(nick)` immediately reconciles to `"lost"` (when `running`) or `"failed"` (when `starting`) without PID-reuse hazards.
   2. Run `test_detached_supervisor.py` and confirm failure.
@@ -377,6 +569,34 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 
 ### Phase P2 — Task Integration, Worktrees & Human Takeover
 
+#### Phase P2 SDD Topology (`cap = 1`, Conflict-Serialized on Shared `events.py` / `supervisor.py` / `i18n`)
+
+Although `T2.1` and `T2.2` share the same upstream dependency (`T1.3`), both modify `events.py`, `errors.py`, `supervisor.py`, `__main__.py`, `i18n/{en,ja,zh-Hant}.json`, `workbench-mockup.html`, `test_i18n.py`, and `test_layering.py`; the §0.3 Conflict Rule places a conflict barrier (`B-P2.1`) between them:
+
+```mermaid
+flowchart LR
+  BP153["Barrier B-P1.5.3 (T1.3 done)"] --> P2G1
+  subgraph P2G1["Parallel Group P2-G1 (cap = 1)"]
+    T21["T2.1: Isolated git worktree (worktree.py, events/errors/supervisor/__main__/i18n)"]
+  end
+  P2G1 --> INT21["Integrator + Verifier"] --> BP21["Barrier B-P2.1 (file-conflict barrier)"]
+  BP21 --> P2G2
+  subgraph P2G2["Parallel Group P2-G2 (cap = 1, serialized after T2.1)"]
+    T22["T2.2: Human takeover & release (variants/events/errors/supervisor/__main__/i18n)"]
+  end
+  P2G2 --> INT22["Integrator + Verifier"] --> BP22["Barrier B-P2.2"]
+  BL02["Barrier B-L0.2 (T0.2 + T0.3 done)"] & BP22 --> P2G3
+  subgraph P2G3["Parallel Group P2-G3 (cap = 1, depends on T0.2, T0.3, T2.1, T2.2)"]
+    T23["T2.3: goals_tmux run_bridge, auto-observed, disclosure & settlement"]
+  end
+  P2G3 --> INT23["Integrator + Verifier"] --> BP23["Barrier B-P2.3"]
+  BP23 --> P2G4
+  subgraph P2G4["Parallel Group P2-G4 (cap = 1, depends on T1.2 + T2.3)"]
+    T24["T2.4: gt-<nickname> for new managed tmux sessions (D13)"]
+  end
+  P2G4 --> INT24["Integrator (Full P2 Suite + Commit)"] --> BP24["Barrier B-P2.4 (Phase P2 Complete)"]
+```
+
 #### Task `T2.1`: Provision One Isolated `git worktree` per Writing Run
 - **Phase:** `P2` (Task Integration & Human Takeover)
 - **Depends-on:** `T1.3`
@@ -391,6 +611,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Modify: `cli_platform/tests/test_layering.py:28-38` (register `"worktree": "execution"` in `LAYER`)
   - Test: `cli_platform/tests/test_worktree.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Register `"worktree": "execution"` in `test_layering.py` and create `cli_platform/tests/test_worktree.py` before `worktree.py`: (1) `test_create_with_worktree_provisions_branch_and_emits_worktree_prepared`, (2) edge `test_concurrent_read_only_auto_runs_share_cwd_without_conflict`, (3) negative `test_concurrent_bypass_shared_cwd_raises_worktree_conflict_and_dirty_close_raises_worktree_dirty_or_non_git_raises_worktree_failed`. Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.worktree'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_worktree.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{worktree,events,errors,supervisor,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P2-G1` (solo; serialized before `T2.2` by conflict rule); waits on `B-P1.5.3`.
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_worktree.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_i18n.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_layering.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: `git worktree list --porcelain` + `worktree_prepared`/`worktree_cleaned` JSONL records.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `"worktree": "execution"` layer compliance, `WORKTREE_CONFLICT`/`WORKTREE_DIRTY`/`WORKTREE_FAILED` translated in all 3 locales, mockup synced, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Register `"worktree": "execution"` in `test_layering.py` and write failing tests in `cli_platform/tests/test_worktree.py`: (a) `create("development", cwd=repo, worktree=True)` creates `<state_dir>/worktrees/<task>/<nick>` on branch `gt/<task>/<nick>` and appends `worktree_prepared` to `runs/<nickname>-<run_id>/events.jsonl`; (b) a second concurrent `bypass` run on the same `cwd` without `worktree=True` fails with `WORKTREE_CONFLICT`; (c) two `read_only_auto` runs (`code_review`) share `cwd` without error; (d) `close(nick, remove_worktree=True)` refuses uncommitted files with `WORKTREE_DIRTY` unless `force=True`.
   2. Run `test_worktree.py` and confirm failure.
@@ -417,6 +641,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/__main__.py:88-96,178-190` (`run takeover <run>`, `run release <run>`)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Test: `cli_platform/tests/test_takeover.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_takeover.py` before editing production files: (1) `test_build_resume_and_fork_argv_for_all_shipped_variants`, (2) `test_takeover_and_release_record_git_head_and_diff_stat_with_zero_automated_limiter_slots` (via `fake_acp_agent.py`), (3) negative/edge `test_takeover_refuses_created_without_resume_id_or_running_state_and_send_while_handed_off_raises_run_handed_off`. Expected `RED` signature: `ImportError: cannot import name 'build_resume' from 'cli_platform.variants'` and `AttributeError: 'RunService' object has no attribute 'takeover'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_takeover.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{variants,events,errors,supervisor,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P2-G2` (solo); waits on `B-P2.1` (conflict barrier after `T2.1`).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_takeover.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: `takeover_started` and `takeover_released` JSON events + `limits/state.json` showing `leases == {}` during takeover.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires zero `limits/state.json` slots held during `handed_off`, exact vendor `build_resume` flags, `RUN_HANDED_OFF` enforcement, 3-locale i18n sync, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Create `cli_platform/tests/test_takeover.py` testing: (a) `build_resume` produces exact documented interactive flags (`claude --resume <id>` + `--fork-session`, `kiro-cli chat --resume-id <id>`, `agent --resume <id>`, `agy --conversation=<id>`); (b) `takeover` from `created` (no `resume_id`) refuses with `TAKEOVER_NOT_SUPPORTED`, and from `running` refuses with `RUN_STATE_INVALID`; (c) `takeover` from `idle` transitions to `handed_off` (`state["lease"] == {"holder": "human"}`, `limits/state.json["leases"] == {}`), emits `takeover_started` with `pre_head`, and refuses `send()` with `RUN_HANDED_OFF`; (d) making a Git edit/commit in `cwd` and calling `release()` emits `takeover_released` with `pre_head`, `post_head`, `dirty`, and `diff_stat`, returning to `idle` so turn 2 resumes the same `resume_id`.
   2. Run `test_takeover.py` and confirm failure.
@@ -452,6 +680,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/service.py:291-339,1325-1435` (aggregate `runs` in `resource_report` and task cleanup)
   - Modify: `runtime/goals_tmux/cli.py:184-212` (allow `task accept` without `--monitor-stopped` when task has zero tmux panes; expose `run` subcommands)
   - Test: `tests/test_run_integration.py` (new), `cli_platform/tests/test_router.py`
+- **Test-first plan (TDD):** Add to `cli_platform/tests/test_router.py` and create `tests/test_run_integration.py` before code: (1) `test_resolution_disclosure_populated_on_fallback_and_none_on_primary`, (2) `test_pane_free_run_dispatch_advances_prepared_submitted_observed_and_settles_after_run_close` (via `fake_acp_agent.py`), (3) negative/edge `test_settle_refuses_unclosed_run_with_resources_unsettled_and_mixed_tmux_task_still_requires_monitor_stopped`. Expected `RED` signature: `AttributeError: 'Resolution' object has no attribute 'disclosure'` and `ModuleNotFoundError: No module named 'goals_tmux.run_bridge'`.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_run_integration.py`, `cli_platform/tests/test_router.py`; `Implementer` owns `cli_platform/src/cli_platform/{router,supervisor}.py`, `runtime/goals_tmux/{run_bridge,coordination,policy,contract,service,cli}.py`; parallel group `P2-G3` (solo); waits on `B-L0.2` and `B-P2.2`.
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_router.py" -v && PYTHONPATH=runtime:cli_platform/src python3 -m unittest tests.test_run_integration tests.test_coordination tests.test_service -v` exits `0`; artifact: pure run-backed `settlement-report.json` (`runs` array closed, zero tmux sockets).
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `cli_platform` never importing `goals_tmux` (`test_layering.py` exit `0`), one-line decision-file prompt (never raw escaped Markdown), `RESOURCES_UNSETTLED` on open runs, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Add failing tests in `cli_platform/tests/test_router.py` (`Resolution.disclosure` populated on candidate fallback / effort downgrade, `None` on exact primary match) and `tests/test_run_integration.py` (full pane-free lifecycle: `task create` -> `dispatch` -> `run_bridge` send with `dispatch_id` -> verify one-line decision-file prompt, `prepared -> submitted -> observed` with `turn_started` `event_id`, `task accept` without `--monitor-stopped`, `task settle` refused while run is `idle` (`RESOURCES_UNSETTLED`), then `run close` -> `task settle` succeeds).
   2. Run `test_router.py` and `tests.test_run_integration` and confirm failure.
@@ -474,6 +706,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/registry.py` (permit optional `nickname`, `nickname_ref` fields on records)
   - Modify: `runtime/goals_tmux/service.py` (allocate `gt-<nickname>` on new session creation when caller omits explicit custom name; release nickname on close/reap)
   - Test: `tests/test_tmux_nicknames.py` (new)
+- **Test-first plan (TDD):** Create `tests/test_tmux_nicknames.py` before editing `registry.py`/`service.py`: (1) `test_new_auto_owned_session_allocates_gt_nickname_and_releases_on_close`, (2) negative `test_registering_existing_or_adopted_session_never_renames_session` (`D13`), (3) edge `test_explicit_caller_session_name_preserved_without_leaking_nickname_lease`. Expected `RED` signature: `AssertionError: 'gt-...' != '<generated-legacy-session>'` and missing `nickname_ref` on registry record.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_tmux_nicknames.py`; `Implementer` owns `runtime/goals_tmux/registry.py`, `runtime/goals_tmux/service.py`; parallel group `P2-G4` (solo); waits on `B-P2.3` (`T1.2` + `T2.3` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -v && PYTHONPATH=runtime:cli_platform/src python3 -m unittest discover -s tests -t .` exits `0` (full Phase `P2` boundary suite); artifact: `nicknames/released/<nick>.json` + registry record JSON.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires zero `rename-session` calls in `runtime/goals_tmux/`, nickname release on both normal close and orphan reap, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write failing tests in `tests/test_tmux_nicknames.py`: (a) newly created `auto_owned` session gets name matching `^gt-[a-z]{3,6}$` and records `nickname_ref`; (b) registering an existing tmux session `legacy-session` leaves its name `legacy-session` (`D13`); (c) closing the `auto_owned` session writes `nicknames/released/<nick>.json`.
   2. Run `PYTHONPATH=runtime:cli_platform/src python3 -m unittest tests.test_tmux_nicknames -v` and confirm failure.
@@ -490,6 +726,19 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 ---
 
 ### Phase P3 — Stdio MCP Adapter
+
+#### Phase P3 SDD Topology (`cap = 1`)
+
+`T3.1` depends on `T1.2`, `T1.3`, and `T2.2` (`B-P2.2`; note that `T3.1`'s file set is also 100% disjoint from `T2.3`/`T2.4` if scheduled right after `B-P2.2`, or runs linearly after `B-P2.4`):
+
+```mermaid
+flowchart LR
+  BP22["Barrier B-P2.2 (T1.2 + T1.3 + T2.2 done)"] --> P3G1
+  subgraph P3G1["Parallel Group P3-G1 (cap = 1)"]
+    T31["T3.1: Stdio JSON-RPC 2.0 MCP Server (adapters/mcp.py, errors.py, __main__.py, i18n)"]
+  end
+  P3G1 --> INT31["Integrator + Verifier (Full P3 Suite + Commit)"] --> BP31["Barrier B-P3.1 (Phase P3 Complete)"]
+```
 
 #### Task `T3.1`: Build Stdio JSON-RPC 2.0 MCP Server (`mcp-serve`, 13 Tools, Schemas & Restart Survival)
 - **Phase:** `P3` (MCP Adapter — layer `"execution"`)
@@ -519,6 +768,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/__main__.py` (add `mcp-serve [--task-scope TASK_ID]`)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Test: `cli_platform/tests/test_mcp.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_mcp.py` before editing `adapters/mcp.py`: (1) `test_mcp_initialize_tools_list_13_schemas_and_nickname_lifecycle`, (2) `test_mcp_sigterm_restart_preserves_inflight_detached_turn_to_idle` (`fake_acp_agent.py` `0.8s` delay across two `mcp-serve` instances), (3) negative/edge `test_mcp_task_scope_violation_unknown_tool_and_malformed_jsonrpc_return_structured_english_errors`. Expected `RED` signature: CLI `SystemExit: 2` (`invalid choice: 'mcp-serve'`) / stub `NotImplementedError` in `adapters/mcp.py`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_mcp.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/adapters/mcp.py`, `cli_platform/src/cli_platform/errors.py`, `cli_platform/src/cli_platform/__main__.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P3-G1` (solo); waits on `B-P2.2` (`B-P2.4` in linear phase order).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0` (full Phase `P3` boundary suite); artifact: two-instance MCP JSON-RPC restart transcript + `tools/list` 13-tool schema dump.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `adapters.mcp` staying in `"execution"` without loading `"observation"` (`test_layering.py`), English-only `isError` payloads (§18.6 rule 5), `--task-scope` enforcement, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Create `cli_platform/tests/test_mcp.py` spawning `python3 -m cli_platform --config ... mcp-serve` over stdio pipes: (a) `initialize` + `tools/list` returns the exact 13 `TOOLS` with JSON Schemas; (b) `run_create` -> `run_send(wait=false)` against a `0.8s` fake ACP turn -> `SIGTERM` the `mcp-serve` process mid-turn -> launch a second `mcp-serve` process -> call `run_wait` by `<nickname>` -> assert `"state": "idle"` and intact events; (c) `--task-scope task-a` rejects `run_cancel` on `task-b`'s run with `TASK_SCOPE_VIOLATION`.
   2. Run `test_mcp.py` and confirm failure.
@@ -535,6 +788,39 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 ---
 
 ### Phase P4 — Read-Only Workbench, Derived Incidents, Settings Editor & `run tail`
+
+#### Phase P4 SDD Topology (`cap = 1`, Conflict-Serialized on `__main__.py`, `workbench-mockup.html` & `i18n`)
+
+`T4.1` and `T4.2` both depend only on `T1.2` (`B-P1.5.2`), **but** both touch `__main__.py`, `i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`, `test_i18n.py`, and `test_layering.py`, so the §0.3 Conflict Rule places a conflict barrier (`B-P4.1`) between them, followed by `T4.3 -> T4.4 -> T4.5`:
+
+```mermaid
+flowchart LR
+  BP152["Barrier B-P1.5.2 / B-P3.1"] --> P4G1
+  subgraph P4G1["Parallel Group P4-G1 (cap = 1)"]
+    T41["T4.1: Event-layer sse.py (D09 S1-S9) + run tail"]
+  end
+  P4G1 --> INT41["Integrator + Verifier"] --> BP41["Barrier B-P4.1 (file-conflict barrier)"]
+  BP41 --> P4G2
+  subgraph P4G2["Parallel Group P4-G2 (cap = 1, serialized after T4.1)"]
+    T42["T4.2: Event-layer incidents.py (18 rules) + doctor"]
+  end
+  P4G2 --> INT42["Integrator + Verifier"] --> BP42["Barrier B-P4.2"]
+  BP42 --> P4G3
+  subgraph P4G3["Parallel Group P4-G3 (cap = 1, depends on T4.1 + T4.2)"]
+    T43["T4.3: Observation workbench_server.py (D08, drop OBSERVATION_MAY_EVALUATE)"]
+  end
+  P4G3 --> INT43["Integrator + Verifier"] --> BP43["Barrier B-P4.3"]
+  BP43 --> P4G4
+  subgraph P4G4["Parallel Group P4-G4 (cap = 1, depends on T1.2 + T4.3)"]
+    T44["T4.4: Configuration toml_writer.py + settings_editor.py (CAS)"]
+  end
+  P4G4 --> INT44["Integrator + Verifier"] --> BP44["Barrier B-P4.4"]
+  BP44 --> P4G5
+  subgraph P4G5["Parallel Group P4-G5 (cap = 1, depends on T4.3 + T4.4)"]
+    T45["T4.5: Viewer locale negotiation (section 18.2) + Playwright UI tests"]
+  end
+  P4G5 --> INT45["Integrator (Full P4 Suite + Commit)"] --> BP45["Barrier B-P4.5 (Phase P4 Complete)"]
+```
 
 #### Task `T4.1`: Build Event-Layer SSE Reader (`D09` `S1`–`S9`) and `run tail <run>` CLI
 - **Phase:** `P4` (Workbench & Observation — `sse.py` in layer `"event"`)
@@ -558,6 +844,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Modify: `cli_platform/tests/test_layering.py:28-38` (register `"sse": "event"` in `LAYER`)
   - Test: `cli_platform/tests/test_sse.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Register `"sse": "event"` in `test_layering.py` and create `cli_platform/tests/test_sse.py` before `sse.py`: (1) `test_sse_hello_retry_exact_jsonl_data_keepalive_end_and_closed_at_head_204`, (2) edge `test_after_seq_overrides_last_event_id_and_ignores_unterminated_trailing_line` (`S2`), (3) negative `test_non_integer_cursor_raises_cursor_invalid_and_ahead_expired_corrupt_emit_reset_frames` (`S4`). Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.sse'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_sse.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{sse,errors,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P4-G1` (solo; serialized before `T4.2` by conflict rule); waits on `B-P1.5.2` (`B-P3.1` in linear order).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_sse.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_layering.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: raw SSE wire transcript (`: hello`, `retry: 2000`, `id: 1..N`, `event: end`).
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `"sse": "event"` importing only `{"configuration", "event"}`, zero locks/writes in `sse.py`, exact `D09` `S1`–`S9` framing, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Register `"sse": "event"` in `test_layering.py` and write `cli_platform/tests/test_sse.py` testing all 9 `D09` guarantees (`S1`–`S9`): byte-for-byte `data:` match (`S1`), ignoring un-terminated trailing write (`S2`), `?after_seq=N` beating `Last-Event-ID`, `cursor_ahead` reset, `cursor_expired` reset, `log_corrupt` reset + close on sequence gap (`S4`), `: hello` and `: keepalive` comments, `event: end` on transition to `closed`, and `204` status signal on closed-at-head reconnect, plus `cli_platform run tail <nick>`.
   2. Run `test_sse.py` and confirm failure.
@@ -589,6 +879,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (add the 11 new `incident.<id>` keys and run `scripts/i18n_embed.py embed`)
   - Modify: `cli_platform/tests/test_layering.py:28-38` (register `"incidents": "event"` in `LAYER`)
   - Test: `cli_platform/tests/test_incidents.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Register `"incidents": "event"` in `test_layering.py` and create `cli_platform/tests/test_incidents.py` before `incidents.py`: (1) `test_all_18_lowercase_incident_rules_fire_with_derived_source_and_localize_in_3_locales`, (2) negative/edge `test_healthy_or_empty_state_dir_emits_zero_incidents_and_mutates_zero_bytes_on_disk`. Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.incidents'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_incidents.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{incidents,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P4-G2` (solo); waits on `B-P4.1` (conflict barrier after `T4.1`).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_incidents.py" -v && PYTHONPATH=cli_platform/src python3 -m cli_platform --config cli_platform/config/cli-platform.toml doctor --json && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: `doctor --json` output + unchanged `<state_dir>` digest.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `"incidents": "event"` with zero `MAY_IMPORT` exceptions, all 18 lowercase IDs translated across 3 locales, zero disk writes, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Register `"incidents": "event"` in `test_layering.py` and write `cli_platform/tests/test_incidents.py` triggering all 18 lowercase incident rules from synthetic snapshots/journals and asserting `source == "derived"`, localized rendering via `Translator.code("incident", item["id"])`, and unchanged `<state_dir>` file tree.
   2. Run `test_incidents.py` and confirm failure.
@@ -622,6 +916,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `docs/design/workbench-mockup.html` (live `/api/*` + `/api/runs/<run_id>/stream` hydration when served over HTTP; preserve offline `file://` demo data and `#i18n-catalogs` block)
   - Modify: `cli_platform/tests/test_layering.py:28-49,87-166` (register `"adapters.workbench_server": "observation"`, remove `OBSERVATION_MAY_EVALUATE` exception, update `ObservationIsolationTest` to seed published snapshots)
   - Test: `cli_platform/tests/test_workbench_server.py` (new), `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Empty `OBSERVATION_MAY_EVALUATE` and register `"adapters.workbench_server": "observation"` in `test_layering.py`, and create `cli_platform/tests/test_workbench_server.py` before code: (1) `test_all_13_get_routes_and_sse_stream_succeed_after_cookie_or_bearer_auth`, (2) negative `test_non_loopback_bind_unauthenticated_401_evil_host_origin_403_and_post_405_rejected`, (3) edge `test_http_and_sse_requests_never_mutate_state_dir_snapshots_or_journals`. Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.adapters.workbench_server'` and `test_layering.py` failure (`adapters.workbench` still imports `catalog`/`variants`).
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_workbench_server.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/adapters/workbench.py`, `cli_platform/src/cli_platform/adapters/workbench_server.py`, `docs/design/workbench-mockup.html`; parallel group `P4-G3` (solo); waits on `B-P4.2` (`T4.1` + `T4.2` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_workbench_server.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_layering.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: HTTP status matrix (`200`, `204`, `303`, `401`, `403`, `405`) + `test_layering.py` output.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `OBSERVATION_MAY_EVALUATE` removed, `execution` never importing `observation`, `127.0.0.1`-only binding + `Host`/`Origin` guard, `#i18n-catalogs` intact in `workbench-mockup.html`, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Remove `OBSERVATION_MAY_EVALUATE` in `test_layering.py`, register `"adapters.workbench_server": "observation"`, and create `cli_platform/tests/test_workbench_server.py` testing: (a) all 13 `workbench.ROUTES` return `200` after `/auth?token=...` cookie exchange (or `Bearer` header) and `401` without auth; (b) `/api/runs/<run_id>/stream` streams `: hello`, `id: 1..N`, and `event: end` (and `204` on closed-at-head reconnect); (c) `Host: evil.test` and `Origin: http://evil.test` return `403`, `POST /api/sessions` returns `405`, and `--host 0.0.0.0` fails with `CONFIG_INVALID`; (d) `<state_dir>` files are never modified by HTTP/SSE traffic.
   2. Run `test_layering.py` and `test_workbench_server.py` and confirm failure.
@@ -654,6 +952,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `scripts/i18n_embed.py embed`
   - Modify: `cli_platform/tests/test_layering.py:28-38` (register `"toml_writer": "configuration"` and `"adapters.settings_editor": "configuration"`)
   - Test: `cli_platform/tests/test_settings_editor.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Register `"toml_writer": "configuration"` and `"adapters.settings_editor": "configuration"` in `test_layering.py`, and create `cli_platform/tests/test_settings_editor.py` before code: (1) `test_toml_writer_roundtrip_and_stage_crud_save_without_touching_state_dir`, (2) negative `test_stale_digest_409_missing_csrf_403_secret_422_and_permanent_id_or_empty_stage_refusals`, (3) edge `test_validate_endpoint_performs_zero_disk_writes`. Expected `RED` signature: `ModuleNotFoundError: No module named 'cli_platform.toml_writer'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_settings_editor.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/toml_writer.py`, `cli_platform/src/cli_platform/adapters/settings_editor.py`, `cli_platform/src/cli_platform/errors.py`, `docs/design/workbench-mockup.html`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`; parallel group `P4-G4` (solo); waits on `B-P4.3` (`T1.2` + `T4.3` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_settings_editor.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_layering.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: before/after TOML SHA-256 + `403`/`409`/`422` refusal bodies + non-existent `<state_dir>` check.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `toml_writer` and `adapters.settings_editor` importing **only** `"configuration"`, zero `<state_dir>` reads/writes, SHA-256 CAS + `X-CSRF-Token` + non-echoing `SECRET_IN_CONFIG`, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Register `"toml_writer": "configuration"` and `"adapters.settings_editor": "configuration"` in `test_layering.py`, and create `cli_platform/tests/test_settings_editor.py` testing: (a) round-tripping `cli_platform/config/cli-platform.toml` through `toml_writer` -> `parse_config` produces an equal `PlatformConfig`; (b) adding a custom stage `security_audit` (`permission_profile = "read_only_auto"`), reordering stages, and toggling `permission_profile` saves `cli-platform.toml` atomically while `<state_dir>` remains non-existent/untouched, and the next `Platform(load_config(...))` execution call appends `config_applied` (`T1.2`); (c) stale `expected_digest` returns `409 CONFIG_CONFLICT`; (d) secret in `env` returns `422 SECRET_IN_CONFIG` without echoing the value or changing `cli-platform.toml`; (e) deleting a variant that leaves a stage empty fails with `CONFIG_INVALID`.
   2. Run `test_settings_editor.py` and confirm failure.
@@ -681,6 +983,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Create: `cli_platform/tests/test_ui_playwright.py`
   - Test: `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_ui_playwright.py`
+- **Test-first plan (TDD):** Add to `cli_platform/tests/test_i18n.py` and create `cli_platform/tests/test_ui_playwright.py` before editing `i18n/core.py`: (1) `test_negotiate_viewer_precedence_cookie_then_ui_locale_then_accept_language_then_en`, (2) negative/edge `test_zh_cn_and_zh_hans_never_map_to_zh_hant_and_malformed_q_weights_fall_back_safely`, (3) `test_static_and_playwright_views_have_zero_missing_i18n_keys`. Expected `RED` signature: `ImportError: cannot import name 'negotiate_viewer' from 'cli_platform.i18n.core'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_ui_playwright.py`; `Implementer` owns `cli_platform/src/cli_platform/i18n/core.py`, `cli_platform/src/cli_platform/adapters/workbench_server.py`, `cli_platform/src/cli_platform/adapters/settings_editor.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `P4-G5` (solo); waits on `B-P4.4` (`T4.3` + `T4.4` integrated).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0` (full Phase `P4` boundary suite); artifact: per-locale key count + `test_i18n.py` and `test_ui_playwright.py` outputs.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires exact §18.2 4-step precedence, `zh`/`zh-CN`/`zh-Hans` unmapped (`--locale zh-CN` exit `2`), 100% key parity across `en`/`ja`/`zh-Hant` + embedded mockup, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Add failing tests in `test_i18n.py` verifying §18.2 precedence: (a) `viewer_choice="ja"` beats `configured="zh-Hant"` and `Accept-Language: en`; (b) `viewer_choice=None, configured="zh-Hant"` beats `Accept-Language: ja`; (c) `viewer_choice=None, configured="auto", accept_language="zh-CN,zh;q=0.9,ja;q=0.8"` skips `zh-CN`/`zh` and selects `"ja"`; (d) static scan of all `data-i18n` and `t()` keys proves `0` missing keys across `en`, `ja`, `zh-Hant`.
   2. Run `test_i18n.py` and confirm failure.
@@ -698,6 +1004,32 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 
 ### Cross-Cutting Tracks (`TX.1`–`TX.5`)
 
+#### Cross-Cutting (`XC`) SDD Topology (`cap <= 2`, Conflict-Free File Partition)
+
+`TX.3` (`errors`, `adapters/headless`, `supervisor`, `i18n/*`, `workbench-mockup.html`, `test_normalize`, `test_runner`, `test_i18n`) and `TX.5` (`catalog`, `__main__`, `cli-platform.toml`, `test_catalog`, `test_config`, `test_router`, `test_transport`) have **zero** overlapping files (`XC-G1`). `TX.4` shares `supervisor.py`/`adapters/headless.py` with `TX.3` and `cli-platform.toml`/`test_config.py` with `TX.5`, so it runs in `XC-G2`. `TX.2` and `TX.1` (gated on user prerequisite `U-KIRO-YAML`) have **zero** overlapping files and form `XC-G3`:
+
+```mermaid
+flowchart LR
+  BP152["Barrier B-P1.5.2 (T1.2 done)"] --> XCG1A & XCG1B
+  subgraph XCG1["Parallel Group XC-G1 (cap = 2, disjoint files)"]
+    XCG1A["TX.3: Cursor Free-tier stderr & tool fixtures"]
+    XCG1B["TX.5: Catalog --discover & Phase 0 TOML refresh"]
+  end
+  XCG1A & XCG1B --> INTXC1["Integrator + Verifier"] --> BXC1["Barrier B-XC.1"]
+  BXC1 --> XCG2A
+  subgraph XCG2["Parallel Group XC-G2 (cap = 1, serialized after TX.3 + TX.5)"]
+    XCG2A["TX.4: Account max_parallel & F05/F09 retry_after propagation"]
+  end
+  XCG2A --> INTXC2["Integrator + Verifier"] --> BXC2["Barrier B-XC.2"]
+  BP153["Barrier B-P1.5.3 (T1.3 done)"] & BXC2 --> XCG3A
+  UKIRO["Barrier U-KIRO-YAML (user fixes ~/.kiro/settings/permissions.yaml)"] & BXC2 --> XCG3B
+  subgraph XCG3["Parallel Group XC-G3 (cap <= 2, disjoint files)"]
+    XCG3A["TX.2: Cross-vendor code_review & D06 drift audit"]
+    XCG3B["TX.1: Kiro v3 F04/F06 re-probe & gate (non-blocking if BLOCKED)"]
+  end
+  XCG3A & XCG3B --> INTXC3["Integrator + Verifier"] --> BXC3["Barrier B-XC.3 (TX.2 done; TX.1 merged or recorded BLOCKED)"]
+```
+
 #### Task `TX.1`: Unblock Kiro `v3` `permissions.yaml`, Re-Probe Check 6 (`F04`) & `F06`, and Update `kiro` Gate
 - **Phase:** `XC` (Cross-Cutting Adapter Gate)
 - **Depends-on:** `T1.2` + **user prerequisite** (user fixes YAML syntax at `~/.kiro/settings/permissions.yaml` line 79; `cli_platform` never modifies user CLI configs)
@@ -708,6 +1040,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `docs/research/2026-11-13-acp-phase0-probes.md`
   - Modify (conditional on Check 6 pass): `cli_platform/src/cli_platform/adapters/base.py:86-98`, `cli_platform/config/cli-platform.toml:144-160`
   - Test: `cli_platform/tests/test_normalize.py`, `cli_platform/tests/test_transport.py`
+- **Test-first plan (TDD):** Once `U-KIRO-YAML` is cleared and sanitized `p0e_kiro_v3_*.json`/`p0f_kiro_v3_subagent.json` fixtures exist, add to `test_normalize.py` and `test_transport.py` **before** editing `adapters/base.py` or `cli-platform.toml`: (1) `test_kiro_v3_acp_gate_enabled_and_sample_config_matches`, (2) negative/edge `test_kiro_v3_read_only_auto_rejects_write_and_exec_permissions_and_ignores_underscore_kiro_notifications`. Expected `RED` signature: `AssertionError: 'blocked' != 'enabled'` on `PROBES["kiro"].acp_gate`.
+- **Subagent assignment (SDD):** `Test Author` owns `docs/research/phase0-20261113/fixtures/p0e_kiro_v3_allow.json`, `p0e_kiro_v3_reject.json`, `p0f_kiro_v3_subagent.json`, `cli_platform/tests/test_normalize.py`, `cli_platform/tests/test_transport.py`; `Implementer` owns `cli_platform/src/cli_platform/adapters/base.py`, `cli_platform/config/cli-platform.toml`, `docs/research/2026-11-13-acp-phase0-probes.md`; parallel group `XC-G3` (paired with `TX.2`, zero shared files); waits on `B-XC.2` + external barrier `U-KIRO-YAML`.
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_transport.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_normalize.py" -v && PYTHONPATH=cli_platform/src python3 -m cli_platform --config cli_platform/config/cli-platform.toml check-config` exits `0`; artifact: sanitized `p0e_kiro_v3_*.json` fixtures + `check-config` JSON.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `~/.kiro/` untouched, zero secrets/home paths in captured fixtures, `acp_gate` promoted **only** if both `allow_once` and `reject_once` succeeded empirically, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. With user live-probe authorization, run a non-destructive check in a scratch `/tmp` dir using `probe_acp.py`'s actual CLI syntax:
      ```bash
@@ -715,8 +1051,8 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
      ```
      If `-32603` citing `~/.kiro/settings/permissions.yaml` still occurs, keep `TX.1` `BLOCKED` in Section 5.1 and stop without touching `~/.kiro/`.
   2. Once `~/.kiro/settings/permissions.yaml` is fixed by the user, run the 3 probes (`--permission-policy allow_once`, `--permission-policy reject_once`, and subagent prompt) saving redacted fixtures under `docs/research/phase0-20261113/fixtures/`.
-  3. Add unit replay assertions in `test_normalize.py` and `test_transport.py` verifying `_kiro/*` notifications are ignored and `decide_permission("read_only_auto", ...)` rejects shell/write tools on `v3`.
-  4. Update `adapters/base.py` (`acp_gate="enabled"`, `transport_order=("acp", "headless")`, and `"read_only_auto"` in `guaranteed_profiles` if proven) + `cli-platform.toml`, then run `test_transport.py` (`test_the_sample_config_matches_the_probe_gate`) and `test_normalize.py`.
+  3. Add unit replay and gate assertions in `test_normalize.py` and `test_transport.py` verifying `_kiro/*` notifications are ignored, `decide_permission("read_only_auto", ...)` rejects shell/write tools on `v3`, and `PROBES["kiro"].acp_gate == "enabled"` (when Check 6 passed); run `test_transport.py` and `test_normalize.py` to confirm expected `RED` failure before editing production config/code.
+  4. Update `adapters/base.py` (`acp_gate="enabled"`, `transport_order=("acp", "headless")`, and `"read_only_auto"` in `guaranteed_profiles` if proven) + `cli-platform.toml` + `2026-11-13-acp-phase0-probes.md`, then re-run `test_transport.py` (`test_the_sample_config_matches_the_probe_gate`) and `test_normalize.py` until green.
   5. Update Section 5.1 row `TX.1` and commit with `feat(kiro): record v3 ACP Check 6/F06 fixtures and promote acp_gate`.
 - **Test scenarios:** `TM-U10`, `LV-3`
 - **Acceptance criteria (mechanically checkable):**
@@ -738,6 +1074,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/__main__.py:62-79` (`--writer-variant` on `resolve` and `run create`)
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`error.*` + `reason.SAME_VENDOR_AS_WRITER`, `scripts/i18n_embed.py embed`)
   - Test: `cli_platform/tests/test_read_only_and_review.py` (new), `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_read_only_and_review.py` before code: (1) `test_code_review_prefers_distinct_vendor_or_discloses_same_vendor_as_writer`, (2) negative `test_require_distinct_vendor_refuses_with_review_independence_unsatisfied_and_cursor_agy_refuse_permission_profile_unsupported` (`D06`), (3) adversarial/edge `test_fake_cli_mutating_tracked_file_during_read_only_auto_fails_with_read_only_drift_detected` (via `fake_headless_cli.py`). Expected `RED` signature: `TypeError: RouteRequest.__init__() got an unexpected keyword argument 'writer_variant'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_read_only_and_review.py`, `cli_platform/tests/test_i18n.py`, `cli_platform/tests/test_layering.py`; `Implementer` owns `cli_platform/src/cli_platform/{errors,config,router,supervisor,__main__}.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `XC-G3` (paired with `TX.1`, zero shared files); waits on `B-XC.2` + `B-P1.5.3`.
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_read_only_and_review.py" -v && PYTHONPATH=cli_platform/src python3 -m cli_platform --config cli_platform/config/cli-platform.toml resolve code_review --writer-variant claude && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: `resolve code_review --writer-variant claude` output + `READ_ONLY_DRIFT_DETECTED` test log.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires strict `D06` compliance (no fake OS write-filter claiming `read_only_auto`), `same_vendor_as_writer` surfaced in `Resolution.disclosure` + `route_resolved`, 3-locale i18n parity, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Create `cli_platform/tests/test_read_only_and_review.py` testing: (a) with `writer_variant="claude"` (`vendor="anthropic"`), `Router.resolve("code_review")` selects an enabled non-Anthropic `read_only_auto` candidate ahead of `claude-gateway`, falls back to `claude-gateway` with `same_vendor_as_writer == True` when no other `read_only_auto` vendor is available (`require_distinct_vendor=False`), and raises `REVIEW_INDEPENDENCE_UNSATISFIED` when `require_distinct_vendor=True`; (b) `cursor` and `agy` remain refused on `code_review` with `PERMISSION_PROFILE_UNSUPPORTED` (`D06`); (c) if a fake CLI mutates a tracked file during a `read_only_auto` turn, `supervisor.py` records `READ_ONLY_DRIFT_DETECTED` and fails the turn.
   2. Run `test_read_only_and_review.py` and confirm failure.
@@ -762,6 +1102,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/supervisor.py`
   - Modify: `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json` + `docs/design/workbench-mockup.html` (`scripts/i18n_embed.py embed`)
   - Test: `cli_platform/tests/test_normalize.py`, `cli_platform/tests/test_runner.py`, `cli_platform/tests/test_i18n.py`
+- **Test-first plan (TDD):** Add to `test_normalize.py`, `test_runner.py`, and `test_i18n.py` before code: (1) `test_cursor_free_tier_stderr_classifies_model_unavailable_vs_rate_limited_and_reroutes_pre_commit` (via `fake_headless_cli.py`), (2) `test_cursor_tool_call_started_and_completed_frames_normalize_cleanly`, (3) negative/edge `test_post_commit_model_unavailable_or_allow_fallback_false_refuses_reroute`. Expected `RED` signature: `ImportError: cannot import name 'MODEL_UNAVAILABLE' from 'cli_platform.errors'` / `AssertionError: 'ADAPTER_ERROR' != 'MODEL_UNAVAILABLE'`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_normalize.py`, `cli_platform/tests/test_runner.py`, `cli_platform/tests/test_i18n.py`; `Implementer` owns `cli_platform/src/cli_platform/errors.py`, `cli_platform/src/cli_platform/adapters/headless.py`, `cli_platform/src/cli_platform/supervisor.py`, `cli_platform/src/cli_platform/i18n/{en,ja,zh-Hant}.json`, `docs/design/workbench-mockup.html`; parallel group `XC-G1` (paired with `TX.5`, zero shared files); waits on `B-P1.5.2` (`B-P4.5` in linear order).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_normalize.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_runner.py" -v && python3 cli_platform/scripts/i18n_embed.py check` exits `0`; artifact: pre-commit reroute event sequence + `disclosure` JSON.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires rerouting restricted strictly to pre-commit (`turn_committed == False`), `error.MODEL_UNAVAILABLE` in 3 locales, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Add failing tests in `test_normalize.py` (replaying `p0c_cursor_headless_ok.json` + Cursor `tool_call` `started`/`completed` frames) and `test_runner.py` (pre-commit `MODEL_UNAVAILABLE` rerouting from `cursor/grok-4.7-xhigh` to `cursor/@default` with `disclosure`).
   2. Run `test_normalize.py` and `test_runner.py` and confirm failure.
@@ -786,6 +1130,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/supervisor.py:697-701,840-852` (pass `outcome.retry_after` to `limiter.report_rate_limit`)
   - Modify: `cli_platform/config/cli-platform.toml:42-80` (conservative calibrated per-account `max_parallel` defaults)
   - Test: `cli_platform/tests/test_limiter.py`, `cli_platform/tests/test_session_flow.py`, `cli_platform/tests/test_config.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/fixtures/rate_limits/{acp_429_retry_after,headless_429_retry_ms}.json` and add to `test_limiter.py`, `test_session_flow.py`, and `test_config.py` before code: (1) `test_acp_1200s_and_headless_42000ms_retry_after_propagate_into_limiter_cooldown_and_journal` (`1200.0s > cooldown_max_seconds=900s` honored), (2) `test_multi_scope_8_thread_contention_respects_caps_and_fifo`, (3) negative/edge `test_negative_nan_or_unparseable_retry_after_falls_back_to_default_backoff`. Expected `RED` signature: `AssertionError: cooldown_remaining != 1200.0` (`supervisor.py:698` passes `None`).
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/fixtures/rate_limits/acp_429_retry_after.json`, `headless_429_retry_ms.json`, `cli_platform/tests/test_limiter.py`, `cli_platform/tests/test_session_flow.py`, `cli_platform/tests/test_config.py`; `Implementer` owns `cli_platform/src/cli_platform/normalize.py`, `cli_platform/src/cli_platform/adapters/{acp,headless}.py`, `cli_platform/src/cli_platform/supervisor.py`, `cli_platform/config/cli-platform.toml`; parallel group `XC-G2` (solo); waits on `B-XC.1` (serialized after `TX.3` + `TX.5`).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_limiter.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_session_flow.py" -v && PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_config.py" -v` exits `0`; artifact: `limits/journal.jsonl` `"rate_limited"` record + `Limiter.snapshot()`.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires `outcome.retry_after` threaded end-to-end into `limiter.report_rate_limit`, vendor `retry_after > cooldown_max_seconds` honored, `check-config` exit `0`, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write failing tests in `test_session_flow.py` and `test_limiter.py` feeding `retryAfter: 1200` (`> cooldown_max_seconds = 900`) and `retry_after_ms: 42000` through a turn and asserting `supervisor.py` passes `retry_after` to `limiter.report_rate_limit` (recording `"rate_limited"` in `limits/journal.jsonl` and setting `cooldown_until = now + 1200` / `now + 42`).
   2. Run `test_session_flow.py` and `test_limiter.py` and confirm failure (`supervisor.py:698` hardcodes `None`).
@@ -809,11 +1157,16 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `cli_platform/src/cli_platform/__main__.py:61,130-133` (`catalog [--discover] [--variant ID]`)
   - Modify: `cli_platform/config/cli-platform.toml:220-335` (align curated `[[models]]` and `[[stages]]` candidates with Phase 0 verified models so live `agy`/`cursor`/`kiro` stages route cleanly out-of-the-box)
   - Test: `cli_platform/tests/test_catalog.py` (new), `cli_platform/tests/test_config.py`, `cli_platform/tests/test_router.py`, `cli_platform/tests/test_transport.py`
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_catalog.py` (and update `test_config.py`/`test_router.py`/`test_transport.py` expectations) before editing `catalog.py`/`__main__.py`/`cli-platform.toml`: (1) `test_discover_models_from_cli_records_list_models_and_help_text_observations`, (2) `test_all_four_drift_flags_unconfirmed_stale_version_drift_and_effort_mismatch`, (3) negative/edge `test_unreviewed_models_are_non_routable_when_allow_unreviewed_false_and_missing_binary_handled_cleanly`. Expected `RED` signature: `ImportError: cannot import name 'discover_models_from_cli' from 'cli_platform.catalog'` and CLI `unrecognized arguments: --discover`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_catalog.py`, `cli_platform/tests/test_config.py`, `cli_platform/tests/test_router.py`, `cli_platform/tests/test_transport.py`; `Implementer` owns `cli_platform/src/cli_platform/catalog.py`, `cli_platform/src/cli_platform/__main__.py`, `cli_platform/config/cli-platform.toml`; parallel group `XC-G1` (paired with `TX.3`, zero shared files); waits on `B-P1.5.2` (`B-P4.5` in linear order).
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_catalog.py" -v && PYTHONPATH=cli_platform/src python3 -m cli_platform --config cli_platform/config/cli-platform.toml check-config` exits `0`; artifact: `test_catalog.py` output + `check-config` `"ok": true` JSON.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires zero live LLM calls in `--discover` (local `--help`/`--list-models` only), `unreviewed` models blocked unless `allow_unreviewed=True`, `test_config`/`test_router`/`test_transport` green, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
-  1. Create `cli_platform/tests/test_catalog.py` testing `ObservationStore` + `ModelCatalog` across all 4 `METHODS` (`run_event`, `list_models_command`, `help_text`, `manual`) and all 4 flags (`unconfirmed`, `stale`, `version_drift`, `effort_mismatch`), asserting `status == "unreviewed"` entries have `routable == False` when `allow_unreviewed == False`.
-  2. Implement `discover_models_from_cli` in `catalog.py`, wire `catalog --discover` in `__main__.py`, and update `cli-platform.toml` curated entries (keeping existing `test_config.py`, `test_router.py`, and `test_transport.py` assertions aligned).
-  3. Run `test_catalog.py`, `test_config.py`, `test_router.py`, `test_transport.py`, `test_layering.py`, and `check-config` until green.
-  4. Update Section 5.1 row `TX.5` and commit with `feat(catalog): add CLI model discovery probes and refresh curated Phase 0 models`.
+  1. Create `cli_platform/tests/test_catalog.py` testing `discover_models_from_cli`, `ObservationStore` + `ModelCatalog` across all 4 `METHODS` (`run_event`, `list_models_command`, `help_text`, `manual`) and all 4 flags (`unconfirmed`, `stale`, `version_drift`, `effort_mismatch`), asserting `status == "unreviewed"` entries have `routable == False` when `allow_unreviewed == False`.
+  2. Run `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_catalog.py" -v` and confirm expected `RED` failure (`ImportError` on `discover_models_from_cli`).
+  3. Implement `discover_models_from_cli` in `catalog.py`, wire `catalog --discover` in `__main__.py`, and update `cli-platform.toml` curated entries (keeping existing `test_config.py`, `test_router.py`, and `test_transport.py` assertions aligned without weakening any invariant).
+  4. Run `test_catalog.py`, `test_config.py`, `test_router.py`, `test_transport.py`, `test_layering.py`, and `check-config` until green.
+  5. Update Section 5.1 row `TX.5` and commit with `feat(catalog): add CLI model discovery probes and refresh curated Phase 0 models`.
 - **Test scenarios:** `TM-U12`
 - **Acceptance criteria (mechanically checkable):**
   - `test_catalog.py`, `test_config.py`, `test_router.py`, `test_transport.py`, and `check-config` all exit `0`.
@@ -823,6 +1176,25 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
 ---
 
 ### Phase P5 — Legacy TUI Gate Deprecation & Removal
+
+#### Phase P5 SDD Topology (`cap = 1`, Gated by 21-Day Zero-Incident Soak Window)
+
+`T5.1` waits on `L0` (`B-L0.3`), `P2` (`B-P2.4`), `T4.1` (`B-P4.1`), and `TX.2` (`B-XC.3`); `T5.2`'s verifier script (`check_p5_exit_gate.py`) is authored test-first, while deletion of hard viewer-gate code in `viewer.py`/`service.py` is strictly gated behind `B-SOAK-21D`:
+
+```mermaid
+flowchart LR
+  BL03["Barrier B-L0.3 (T0.5)"] & BP24["Barrier B-P2.4 (T2.3 + T2.4)"] & BP41["Barrier B-P4.1 (T4.1)"] & BXC3["Barrier B-XC.3 (TX.2)"] --> P5G1
+  subgraph P5G1["Parallel Group P5-G1 (cap = 1)"]
+    T51["T5.1: Per-task tmux sockets + advisory viewer.require_visible_tui + SKILL/docs"]
+  end
+  P5G1 --> INT51["Integrator + Verifier"] --> BP51["Barrier B-P5.1 (T5.1 Released)"]
+  BP51 --> BSOAK["Barrier B-SOAK-21D (21 days zero incidents + >= 3 adapters settled)"]
+  BSOAK --> P5G2
+  subgraph P5G2["Parallel Group P5-G2 (cap = 1, one release after T5.1)"]
+    T52["T5.2: check_p5_exit_gate.py + remove hard viewer verification gate"]
+  end
+  P5G2 --> INT52["Integrator (Full cli_platform + goals_tmux Suites + Commit)"] --> BP52["Barrier B-P5.2 (Plan Complete)"]
+```
 
 #### Task `T5.1`: Add Per-Task `tmux` Socket Isolation and Downgrade `_require_tui_for_input` to Advisory Flag
 - **Phase:** `P5` (TUI Gate Deprecation)
@@ -835,6 +1207,10 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Modify: `runtime/goals_tmux/cli.py`
   - Modify: `SKILL.md`, `references/`
   - Test: `tests/test_tui_gate.py`, `tests/test_service.py`
+- **Test-first plan (TDD):** Add to `tests/test_tui_gate.py` and `tests/test_service.py` before code: (1) `test_per_task_sockets_isolate_task_a_and_task_b_and_send_input_succeeds_with_advisory_tui_evidence` (`require_visible_tui=False`), (2) negative `test_require_visible_tui_true_still_enforces_tui_visibility_required` (reversible rollback path), (3) edge `test_unsafe_task_id_characters_sanitized_in_socket_path_under_unix_sun_path_limit`. Expected `RED` signature: `ServiceError: TUI_VISIBILITY_REQUIRED` when `require_visible_tui` defaults to hard block and missing `socket_per_task` attribute on config.
+- **Subagent assignment (SDD):** `Test Author` owns `tests/test_tui_gate.py`, `tests/test_service.py`; `Implementer` owns `runtime/goals_tmux/config.py`, `runtime/goals_tmux/service.py`, `runtime/goals_tmux/cli.py`, `SKILL.md`, `references/`; parallel group `P5-G1` (solo); waits on `B-L0.3`, `B-P2.4`, `B-P4.1`, and `B-XC.3`.
+- **Integration checkpoint:** `PYTHONPATH=runtime python3 -m unittest tests.test_tui_gate tests.test_service tests.test_config_viewer -v` exits `0`; artifact: `sockets/task-a.sock` vs `sockets/task-b.sock` trace + `tui_evidence.advisory == True` payload.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires reversible `viewer.require_visible_tui=True` behavior preserved, per-task socket path `0700` dir / length-safe, `SKILL.md` + `references/` aligned with `cli_platform` primary flow, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
   1. Write failing tests in `tests/test_tui_gate.py`: `send_input` succeeds on an unattached per-task socket when `require_visible_tui=False` (recording `tui_evidence.advisory == True`), fails with `TUI_VISIBILITY_REQUIRED` when `require_visible_tui=True`, and isolates `sockets/task-a.sock` vs `sockets/task-b.sock`.
   2. Run `PYTHONPATH=runtime python3 -m unittest tests.test_tui_gate -v` and confirm failure.
@@ -856,11 +1232,15 @@ Phase P5 (TUI Gate Deprecation & Removal — depends on L0 + P2 + P4 + TX.2)
   - Create: `cli_platform/scripts/check_p5_exit_gate.py`
   - Modify (only after soak passes): `runtime/goals_tmux/viewer.py`, `runtime/goals_tmux/service.py`, `tests/test_tui_gate.py`
   - Test: `cli_platform/tests/test_p5_exit_gate.py` (new)
+- **Test-first plan (TDD):** Create `cli_platform/tests/test_p5_exit_gate.py` (and post-soak gate-removal assertions in `tests/test_tui_gate.py`) before `check_p5_exit_gate.py`: (1) `test_exit_gate_passes_when_3_adapters_settled_21_clean_days_sse_parity_and_docs_present`, (2) negative/edge `test_exit_gate_fails_on_20_day_soak_or_2_adapters_or_single_incident_or_corrupt_audit_log`. Expected `RED` signature: `FileNotFoundError` / `ModuleNotFoundError` for `cli_platform/scripts/check_p5_exit_gate.py`.
+- **Subagent assignment (SDD):** `Test Author` owns `cli_platform/tests/test_p5_exit_gate.py`, `tests/test_tui_gate.py`; `Implementer` owns `cli_platform/scripts/check_p5_exit_gate.py` and (only after `B-SOAK-21D` passes) `runtime/goals_tmux/viewer.py`, `runtime/goals_tmux/service.py`; parallel group `P5-G2` (solo); waits on `B-P5.1` + `B-SOAK-21D`.
+- **Integration checkpoint:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -v && PYTHONPATH=runtime python3 -m unittest discover -s tests -t . && PYTHONPATH=runtime python3 -m unittest discover -s runtime/tests -t runtime/tests -v` exits `0` (full repository boundary suite); artifact: `check_p5_exit_gate.py --json` report + full suite pass counts.
+- **Review gate:** Independent `Verifier` subagent (`research`, read-only); `PASS` requires all 4 Gateway §8.3 criteria checked mechanically, **zero** `viewer.py`/`service.py` gate deletion unless `check_p5_exit_gate.py` exits `0`, optional human `open_viewer` retained, and `RED -> GREEN` proof.
 - **Numbered implementation steps:**
-  1. Write `cli_platform/tests/test_p5_exit_gate.py` testing both failing (<21 days or <3 adapters) and passing synthetic state trees.
-  2. Implement `cli_platform/scripts/check_p5_exit_gate.py` and verify `test_p5_exit_gate.py` passes.
-  3. Run `python3 cli_platform/scripts/check_p5_exit_gate.py --state-dir ~/.local/state/goals-tmux-skill`: if soak < 21 days, record `BLOCKED (soak window)` in Section 5.1 and do **not** delete `viewer.py` code yet; once `0`, remove hard-gate enforcement while retaining optional human `open_viewer`.
-  4. Run full `cli_platform` and `runtime` test suites.
+  1. Write `cli_platform/tests/test_p5_exit_gate.py` testing both failing (`< 21` days, `< 3` adapters, or `>= 1` incident) and passing synthetic state trees.
+  2. Run `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_p5_exit_gate.py" -v` and confirm expected `RED` failure (`check_p5_exit_gate.py` does not exist yet).
+  3. Implement `cli_platform/scripts/check_p5_exit_gate.py` and re-run `test_p5_exit_gate.py` until green.
+  4. Run `python3 cli_platform/scripts/check_p5_exit_gate.py --state-dir ~/.local/state/goals-tmux-skill --json`: if soak `< 21` days, record `BLOCKED (soak window)` in Section 5.1 and do **not** delete `viewer.py` code yet; once it exits `0`, update `tests/test_tui_gate.py` first (`RED`), remove `_require_tui_for_input` and hard `verify_visible` gate enforcement in `service.py`/`viewer.py` while retaining optional human `open_viewer` (`GREEN`), and run full `cli_platform` and `runtime` test suites.
   5. Update Section 5.1 row `T5.2` and commit with `refactor(tmux): verify P5 exit gate and remove legacy TUI visibility blocker`.
 - **Test scenarios:** `TM-U14`
 - **Acceptance criteria (mechanically checkable):**
@@ -949,29 +1329,28 @@ A future session with zero memory of this conversation can execute any subset of
      ```
      If baseline tests fail before your changes, stop and report the pre-existing failure before editing code.
 
-2. **Select the Next Ready Task:**
-   - Pick the first task in Section 5.1 whose `Status` is `PENDING` and whose `Depends-on` tasks are all `DONE` (starting with `T0.1`–`T0.5` unless the user specifies another ready track).
-   - Mark that row `IN_PROGRESS` in Section 5.1 while working.
+2. **Select the Next Ready Parallel Group & Verify Definition of Ready (DoR):**
+   - Pick the next parallel group in the phase topology diagram whose upstream barrier holds and whose tasks all satisfy **Section 4.2.1 (Definition of Ready)**: `Status == PENDING`, all `Depends-on` tasks `DONE`, disjoint `owned_files` verified against the §0.3 Conflict Rule (`<= 2` active subagents total, zero deeper fan-out), and `Test-first plan (TDD)` ready.
+   - `Planner` / `Integrator` marks the selected row(s) `IN_PROGRESS` in Section 5.1 while working.
 
-3. **Implement with Strict TDD (Red -> Green -> Refactor):**
-   - Write the new or updated unit/integration test listed in the task's **Step 1** first.
-   - Run **only** that targeted test module (plus `test_layering.py` when adding/importing `cli_platform` modules) and verify it **fails for the expected reason** (RED).
-   - Implement the minimal production code in the task's **Exact files to touch** list. Do not bundle unrelated refactors or jump ahead to later tasks.
+3. **Execute Strict Role-Separated SDD + TDD (`Test Author [RED] -> Implementer [GREEN/REFACTOR]`):**
+   - **`Test Author` pass (`RED`):** Write the positive, negative, and edge-case tests specified in the task's **`Test-first plan (TDD)`** inside `Test Author`'s exclusively owned test files (plus `LAYER` registration in `cli_platform/tests/test_layering.py` when creating a new `cli_platform` module) **before** any production code exists. Run the targeted test command and record the `RED` evidence block (§0.2) proving failure for the expected missing feature — never a test syntax/fixture bug. Return the §0.3 YAML handoff packet.
+   - **`Implementer` pass (`GREEN -> REFACTOR`):** Starting with `Test Author`'s tests untouched on disk, implement the minimal production code inside `Implementer`'s exclusively owned files (**never** weakening, skipping, or editing `Test Author`'s assertions to pass). Do not bundle unrelated refactors or jump ahead to later tasks.
    - If the task adds any error constant in `cli_platform/src/cli_platform/errors.py`, event type in `events.py` (`STREAM_TYPES` / `EVENT_TYPES`), incident rule in `incidents.py`, or UI label:
      1. Add matching entries (`error.<CODE>`, `event.<type>`, `incident.<id>`) to **all three** catalogs (`en.json`, `ja.json`, `zh-Hant.json`).
      2. Run `python3 cli_platform/scripts/i18n_embed.py embed && python3 cli_platform/scripts/i18n_embed.py check`.
-   - If the task creates a new module under `cli_platform/src/cli_platform/`, register its dotted module name in `LAYER` inside `cli_platform/tests/test_layering.py` (`"configuration"`, `"event"`, `"execution"`, or `"observation"`).
+   - Run the `GREEN` command, perform any cleanups within owned production files while keeping tests green (`REFACTOR`), and return the §0.3 YAML handoff packet with `diff` and `red_green_output`.
 
-4. **Run Targeted Verification Only (Fast Feedback):**
-   - Run the exact targeted test command(s) specified in the task's **Acceptance criteria**, plus `test_layering.py` (and `test_i18n.py` whenever strings/codes/events changed).
-   - Do **not** run full repository-wide discovery after every small edit; run the full `cli_platform` + `goals_tmux` suites only at phase boundaries (`L0`, `P1.5`, `P2`, `P3`, `P4`, `P5`) or when touching shared `configuration`/`event` primitives (`T1.1`, `T1.2`).
+4. **Run Integration Checkpoint (Fast Targeted Feedback, Phase Suites at Barriers):**
+   - `Integrator` verifies disjoint file diffs (`git diff --name-only` subset of `owned_files`) and runs the exact command(s) in the task's **`Integration checkpoint`**, plus `test_layering.py` (and `test_i18n.py` whenever strings/codes/events changed).
+   - Do **not** run full repository-wide discovery after every small edit; run the full `cli_platform` + `goals_tmux` suites at phase barriers (`B-L0.3`, `B-P1.5.3`, `B-P2.4`, `B-P3.1`, `B-P4.5`, `B-P5.2`) or when touching shared `configuration`/`event` primitives (`T1.1`, `T1.2`).
 
-5. **Run Mandatory Independent Review Gate (`auto-review-gate`):**
-   - Before committing or claiming completion, dispatch an independent review subagent (`research` or code-review subagent; at most 2 concurrent subagents, no deeper fan-out) with the task spec from this plan and `git diff`.
-   - Fix all Critical/Important issues cited by the reviewer and re-review if `> 5` lines changed until the reviewer returns **`PASS`**.
+5. **Run Mandatory Independent Review Gate (`Verifier` / `auto-review-gate`):**
+   - Before advancing the barrier or committing, dispatch an independent read-only `Verifier` subagent (`research`; total active subagents `<= 2`, zero sub-subagent fan-out) with the task spec, `owned_files`, `git diff`, and `RED`/`GREEN` handoff packets to check both **Stage 1 (Spec, Ownership & TDD Compliance)** and **Stage 2 (Code Quality, Security & Architecture)** per §0.3.
+   - Route any `Critical`/`Important` fixes back to the owning role (`Test Author` for missing test cases; `Implementer` for production code) and re-dispatch `Verifier` if `> 5` lines changed until `Verifier` returns **`PASS`**.
 
 6. **Update This Plan & Commit (Never Push):**
-   - Update the task's row in **Section 5.1** (`Status = DONE`, test/verification evidence, notes) before committing (note: record the test evidence in the row so the plan update lands in the same atomic commit as the task implementation, or record the prior task's SHA if amending is disallowed; keep one clean conventional commit per task).
+   - `Integrator` updates the task's row in **Section 5.1** (`Status = DONE`, test/verification evidence, notes) before committing (record the test and review-gate evidence in the row so the plan update lands in the same atomic commit as the task implementation, keeping one clean conventional commit per task).
    - Stage **only** the task's exact touched files + `docs/plans/2026-11-13-cli-platform-implementation-plan.md` (never `git add -A` or `git add .`, which could sweep up untracked workspace artifacts like `.trae-html-share-packages/` or `.DS_Store`):
      ```bash
      git status --short
@@ -982,15 +1361,26 @@ A future session with zero memory of this conversation can execute any subset of
 
 ---
 
-### 4.2 Per-Task Definition of Done (DoD)
+### 4.2 Per-Task Definition of Ready (DoR) and Definition of Done (DoD)
+
+#### 4.2.1 Per-Task Definition of Ready (DoR)
+
+No subagent may be dispatched on a task until **every** item below holds:
+- [ ] **Spec unambiguous:** Task `Goal`, `Scope`, `Acceptance criteria`, and open-decision defaults (Section 5.3) are explicit with zero unresolved blockers (external prerequisites such as `U-KIRO-YAML` on `TX.1` or `B-SOAK-21D` on `T5.2` are satisfied).
+- [ ] **Exclusive file ownership assigned & conflict-free:** `Test Author` and `Implementer` `owned_files` partition the task's `Exact files to touch` with zero overlap, and share **zero** files with any concurrently active task in the same parallel group (§0.3 Conflict Rule; active subagents `<= 2`, zero deeper fan-out).
+- [ ] **Test-first plan complete:** `Test-first plan (TDD)` names exact test file(s), positive + negative + edge cases, required deterministic fake (`fake_acp_agent.py`, `fake_headless_cli.py`, or fake `tmux`), and expected `RED` failure signature.
+- [ ] **Dependencies & barrier done:** Every task in `Depends-on` is `DONE` in Section 5.1, the upstream dependency barrier has closed, and the relevant baseline suite (`TM-BASE01` / `TM-BASE02`) passes on a clean working tree.
+
+#### 4.2.2 Per-Task Definition of Done (DoD)
 
 A task may be marked `DONE` if and only if **every** item below holds with fresh command output in the current session:
-- [ ] **Scope match:** Only files listed in **Exact files to touch** (plus Section 5.1 of this plan) were modified; `git status --short` shows zero unintended staged or modified files.
-- [ ] **TDD proven:** New tests were observed failing before implementation and passing (`exit 0`) after implementation.
+- [ ] **Scope & exclusive ownership match:** Only files listed in **Exact files to touch** (plus Section 5.1 of this plan by `Integrator`) were modified; `Test Author` touched only test/fixture files, `Implementer` touched only production/config/i18n files, and `git status --short` shows zero unintended files.
+- [ ] **TDD `RED -> GREEN -> REFACTOR` proven without test weakening:** Tests existed on disk before production edits, the `RED` evidence block recorded the expected missing-feature failure signature, `GREEN` exited `0`, and `git diff` confirms zero weakened assertions, `@skip`, or relaxed thresholds (§0.2).
+- [ ] **SDD handoff & integration checkpoint recorded:** Complete YAML handoff packets (`spec`, `owned_files`, `diff`, `red_green_output`, `open_questions`) were returned by `Test Author` and `Implementer`, and the task's **`Integration checkpoint`** command exited `0` producing its named artifact.
 - [ ] **Layer isolation intact:** `PYTHONPATH=cli_platform/src python3 -m unittest discover -s cli_platform/tests -t cli_platform/tests -p "test_layering.py" -v` exits `0` with zero new cross-layer exceptions (`MAY_IMPORT` unchanged, and `OBSERVATION_MAY_EVALUATE == set()` from `T4.3` onward).
 - [ ] **i18n & stream schema parity intact:** If any `errors.py` code, `events.py` `EVENT_TYPES` entry, `incidents.py` ID, or UI string was added, `test_i18n.py` and `python3 cli_platform/scripts/i18n_embed.py check` both exit `0`.
 - [ ] **Filesystem & secret hygiene:** Every new state directory uses `0700`, every state/config write uses atomic temp + `fsync` + `os.replace` (`0600`, `O_NOFOLLOW`), and zero secrets appear in fixtures, logs, or configs.
-- [ ] **Independent review gate passed:** Separate review subagent returned **`PASS`**.
+- [ ] **Independent `Verifier` review gate passed:** Separate read-only `Verifier` subagent audited Stage 1 (Spec/Ownership/TDD) + Stage 2 (Quality/Security) and returned **`PASS`**.
 - [ ] **Committed locally without pushing:** Conventional commit recorded on `master`; `git push` was **not** executed.
 
 ---
@@ -1109,3 +1499,22 @@ These policy and product questions remain explicitly visible for human confirmat
 6. **`OD-06` — `codex` CLI Onboarding (`LV-5`):**
    - **Default:** Keep `[variants.codex]` at `acp_gate = "pending"` (cleanly skipped as `BINARY_NOT_FOUND` on hosts without `codex`).
    - **Decision needed:** Will `codex` be installed and authenticated on this workstation so `LV-5` can promote or disable its ACP gate empirically, or should `codex` be removed from top positions in `design`/`code_review` candidate lists in `cli-platform.toml` to reduce routine skip noise?
+
+---
+
+### 5.4 TDD & SDD Compliance Audit Table
+
+Per-phase verification matrix confirming that every task (`25/25`) carries a mechanical `Test-first plan (TDD)`, `Subagent assignment (SDD)` with conflict-free exclusive file ownership (`cap <= 2`, zero deeper fan-out), `Integration checkpoint`, `Review gate`, and phase Mermaid topology diagram:
+
+| Phase | Tasks (`Count`) | Topology Diagram (`Groups -> Barriers`) | `Test-first plan (TDD)` (`Pos + Neg/Edge + RED`) | `Subagent assignment (SDD)` (`Disjoint Files, cap <= 2`) | `Integration checkpoint` & `Review gate` | Audit Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`L0`** (Legacy `goals_tmux` Stabilization) | `T0.1`–`T0.5` (`5`) | Yes (`L0-G1 [T0.2 \|\| T0.4] -> B-L0.1 -> L0-G2 [T0.1 \|\| T0.3] -> B-L0.2 -> L0-G3 [T0.5] -> B-L0.3`) | `5 / 5` | `5 / 5` (`L0-G1` & `L0-G2` verified 0 shared files) | `5 / 5` | `COMPLIANT` |
+| **`P1.5`** (Redaction, `D07`/`D08` & Detached Worker) | `T1.1`–`T1.3` (`3`) | Yes (`P1.5-G1 [T1.1] -> B-P1.5.1 -> P1.5-G2 [T1.2] -> B-P1.5.2 -> P1.5-G3 [T1.3] -> B-P1.5.3`) | `3 / 3` | `3 / 3` (serialized on shared `events.py`/`supervisor.py`) | `3 / 3` | `COMPLIANT` |
+| **`P2`** (Worktrees, Takeover & `goals_tmux` Bridge) | `T2.1`–`T2.4` (`4`) | Yes (`P2-G1 [T2.1] -> B-P2.1 -> P2-G2 [T2.2] -> B-P2.2 -> P2-G3 [T2.3] -> B-P2.3 -> P2-G4 [T2.4] -> B-P2.4`) | `4 / 4` | `4 / 4` (`B-P2.1` conflict barrier separates `T2.1`/`T2.2`) | `4 / 4` | `COMPLIANT` |
+| **`P3`** (Stdio JSON-RPC 2.0 MCP Server) | `T3.1` (`1`) | Yes (`P3-G1 [T3.1] -> B-P3.1`) | `1 / 1` | `1 / 1` (solo group, `cap = 1`) | `1 / 1` | `COMPLIANT` |
+| **`P4`** (SSE, Incidents, Workbench, Settings & i18n) | `T4.1`–`T4.5` (`5`) | Yes (`P4-G1 [T4.1] -> B-P4.1 -> P4-G2 [T4.2] -> B-P4.2 -> P4-G3 [T4.3] -> B-P4.3 -> P4-G4 [T4.4] -> B-P4.4 -> P4-G5 [T4.5] -> B-P4.5`) | `5 / 5` | `5 / 5` (`B-P4.1` conflict barrier separates `T4.1`/`T4.2`) | `5 / 5` | `COMPLIANT` |
+| **`XC`** (Cross-Cutting Adapter, Routing & Catalog Tracks) | `TX.1`–`TX.5` (`5`) | Yes (`XC-G1 [TX.3 \|\| TX.5] -> B-XC.1 -> XC-G2 [TX.4] -> B-XC.2 -> XC-G3 [TX.2 \|\| TX.1] -> B-XC.3`) | `5 / 5` | `5 / 5` (`XC-G1` & `XC-G3` verified 0 shared files; `TX.1` gated on `U-KIRO-YAML`) | `5 / 5` | `COMPLIANT` |
+| **`P5`** (Per-Task Sockets & TUI Gate Removal) | `T5.1`–`T5.2` (`2`) | Yes (`P5-G1 [T5.1] -> B-P5.1 -> B-SOAK-21D -> P5-G2 [T5.2] -> B-P5.2`) | `2 / 2` | `2 / 2` (`T5.2` code deletion gated behind `B-SOAK-21D`) | `2 / 2` | `COMPLIANT` |
+| **Total** | **`25` Tasks** | **`7 / 7` Phase Diagrams** | **`25 / 25` (`100%`)** | **`25 / 25` (`100%`, `0` parallel write conflicts)** | **`25 / 25` (`100%`)** | **`COMPLIANT`** |
+
+> **Planning-revision note (2026-11-13):** This revision updated planning methodology, topology, DoR/DoD, and per-task TDD/SDD specifications only. Zero product or test files were modified and zero test suites were executed during this planning change; all baseline figures (`222` `cli_platform` tests, `283 + 46` legacy `goals_tmux` tests, `394` i18n keys across `en`/`ja`/`zh-Hant`, `61` Phase 0 fixtures, `1,000` prefix-free nicknames `dffb76305ac0b387`) remain anchored to verified baseline commit `6f488bf`.
