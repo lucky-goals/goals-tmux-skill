@@ -65,6 +65,20 @@ class SampleConfigTest(unittest.TestCase):
         for account_id, cap in expected.items():
             self.assertEqual(actual[account_id], cap, account_id)
 
+    def test_sample_includes_phase0_verified_curated_models(self):
+        expected = [
+            ("agy", "gemini-3.8-flash"),
+            ("agy", "@default"),
+            ("cursor", "@default"),
+            ("kiro", "claude-haiku-5.5"),
+            ("kiro", "@default"),
+        ]
+        for variant_id, model_id in expected:
+            with self.subTest(variant=variant_id, model=model_id):
+                entry = self.config.model(variant_id, model_id)
+                self.assertIsNotNone(entry, f"missing curated model {variant_id}/{model_id}")
+                self.assertEqual(entry.status, "enabled")
+
 
 class ValidationTest(unittest.TestCase):
     def setUp(self) -> None:

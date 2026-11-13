@@ -8,9 +8,9 @@
 #   - relative paths resolve against this file's directory
 #
 # Model ids and efforts below are the curated layer of the catalog. Entries
-# for CLIs that are not installed on the verification host (codex, agy) are
-# carried from references/cli-adapters.md and stay "unconfirmed" until a host
-# with those binaries records an observation.
+# for CLIs that are not installed on the verification host (codex) are carried
+# from references/cli-adapters.md and stay "unconfirmed" until a host with
+# those binaries records an observation.
 
 schema_version = 1
 
@@ -226,9 +226,27 @@ default_effort = "medium"
 
 [[models]]
 variant = "cursor"
+id = "@default"
+display_name = "Cursor default model"
+status = "enabled"
+verified_at = "2026-11-13"
+note = "No --model is passed; verified in Phase 0 probes on agent 2026.11.11."
+
+[[models]]
+variant = "cursor"
 id = "grok-4.7-xhigh"
 display_name = "Grok 4.7 xhigh (Cursor)"
 note = "Cursor has no effort flag; the effort is part of the model id."
+
+[[models]]
+variant = "kiro"
+id = "claude-haiku-5.5"
+display_name = "Claude Haiku 5.5 (Kiro)"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "high"
+status = "enabled"
+verified_at = "2026-11-13"
+note = "Verified in Phase 0 probes on kiro-cli 3.3.0."
 
 [[models]]
 variant = "kiro"
@@ -236,8 +254,9 @@ id = "@default"
 display_name = "Kiro default model"
 efforts = ["low", "medium", "high", "xhigh", "max"]
 default_effort = "high"
+status = "enabled"
 verified_at = "2026-11-13"
-note = "No --model is passed. Effort levels from `kiro-cli chat --help` 2.34.0."
+note = "No --model is passed. Effort levels from `kiro-cli chat --help` 3.3.0."
 
 [[models]]
 variant = "codex"
@@ -249,11 +268,23 @@ note = "From references/cli-adapters.md; codex is not installed on the verificat
 
 [[models]]
 variant = "agy"
-id = "gemini-4-argon-high"
-display_name = "Gemini 4 Argon high"
-efforts = ["high"]
-default_effort = "high"
-note = "From references/cli-adapters.md; agy is not installed on the verification host."
+id = "gemini-3.8-flash"
+display_name = "Gemini 3.8 Flash (Agy)"
+efforts = ["low", "medium", "high"]
+default_effort = "medium"
+status = "enabled"
+verified_at = "2026-11-13"
+note = "Verified in Phase 0 probes on agy 1.5.8 (ACP thought_level and headless suffix)."
+
+[[models]]
+variant = "agy"
+id = "@default"
+display_name = "Agy default model"
+efforts = ["low", "medium", "high"]
+default_effort = "medium"
+status = "enabled"
+verified_at = "2026-11-13"
+note = "No --model is passed; verified in Phase 0 probes on agy 1.5.8."
 
 # ---------------------------------------------------------------------------
 # Stages: an ordered list. Add, remove or reorder [[stages]] entries to match
@@ -289,7 +320,9 @@ on_busy = "queue"
 candidates = [
   { variant = "claude", model = "opus", effort = "high" },
   { variant = "codex", model = "gpt-6.1-sol", effort = "high" },
-  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "agy", model = "gemini-3.8-flash", effort = "high" },
+  { variant = "cursor", model = "@default" },
+  { variant = "kiro", model = "claude-haiku-5.5", effort = "high" },
   { variant = "kiro", model = "@default", effort = "high" },
 ]
 
@@ -300,8 +333,10 @@ max_parallel = 2
 on_busy = "next"
 candidates = [
   { variant = "claude", model = "sonnet", effort = "medium" },
+  { variant = "kiro", model = "claude-haiku-5.5", effort = "medium" },
   { variant = "kiro", model = "@default", effort = "medium" },
-  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "cursor", model = "@default" },
+  { variant = "agy", model = "gemini-3.8-flash", effort = "low" },
 ]
 
 # Review prefers a different vendor from the one that wrote the code, and
@@ -313,7 +348,7 @@ max_parallel = 2
 on_busy = "next"
 candidates = [
   { variant = "codex", model = "gpt-6.1-sol", effort = "xhigh" },
-  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "cursor", model = "@default" },
   { variant = "claude-gateway", model = "opus", effort = "high" },
 ]
 
@@ -323,13 +358,17 @@ permission_profile = "bypass"
 max_parallel = 1
 on_busy = "queue"
 candidates = [
-  { variant = "agy", model = "gemini-4-argon-high", effort = "high" },
+  { variant = "agy", model = "gemini-3.8-flash", effort = "high" },
+  { variant = "agy", model = "@default", effort = "medium" },
   { variant = "claude", model = "opus", effort = "high" },
-  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "cursor", model = "@default" },
 ]
 
 [routing]
 # Last resort for any stage whose own list has no usable candidate.
 default_candidates = [
   { variant = "claude", model = "sonnet", effort = "medium" },
+  { variant = "kiro", model = "@default", effort = "medium" },
+  { variant = "agy", model = "@default", effort = "medium" },
+  { variant = "cursor", model = "@default" },
 ]

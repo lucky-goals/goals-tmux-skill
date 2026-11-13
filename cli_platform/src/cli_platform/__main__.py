@@ -26,6 +26,15 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
+from . import errors
+from .catalog import (
+    ModelCatalog,
+    ObservationStore,
+    apply_curated_model,
+    discover_models_from_cli,
+    format_model_stanza,
+    review_model_entry,
+)
 from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
@@ -61,7 +70,16 @@ def main(argv: list[str] | None = None) -> int:
     scan = commands.add_parser("scan", help="scan installed CLIs")
     scan.add_argument("--auth", action="store_true", help="also run each CLI's local auth status command")
     commands.add_parser("variants", help="variant availability and settings-file checks")
-    commands.add_parser("catalog", help="merged model catalog")
+    catalog_cmd = commands.add_parser("catalog", help="merged model catalog")
+    catalog_mode = catalog_cmd.add_mutually_exclusive_group()
+    catalog_mode.add_argument("--discover", action="store_true",
+                              help="inspect local CLIs (--list-models / --help) and record observations")
+    catalog_mode.add_argument("--review", metavar="VARIANT/MODEL",
+                              help="print a curated [[models]] TOML stanza for <variant>/<model>")
+    catalog_cmd.add_argument("--variant", action="append", dest="variants",
+                             help="restrict catalog listing or discovery to a variant id (repeatable)")
+    catalog_cmd.add_argument("--apply", action="store_true",
+                             help="write the --review [[models]] stanza into --config via toml_writer")
     resolve = commands.add_parser("resolve", help="explain routing for a stage (text)")
     resolve.add_argument("stage")
     resolve.add_argument("--pin")
@@ -138,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.locale and normalize(args.locale) is None:
         parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
+    if args.command == "catalog" and args.apply and not args.review:
+        parser.error("--apply requires --review VARIANT/MODEL")
 
     config_path = getattr(args, "worker_config", None) or args.config
     state_dir = getattr(args, "worker_state_dir", None)
@@ -187,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
             return serve_stdio(config, state_dir=state_dir, task_scope=args.task_scope)
         if args.command == "doctor":
             return _doctor(args, config, state_dir)
+        if args.command == "catalog" and (args.discover or args.review):
+            return _catalog(args, config, state_dir)
         scans = scan_all()
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
@@ -201,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
                                "settings": asdict(state.settings) if state.settings else None}
                               for state in platform.registry.all()], indent=2))
         elif args.command == "catalog":
-            print(json.dumps([asdict(entry) for variant in config.variants
+            selected = _selected_variants(args.variants, config)
+            print(json.dumps([asdict(entry) for variant in selected
                               for entry in platform.catalog.entries(variant)], indent=2))
         elif args.command == "resolve":
             resolution = platform.router.resolve(RouteRequest(
@@ -254,6 +277,46 @@ def _doctor(args: argparse.Namespace, config, state_dir: Path | None) -> int:
     for item in incidents:
         label = translator.code("incident", str(item["id"]))
         print(f"[{item['severity']}] {item['id']} ({label}) subject={item['subject']} ref={item['evidence_ref']}")
+    return 0
+
+
+def _selected_variants(requested: list[str] | None, config) -> list[str]:
+    if not requested:
+        return list(config.variants)
+    selected: list[str] = []
+    for variant_id in requested:
+        if variant_id not in config.variants:
+            raise PlatformError(errors.CONFIG_INVALID, f"unknown variant {variant_id!r}")
+        if variant_id not in selected:
+            selected.append(variant_id)
+    return selected
+
+
+def _catalog(args: argparse.Namespace, config, state_dir: Path | None) -> int:
+    target_state_dir = state_dir if state_dir is not None else config.state_dir
+    store = ObservationStore(target_state_dir)
+    if args.discover:
+        selected = _selected_variants(args.variants, config)
+        discovered = discover_models_from_cli(config, store, variants=selected)
+        versions = {obs.variant: obs.cli_version for obs in discovered if obs.cli_version}
+        entries = [
+            asdict(entry)
+            for variant_id in selected
+            for entry in ModelCatalog(config, store.load(variant_id), cli_versions=versions).entries(variant_id)
+        ]
+        print(json.dumps({
+            "ok": True,
+            "variants": selected,
+            "observations": [asdict(obs) for obs in discovered],
+            "entries": entries,
+        }, indent=2))
+        return 0
+    entry = review_model_entry(config, store, args.review)
+    if args.apply:
+        new_cfg = apply_curated_model(config.path, config, entry)
+        if state_dir is not None:
+            publish_config_applied(new_cfg, state_dir)
+    sys.stdout.write(format_model_stanza(entry))
     return 0
 
 
