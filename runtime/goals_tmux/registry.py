@@ -164,7 +164,15 @@ def _validate_record(value: Any, expected_id: str | None = None) -> dict[str, An
         "created_at",
         "updated_at",
     }
-    optional = _MUTABLE_FIELDS | {"owned_container", "topology", "created_by", "window_id", "reaped_at"}
+    optional = _MUTABLE_FIELDS | {
+        "owned_container",
+        "topology",
+        "created_by",
+        "window_id",
+        "reaped_at",
+        "nickname",
+        "nickname_ref",
+    }
     if set(value) - (required | optional) or not required <= set(value):
         _fail("REGISTRY_INVALID", "registry record has unknown or missing fields")
     record = dict(value)
@@ -213,6 +221,9 @@ def _validate_record(value: Any, expected_id: str | None = None) -> dict[str, An
     for field in ("tui_requested",):
         if field in record and record[field] is not None and type(record[field]) is not bool:
             _fail("REGISTRY_INVALID", f"{field} must be a boolean or null")
+    for field in ("nickname", "nickname_ref"):
+        if field in record and record[field] is not None:
+            _nonempty(record[field], field)
     return record
 
 
@@ -299,6 +310,8 @@ class Registry:
         cleanup_policy: str = "auto_owned",
         owned_container: dict | None = None,
         cli: dict | None = None,
+        nickname: str | None = None,
+        nickname_ref: str | None = None,
     ) -> dict[str, Any]:
         record_id, identity, process_instance_id = self._pane_binding(
             pane, endpoint_id=endpoint_id, socket_path=socket_path, server_instance_id=server_instance_id
@@ -340,6 +353,10 @@ class Registry:
             if not isinstance(owned_container, dict) or not owned_container:
                 _fail("REGISTRY_INVALID", "owned_container must be a nonempty object or null")
             record["owned_container"] = copy.deepcopy(owned_container)
+        if nickname is not None:
+            record["nickname"] = _nonempty(nickname, "nickname")
+        if nickname_ref is not None:
+            record["nickname_ref"] = _nonempty(nickname_ref, "nickname_ref")
         topology: dict[str, Any] = {}
         for key in ("session_ids", "window_id", "topology_digest"):
             if key in pane:

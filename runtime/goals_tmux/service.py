@@ -67,6 +67,61 @@ class Service:
         self._confirmed_effects = True
         return output
 
+    def _load_nickname_support(self):
+        try:
+            from cli_platform import nicknames as nicknames_mod
+            from cli_platform.errors import PlatformError
+        except ImportError:
+            return None
+        mod_file = getattr(nicknames_mod, "__file__", None)
+        library = None
+        if mod_file:
+            candidate = Path(mod_file).resolve().parents[2] / "data" / "nicknames.txt"
+            if candidate.is_file():
+                library = nicknames_mod.load_library(candidate)
+        if library is None:
+            library = nicknames_mod.generate_library()
+        return nicknames_mod.NicknameAllocator(self.state_dir, library), nicknames_mod.tmux_session_name, PlatformError
+
+    def _allocate_session_nickname(self, task_id):
+        support = self._load_nickname_support()
+        if support is None:
+            return None, None
+        allocator, tmux_session_name, PlatformError = support
+        lease_session_id = f"tmux:{uuid.uuid4().hex}"
+        try:
+            lease = allocator.allocate(lease_session_id, task_id=task_id, kind="tmux")
+        except PlatformError as exc:
+            raise DomainError(exc.code, exc.message, data=exc.details) from exc
+        return lease, tmux_session_name("gt", lease.nickname)
+
+    def _release_nickname_lease(self, nickname, session_id):
+        support = self._load_nickname_support()
+        if support is None:
+            return
+        allocator, _tmux_session_name, PlatformError = support
+        try:
+            allocator.release(nickname, session_id)
+        except PlatformError as exc:
+            if exc.code != "NICKNAME_NOT_HELD":
+                raise DomainError(exc.code, exc.message, data=exc.details) from exc
+
+    def _release_record_nickname(self, record):
+        nickname = record.get("nickname")
+        if not nickname:
+            return
+        support = self._load_nickname_support()
+        if support is None:
+            return
+        allocator, _tmux_session_name, _PlatformError = support
+        lease = allocator.lookup(nickname)
+        if lease is None:
+            return
+        expected_ref = record.get("nickname_ref")
+        if expected_ref and lease.ref != expected_ref:
+            return
+        self._release_nickname_lease(nickname, lease.session_id)
+
     def invoke(self, raw):
         request_id = raw.get("request_id") if isinstance(raw, dict) else None
         try:
@@ -774,6 +829,10 @@ class Service:
                 set() if server_exited
                 else ({p["pane_id"] for p in after.get("panes", [])} if after_server_id == server_id else None)
             )
+            remaining_sessions = (
+                set() if server_exited
+                else ({s["session_id"] for s in after.get("sessions", [])} if after_server_id == server_id else None)
+            )
             sessions_report = []
             records_report = []
             for item in plan["planned_records"]:
@@ -787,6 +846,12 @@ class Service:
                         {"cleanup_status": "closed", "reaped_at": reaped_at},
                         allow_post_settlement_reap=True,
                     )
+                    owned_session_id = item["session_id"] or (updated.get("owned_container") or {}).get("session_id")
+                    if updated.get("nickname") and (
+                        remaining_sessions is not None
+                        and (not owned_session_id or owned_session_id not in remaining_sessions)
+                    ):
+                        self._release_record_nickname(updated)
                     outcome_status = "reaped"
                 else:
                     updated = record
@@ -1083,39 +1148,52 @@ class Service:
             raise DomainError("INVALID_ARGUMENT", "program_argv must contain 1–128 string arguments")
         for item in argv:
             contract.string(item, "program argument", max_bytes=16384)
-        name = args.get("name", "goals-" + request["request_id"][:20])
-        contract.string(name, "name", max_bytes=80)
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", name):
-            raise DomainError("INVALID_NAME", "new resource name must be an ASCII task label")
         task_id = context["task_id"]
-        creation_path = self.state_dir / "creations" / (hashlib.sha256(request["request_id"].encode()).hexdigest() + ".json")
-        creation = {"schema_version": 1, "request_id": request["request_id"], "task_id": task_id,
-                    "coordinator_id": context["coordinator_id"], "operation": op, "name": name,
-                    "socket_path": self.socket_path, "endpoint_id": self.endpoint_id,
-                    "server_instance_before": (snap.get("server") or {}).get("instance_id"),
-                    "panes_before": [p["pane_id"] for p in snap["panes"]], "cli": cli_info, "status": "pending", "created_at": _now()}
         if op in {"create_session", "launch_cli", "restore_cli"}:
-            if not snap.get("server"):
-                private_dir(Path(self.socket_path).parent)
             width = contract.integer(args.get("width", 160), "width", 40, 500)
             height = contract.integer(args.get("height", 48), "height", 10, 200)
-            command = ["new-session", "-d", "-s", name, "-x", str(width), "-y", str(height)]
-        elif op == "create_window":
-            command = ["new-window", "-d", "-t", request["target"]["session_id"] + ":", "-n", name]
-        else:
+        elif op == "split_pane":
             orientation = args.get("orientation", "horizontal")
             if orientation not in {"horizontal", "vertical"}:
                 raise DomainError("INVALID_ARGUMENT", "orientation must be horizontal or vertical")
-            command = ["split-window", "-d", "-t", request["target"]["pane_id"], "-h" if orientation == "horizontal" else "-v"]
-            if "size" in args:
-                command += ["-l", str(contract.integer(args["size"], "size", 1, 1000))]
-        # Multiple argv elements use tmux's direct exec form. A one-element
-        # executable is shell-quoted because tmux treats it as shell-command.
-        program = argv if len(argv) > 1 else [shlex.quote(argv[0])]
-        atomic_json(creation_path, creation)
-        self.tasks.event(task_id, "create_intent", {"request_id": request["request_id"], "operation": op, "name": name,
-                                                   "creation_receipt": str(creation_path)})
-        output = self._mutate(*command, "-c", str(cwd), "-P", "-F", "#{pane_id}", "--", *program)
+            size_args = ["-l", str(contract.integer(args["size"], "size", 1, 1000))] if "size" in args else []
+        nickname_lease = None
+        if "name" in args:
+            name = args["name"]
+        elif op in {"create_session", "launch_cli", "restore_cli"}:
+            nickname_lease, nickname_session_name = self._allocate_session_nickname(task_id)
+            name = nickname_session_name or ("goals-" + request["request_id"][:20])
+        else:
+            name = "goals-" + request["request_id"][:20]
+        try:
+            contract.string(name, "name", max_bytes=80)
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", name):
+                raise DomainError("INVALID_NAME", "new resource name must be an ASCII task label")
+            creation_path = self.state_dir / "creations" / (hashlib.sha256(request["request_id"].encode()).hexdigest() + ".json")
+            creation = {"schema_version": 1, "request_id": request["request_id"], "task_id": task_id,
+                        "coordinator_id": context["coordinator_id"], "operation": op, "name": name,
+                        "socket_path": self.socket_path, "endpoint_id": self.endpoint_id,
+                        "server_instance_before": (snap.get("server") or {}).get("instance_id"),
+                        "panes_before": [p["pane_id"] for p in snap["panes"]], "cli": cli_info, "status": "pending", "created_at": _now()}
+            if op in {"create_session", "launch_cli", "restore_cli"}:
+                if not snap.get("server"):
+                    private_dir(Path(self.socket_path).parent)
+                command = ["new-session", "-d", "-s", name, "-x", str(width), "-y", str(height)]
+            elif op == "create_window":
+                command = ["new-window", "-d", "-t", request["target"]["session_id"] + ":", "-n", name]
+            else:
+                command = ["split-window", "-d", "-t", request["target"]["pane_id"], "-h" if orientation == "horizontal" else "-v"] + size_args
+            # Multiple argv elements use tmux's direct exec form. A one-element
+            # executable is shell-quoted because tmux treats it as shell-command.
+            program = argv if len(argv) > 1 else [shlex.quote(argv[0])]
+            atomic_json(creation_path, creation)
+            self.tasks.event(task_id, "create_intent", {"request_id": request["request_id"], "operation": op, "name": name,
+                                                       "creation_receipt": str(creation_path)})
+            output = self._mutate(*command, "-c", str(cwd), "-P", "-F", "#{pane_id}", "--", *program)
+        except Exception:
+            if nickname_lease is not None:
+                self._release_nickname_lease(nickname_lease.nickname, nickname_lease.session_id)
+            raise
         pane_id = output.strip()
         contract.exact_id(pane_id, "%")
         creation["pane_id"] = pane_id
@@ -1144,9 +1222,18 @@ class Service:
                 # preference. Enable it only on the session we just created;
                 # each viewer's client input policy still gates its events.
                 self._mutate("set-option", "-t", session_id, "mouse", "on")
-        record = self.registry.register(pane, endpoint_id=self.endpoint_id, socket_path=self.socket_path,
-                                        server_instance_id=fresh["server"]["instance_id"], task_id=task_id,
-                                        coordinator_id=context["coordinator_id"], owned_container=owned or None, cli=cli_info)
+        record = self.registry.register(
+            pane,
+            endpoint_id=self.endpoint_id,
+            socket_path=self.socket_path,
+            server_instance_id=fresh["server"]["instance_id"],
+            task_id=task_id,
+            coordinator_id=context["coordinator_id"],
+            owned_container=owned or None,
+            cli=cli_info,
+            nickname=nickname_lease.nickname if nickname_lease is not None else None,
+            nickname_ref=nickname_lease.ref if nickname_lease is not None else None,
+        )
         record = self.registry.update(
             record["record_id"], _context(record),
             {
@@ -1822,7 +1909,9 @@ class Service:
             command = request["operation"].replace("close_", "kill-")
             self._mutate(command, "-t", request["target"][key])
             after = self._snapshot()
-            remaining = {p["pane_id"] for p in after["panes"]} if after.get("server") and after["server"]["instance_id"] == snap["server"]["instance_id"] else set()
+            server_alive = bool(after.get("server") and after["server"]["instance_id"] == snap["server"]["instance_id"])
+            remaining = {p["pane_id"] for p in after["panes"]} if server_alive else set()
+            remaining_sessions = {s["session_id"] for s in after["sessions"]} if server_alive else set()
             for record in closing_records:
                 status = "unknown" if record["pane_id"] in remaining else "closed"
                 quality = record.get("recovery_status", "unknown")
@@ -1840,6 +1929,16 @@ class Service:
                     self.registry.update(current["record_id"], _context(current), {"cleanup_status": "unknown"})
             raise DomainError("CLOSE_OUTCOME_UNKNOWN", "close was interrupted; reconcile receipt and live topology",
                               status="unknown", side_effects="unknown", data={"recovery_record_path": str(receipt_path)})
+        for item in receipt["outcomes"]:
+            if item["status"] == "closed":
+                rec = item["record"]
+                owned_session_id = (rec.get("owned_container") or {}).get("session_id")
+                if rec.get("nickname") and (
+                    request["operation"] == "close_session"
+                    or not owned_session_id
+                    or owned_session_id not in remaining_sessions
+                ):
+                    self._release_record_nickname(rec)
         if any(item["status"] != "closed" for item in receipt["outcomes"]):
             raise DomainError("CLOSE_UNVERIFIED", "one or more original panes remain", status="partial", side_effects="unknown", data=receipt)
         viewers = []
