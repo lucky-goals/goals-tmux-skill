@@ -30,10 +30,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 
 from . import errors
 from .adapters.base import PreEvent
+from .redact import redact as _redact_value
 
 COALESCE_SECONDS = 0.1
 USAGE_INTERVAL_SECONDS = 5.0
@@ -43,8 +43,6 @@ OUTPUT_SUMMARY_CHARS = 4096
 # ACP stop reasons (protocol version 1) and the turn result they mean.
 STOP_RESULTS = {"end_turn": "ok", "max_tokens": "incomplete", "max_turn_requests": "incomplete",
                 "refusal": "refused", "cancelled": "cancelled"}
-
-_SECRET_KEY_RE = re.compile(r"(token|secret|password|passwd|credential|api_?key|authorization)", re.I)
 
 # Claude ``system`` subtypes that carry nothing the event model records.
 _CLAUDE_QUIET_SYSTEM = frozenset({"hook_started", "hook_response", "status", "thinking_tokens",
@@ -66,20 +64,16 @@ def _digest(value: object) -> str:
 
 
 def _redact(value: object) -> object:
-    if isinstance(value, dict):
-        return {key: "<redacted>" if _SECRET_KEY_RE.search(str(key)) else _redact(item)
-                for key, item in value.items()}
-    if isinstance(value, list):
-        return [_redact(item) for item in value]
-    return value
+    return _redact_value(value)
 
 
 def summarize(value: object, limit: int) -> str | None:
     """A redacted, bounded text form of a tool's input or output."""
     if value is None:
         return None
-    text = value if isinstance(value, str) else json.dumps(_redact(value), sort_keys=True,
-                                                            ensure_ascii=False, default=str)
+    redacted = _redact(value)
+    text = redacted if isinstance(redacted, str) else json.dumps(redacted, sort_keys=True,
+                                                                  ensure_ascii=False, default=str)
     return text if len(text) <= limit else text[:limit] + "…"
 
 

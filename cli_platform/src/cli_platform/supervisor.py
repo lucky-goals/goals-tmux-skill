@@ -42,7 +42,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from . import errors
 from .adapters.acp import AcpTransport
@@ -56,6 +56,7 @@ from .events import EventLog, last_record, read_events, read_stream
 from .fsutil import private_dir
 from .limiter import LeaseRequest, Limiter, Outcome
 from .nicknames import NicknameAllocator, NicknameLease, load_library, tmux_session_name
+from .redact import scrub_raw_line
 from .router import Resolution, Router, RouteRequest
 from .scanner import CliScan
 from .transport import Bound, Breaker, TransportBinder, TransportFactory, TurnContext
@@ -210,9 +211,10 @@ class RawLog:
     gap-free ``raw_seq``. Evidence, not state. Thread-safe: the stdout and
     stderr readers of a transport both append."""
 
-    def __init__(self, path: Path, turn_id: str) -> None:
+    def __init__(self, path: Path, turn_id: str, *, env_allow: Iterable[str] = ()) -> None:
         self.path = Path(path)
         self._turn_id = turn_id
+        self._env_allow = tuple(env_allow)
         self._lock = threading.Lock()
         last = last_record(self.path)
         self._seq = int(last.get("raw_seq", 0)) if last else 0
@@ -220,8 +222,9 @@ class RawLog:
     def append(self, direction: str, line: str) -> int:
         with self._lock:
             self._seq += 1
+            clean_line, redactions = scrub_raw_line(line, env_allow=self._env_allow)
             record = {"raw_seq": self._seq, "turn_id": self._turn_id, "dir": direction,
-                      "ts": _now(), "line": line}
+                      "ts": _now(), "line": clean_line, "redactions": redactions}
             private_dir(self.path.parent)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
             try:
@@ -517,7 +520,8 @@ class RunService:
                           selection=selection, permission_profile=stage.permission_profile,
                           cwd=run.run["cwd"], cli_version=vstate.version,
                           binary_path=vstate.binary_path, previous_transport=previous, resume=resume)
-        raw = RawLog(run.handle.raw_path, turn_id)
+        raw = RawLog(run.handle.raw_path, turn_id, env_allow=variant.env_allow)
+        run.log.set_env_allow(variant.env_allow)
         binder = TransportBinder(config, platform.breaker, self._transports(platform, raw.append))
 
         def emit(type: str, payload: dict) -> dict:

@@ -27,7 +27,7 @@ PACKAGE = ROOT / "src" / "cli_platform"
 # input every layer reads; it is not a layer and imports nothing above it.
 LAYER = {
     "config": "configuration", "errors": "configuration", "fsutil": "configuration",
-    "i18n.core": "configuration",
+    "i18n.core": "configuration", "redact": "configuration",
     "events": "event", "snapshots": "event",
     "scanner": "execution", "variants": "execution", "catalog": "execution",
     "nicknames": "execution", "router": "execution", "limiter": "execution",

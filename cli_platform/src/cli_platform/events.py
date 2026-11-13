@@ -29,9 +29,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 from .fsutil import private_dir
+from .redact import scrub_value
 
 STREAMS = ("run", "limits", "adapters", "catalog")
 
@@ -124,16 +125,22 @@ class StreamLog:
     """
 
     def __init__(self, path: Path, *, stream: str, key: str | None = None,
-                 fields: dict[str, object] | None = None) -> None:
+                 fields: dict[str, object] | None = None,
+                 env_allow: Iterable[str] = ()) -> None:
         if stream not in STREAMS:
             raise ValueError(f"unknown stream {stream!r}")
         self.path = Path(path)
         self.stream = stream
         self.key = key or stream
         self._fields = dict(fields or {})
+        self._env_allow = tuple(env_allow)
         self._types = STREAM_TYPES[stream]
         self._last_sync = 0.0
         self._seq = self._recover()
+
+    def set_env_allow(self, env_allow: Iterable[str]) -> None:
+        """Update allowed environment variable names (names only; values are never stored)."""
+        self._env_allow = tuple(env_allow)
 
     @property
     def last_seq(self) -> int:
@@ -152,16 +159,24 @@ class StreamLog:
 
     def append(self, type: str, payload: dict, *, source: str = "supervisor",
                turn_id: str | None = None, fsync: bool | None = None,
-               **extra: object) -> dict:
+               env_allow: Iterable[str] | None = None, **extra: object) -> dict:
         if type not in self._types:
             raise ValueError(f"unknown {self.stream} event type {type!r}")
+        allow = self._env_allow if env_allow is None else tuple(env_allow)
+        clean_payload, redactions = scrub_value(payload, env_allow=allow)
+        clean_extra, extra_redactions = scrub_value(
+            {name: value for name, value in extra.items() if value is not None},
+            env_allow=allow,
+        )
+        redactions += extra_redactions
         seq = self._seq + 1
         event: dict[str, object] = {"v": 1, "stream": self.stream, "seq": seq,
                                     "event_id": f"{self.key}:{seq}"}
         event.update(self._fields)
         event.update({"turn_id": turn_id, "ts": _now_iso(), "type": type, "source": source,
-                      "payload": payload})
-        event.update({name: value for name, value in extra.items() if value is not None})
+                      "payload": clean_payload})
+        event.update(clean_extra)
+        event["redactions"] = redactions
         private_dir(self.path.parent)
         line = (json.dumps(event, sort_keys=True, ensure_ascii=False) + "\n").encode()
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
@@ -184,9 +199,11 @@ class StreamLog:
 class EventLog(StreamLog):
     """The run stream of one run: ``runs/<nickname>-<run_id>/events.jsonl``."""
 
-    def __init__(self, path: Path, *, run_id: str, task_id: str, nickname: str) -> None:
+    def __init__(self, path: Path, *, run_id: str, task_id: str, nickname: str,
+                 env_allow: Iterable[str] = ()) -> None:
         super().__init__(path, stream="run", key=run_id,
-                         fields={"run_id": run_id, "task_id": task_id, "nickname": nickname})
+                         fields={"run_id": run_id, "task_id": task_id, "nickname": nickname},
+                         env_allow=env_allow)
 
 
 @dataclass
