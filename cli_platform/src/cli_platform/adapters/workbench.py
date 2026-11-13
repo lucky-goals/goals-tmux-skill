@@ -17,6 +17,7 @@ from ..supervisor import Platform
 ROUTES: tuple[tuple[str, str, str], ...] = (
     ("GET", "/", "single-page UI"),
     ("GET", "/s/<nickname>", "UI deep link: live session by nickname, else its past incarnations"),
+    ("GET", "/runs/<run_id>", "UI permalink of one run; stays valid after the nickname is reused"),
     ("GET", "/api/sessions", "live and recent sessions with nickname, state, stage, selection"),
     ("GET", "/api/sessions/<nickname>", "live session bound to the nickname"),
     ("GET", "/api/runs/<run_id>", "permanent address of one run"),

@@ -48,6 +48,7 @@ cli_platform/
 │   └── nicknames.py                   new   generate and validate the library
 ├── src/cli_platform/
 │   ├── errors.py                      new   PlatformError and stable codes
+│   ├── fsutil.py                      new   private (0700) directory creation
 │   ├── config.py                      new   schema, strict loader, secret refusal
 │   ├── nicknames.py                   new   library rules, generator, allocator, tmux name
 │   ├── scanner.py                     new   installed-CLI scan
@@ -61,7 +62,7 @@ cli_platform/
 │   └── adapters/
 │       ├── workbench.py               new   placeholder: GET route table and read model
 │       └── mcp.py                     new   placeholder: tool table
-└── tests/                             new   100 unittest cases
+└── tests/                             new   101 unittest cases
     ├── support.py                           fixtures
     ├── test_nicknames.py                    library and allocation
     ├── test_router.py                       precedence, fallback, catalog

@@ -22,6 +22,7 @@ from typing import Callable, Iterator
 
 from . import errors
 from .errors import PlatformError
+from .fsutil import private_dir
 
 LIBRARY_SIZE = 1000
 NAME_RE = re.compile(r"^[a-z]{3,6}$")
@@ -276,8 +277,8 @@ class NicknameAllocator:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         for directory in (self._live, self._released):
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(self._root / "lock", os.O_RDWR | os.O_CREAT, 0o600)
+            private_dir(directory)
+        fd = os.open(self._root / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             yield

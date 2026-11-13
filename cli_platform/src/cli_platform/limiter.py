@@ -26,6 +26,7 @@ from typing import Callable, Iterator
 from . import errors
 from .config import PlatformConfig
 from .errors import PlatformError
+from .fsutil import private_dir
 
 
 def process_identity(pid: int) -> str | None:
@@ -302,8 +303,8 @@ class Limiter:
 
     @contextmanager
     def _state(self, write: bool = True) -> Iterator[dict]:
-        self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(self._root / "lock", os.O_RDWR | os.O_CREAT, 0o600)
+        private_dir(self._root)
+        fd = os.open(self._root / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             path = self._root / "state.json"

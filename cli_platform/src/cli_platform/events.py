@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from .fsutil import private_dir
+
 # Types defined by the gateway proposal.
 RUN_EVENT_TYPES = (
     "turn_started", "message_delta", "message", "tool_call", "tool_result", "turn_completed",
@@ -64,7 +66,7 @@ class EventLog:
             "turn_id": turn_id, "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "type": type, "source": source, "payload": payload,
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        private_dir(self.path.parent)
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         try:
             # One line, one write: readers never see half an event.

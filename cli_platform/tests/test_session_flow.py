@@ -78,6 +78,16 @@ class SessionFlowTest(unittest.TestCase):
         self.assertEqual(self.platform.nicknames.live(), [])
         self.assertEqual(self.platform.limiter.snapshot()["global"]["in_use"], 0)
 
+    def test_platform_state_is_private(self):
+        plan = self.open("run-0001")
+        state = self.platform.state_dir
+        created = [path for path in state.rglob("*") if path != state]
+        self.assertTrue(created)
+        for path in created:
+            expected = 0o700 if path.is_dir() else 0o600
+            self.assertEqual(path.stat().st_mode & 0o777, expected, path)
+        self.assertTrue((plan.run_dir / "events.jsonl").exists())
+
     def test_state_machine_is_closed_over_known_states(self):
         self.assertEqual(set(TRANSITIONS), set(RUN_STATES))
         for targets in TRANSITIONS.values():

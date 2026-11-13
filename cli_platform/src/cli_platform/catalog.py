@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import MODEL_ID_RE, ModelEntry, PlatformConfig
+from .fsutil import private_dir
 
 # Strongest evidence first. ``run_event`` is a model id reported by a real
 # turn; ``help_text`` only proves the CLI documents a name.
@@ -60,7 +61,7 @@ class ObservationStore:
         if not MODEL_ID_RE.fullmatch(observation.model_id):
             # An observed id may end up in an argv; refuse anything flag-shaped.
             raise ValueError("observed model id has an unsupported shape")
-        self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        private_dir(self._root)
         line = json.dumps(asdict(observation), sort_keys=True) + "\n"
         fd = os.open(self._root / f"{observation.variant}.jsonl",
                      os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)

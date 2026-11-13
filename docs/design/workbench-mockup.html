@@ -221,6 +221,7 @@ td .mono, td.mono { font-size: 12px; }
   .badge.s-running::before, .badge.s-starting::before { animation: pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .35; } }
 }
+#t-variants td { overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -261,7 +262,7 @@ td .mono, td.mono { font-size: 12px; }
 
     <section class="view" id="view-catalog" role="tabpanel">
       <h1>Model catalog</h1>
-      <p class="sub">Two layers: observations recorded by probes with their provenance, and a curated overlay from configuration. A model marked unconfirmed is curated but has never been observed on this host; unverified fast mode is treated as unsupported by the router.</p>
+      <p class="sub">Two layers: observations recorded by probes with their provenance, and a curated overlay from configuration. Status is the curated status and decides routability. Flags (unconfirmed, stale, version_drift, effort_mismatch) are warnings that never block routing: unconfirmed means curated but never observed on this host; unverified fast mode is treated as unsupported by the router.</p>
       <div class="panel"><h2>Models by variant <small id="catalog-sub"></small></h2><div class="scroll"><table id="t-catalog"></table></div></div>
     </section>
 
@@ -578,12 +579,12 @@ var MODELS = [
   { v: "claude", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
   { v: "claude", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
   { v: "claude", id: "fable", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
-  { v: "claude-gateway", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
-  { v: "claude-gateway", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
-  { v: "cursor", id: "grok-4.7-xhigh", efforts: [], effortNote: "embedded in model id · no --effort flag", fast: ["no", ""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "agent --list-models exists; not yet probed"], curated: true },
+  { v: "claude-gateway", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "claude-gateway", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", flags: ["unconfirmed"], prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "cursor", id: "grok-4.7-xhigh", efforts: [], effortNote: "embedded in model id · no --effort flag", fast: ["no", ""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "agent --list-models exists; not yet probed"], curated: true },
   { v: "kiro", id: "@default", idNote: "no --model passed", efforts: FULL, fast: ["no", ""], status: "enabled", prov: ["help_text · kiro-cli chat --help", "CLI 2.34.0 · 2026-11-13 14:20", "effort levels listed in help"], curated: true },
-  { v: "codex", id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh"], fast: ["yes", "-c service_tier=\"priority\""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true },
-  { v: "agy", id: "gemini-4-argon-high", efforts: ["high"], fast: ["no", ""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true }
+  { v: "codex", id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh"], fast: ["yes", "-c service_tier=\"priority\""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true },
+  { v: "agy", id: "gemini-4-argon-high", efforts: ["high"], fast: ["no", ""], status: "enabled", flags: ["unconfirmed"], prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true }
 ];
 
 var STAGES = [
@@ -646,7 +647,7 @@ var INCIDENTS = [
   { sev: "critical", title: "Rate limited: account anthropic-gateway (mifo)", text: "RATE_LIMITED with retry_after 300 s. Account is cooling down, 04:12 remaining; effective cap reduced from 2 to 1. Routing skips its candidates with ACCOUNT_COOLDOWN.", rule: "error RATE_LIMITED, or account cooldown active", when: "14:46:22", open: true },
   { sev: "warning", title: "Lease stale: lease-c0e245 on kiro-idc (kani)", text: "The lease expired without renewal and its holder cannot be confirmed dead. The slot stays counted (kiro-idc 1/2, global 5/6) so the vendor cap is never exceeded by a guess.", rule: "lease past TTL and holder identity not confirmed dead", when: "14:48:58", open: true },
   { sev: "warning", title: "Queue wait above threshold: tesu", text: "Ticket tkt-c3e2 has waited 06:41 for account anthropic-sub (3/3). Threshold 05:00; queue timeout 30:00.", rule: "queued longer than the configured threshold", when: "14:50:29", open: true },
-  { sev: "warning", title: "Catalog stale or unconfirmed: cursor, codex, agy", text: "Three curated models have never been observed on this host: grok-4.7-xhigh (list command not yet probed), gpt-6.1-sol and gemini-4-argon-high (binaries not installed).", rule: "curated model with no observation, or observation older than the CLI version", when: "14:20:07", open: true },
+  { sev: "warning", title: "Catalog flag unconfirmed: claude-gateway, cursor, codex, agy", text: "Five curated models listed by a stage have never been observed on this host: claude-gateway opus and sonnet (settings file is never read), grok-4.7-xhigh (list command not yet probed), gpt-6.1-sol and gemini-4-argon-high (binaries not installed). They stay enabled and routable.", rule: "catalog entry with flag stale, version_drift or unconfirmed that a stage lists", when: "14:20:07", open: true },
   { sev: "ok", title: "Settings file permissions: claude-gateway", text: "<repo>/gateway.json passed the check: mode 0600, owned by the current user, regular file, not a symlink. Contents were not read.", rule: "settings file missing, group or world accessible, symlink, or wrong owner", when: "14:20:07", open: false },
   { sev: "resolved", title: "Unexpected exit: gafa turn t0002", text: "The CLI exited with code 0 without a terminal event. The run went to failed, was retried with the same resume id, completed, and is now closed.", rule: "exit without a preceding terminal event, including exit code 0", when: "13:31:10", open: false }
 ];
@@ -767,16 +768,16 @@ function renderRegistry() {
 }
 
 function renderCatalog() {
-  table("t-catalog", ["Variant", "Model id", "Efforts", "Fast", "Status", "Provenance", "Overlay"], MODELS.map(function (m) {
+  table("t-catalog", ["Variant", "Model id", "Efforts", "Fast", "Status · flags", "Provenance", "Overlay"], MODELS.map(function (m) {
     return [{ mono: m.v, nowrap: true },
       stack([el("div", "mono", m.id), m.idNote ? el("div", "faint", m.idNote) : null].filter(Boolean)),
       m.efforts.length ? chips(m.efforts) : el("span", "muted", m.effortNote),
       stack([badge(m.fast[0], m.fast[0], true), m.fast[1] ? el("div", "faint mono", m.fast[1]) : null].filter(Boolean)),
-      badge(m.status),
+      stack([badge(m.status)].concat((m.flags || []).map(function (flag) { return badge(flag, flag, true); }))),
       stack([el("div", "mono", m.prov[0]), el("div", "muted", m.prov[1]), el("div", "faint", m.prov[2])]),
       m.curated ? badge("info", "curated", true) : el("span", "faint", "—")];
   }));
-  var unconfirmed = MODELS.filter(function (m) { return m.status === "unconfirmed"; }).length;
+  var unconfirmed = MODELS.filter(function (m) { return (m.flags || []).indexOf("unconfirmed") !== -1; }).length;
   document.getElementById("catalog-sub").textContent = MODELS.length + " models · " + unconfirmed + " unconfirmed";
   document.getElementById("n-catalog").textContent = String(MODELS.length);
 }

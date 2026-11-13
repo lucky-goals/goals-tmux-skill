@@ -242,7 +242,9 @@ timeout and a bounded output size.
 | `codex` | `codex` | `--version` | `--help`, `exec --help` | none recorded |
 | `agy` | `agy`, `antigravity` | `--version` | `--help` | none recorded |
 
-Each result records `path`, `realpath`, `version`, a capability map derived
+Each result records `path`, `realpath`, `version` (the first line the
+version command prints, for example `2.1.311 (Claude Code)` or
+`kiro-cli 2.34.0`), a capability map derived
 from the help text (`headless`, `stream_json`, `resume`, `model_flag`,
 `effort_flag`, `settings_file`, `list_models`, ...), the auth hint and a
 timestamp.
@@ -292,7 +294,7 @@ env_unset = ["ANTHROPIC_API_KEY"]
 | Settings file | Referenced by path. Passed to the CLI as `--settings <path>`. Supported for the `claude` adapter only, which is the one CLI whose help documents such a flag. |
 | Environment | `env` sets non-secret values. `env_unset` removes inherited variables that would override the variant (for example an ambient API key). |
 | Account | Required. Decides which concurrency cap the variant consumes. Two variants with different endpoints must not share an account. |
-| Fingerprint | A hash of adapter, binary realpath, settings path, settings metadata, environment *names* and extra arguments. Recorded in `turn_started`; a change between turns is visible as drift. |
+| Fingerprint | A hash of adapter, binary realpath, settings path, settings metadata, the *names* of set and unset environment variables, and extra arguments. Recorded in `turn_started`; a change between turns is visible as drift. |
 
 **No secrets, by construction.**
 
@@ -304,7 +306,8 @@ env_unset = ["ANTHROPIC_API_KEY"]
   `lstat` only and requires: exists, regular file, not a symlink, owned by
   the current user, no group or world permission bits. A failure makes the
   variant unavailable (`SETTINGS_FILE_MISSING`, `SETTINGS_FILE_IS_SYMLINK`,
-  `SETTINGS_FILE_FOREIGN_OWNER`, `SETTINGS_FILE_GROUP_OR_WORLD_ACCESS`), and
+  `SETTINGS_FILE_NOT_REGULAR`, `SETTINGS_FILE_FOREIGN_OWNER`,
+  `SETTINGS_FILE_GROUP_OR_WORLD_ACCESS`), and
   `build_launch` refuses with `SETTINGS_FILE_UNSAFE`.
 - The change detector for a settings file is built from size, mtime, mode
   and inode. The content is not hashed, so no digest of a secret is stored.
@@ -390,7 +393,9 @@ whenever fast mode is requested.
 
 Flags never block routing. They surface in the workbench and as the "catalog
 stale" incident, and they tell a person what to re-check after a CLI update.
-The workbench shows the most significant flag in the status column.
+The workbench shows the status and the flags side by side: a curated model
+that was never observed reads `enabled` plus `unconfirmed`, never
+`unconfirmed` instead of `enabled`.
 
 Facts recorded for the sample catalog, and where each comes from:
 
@@ -628,6 +633,11 @@ a ticket gets the same one back, so a retried call cannot take two slots.
 - **Non-queueing callers.** `acquire(queue=False)` returns `busy` with the
   blocked scopes. The router uses the same check (`blocked_on`) to decide
   between waiting and the next candidate.
+- **The lease decides, not the route.** The router's check looks at leases
+  only, not at the queue, and time passes between routing and acquiring. A
+  resolution with `action = run` can therefore still be queued by
+  `acquire`. The run state follows the lease outcome; the resolution's
+  action is a forecast.
 
 ### 9.4 Rate-limit detection and cooldown
 
@@ -685,6 +695,7 @@ stateDiagram-v2
     queued --> failed: QUEUE_TIMEOUT
     starting --> running: turn_started
     starting --> failed: spawn error
+    starting --> cancelling: cancel
     running --> idle: turn_completed (lease released)
     running --> failed: error or nonzero exit (lease released)
     running --> cancelling: cancel
@@ -748,6 +759,12 @@ New types in the v1 envelope, all with `source: "supervisor"`:
 | `lease_released` | `lease_id`, `reason` |
 | `rate_limited` | `account`, `retry_after`, `cooldown_until`, `effective_cap` |
 | `nickname_released` | `nickname`, `ref` |
+
+The scaffold's `open_session` already writes `nickname_assigned`,
+`route_resolved`, `lease_granted` or `lease_queued`, and, when routing is
+refused, `error` followed by `nickname_released`. `lease_released` and
+`rate_limited` are written by the supervisor, which does not exist yet; in
+the scaffold those two facts are recorded only in `limits/journal.jsonl`.
 
 Every event also gains a top-level `nickname` field. Both changes are
 additive, which the gateway proposal's versioning rule allows within major
@@ -834,7 +851,7 @@ sample data.
 | Concurrency | Meters per scope with effective caps and cooldown countdowns, queue, leases | `limits/state.json` |
 | Incidents | Derived list, also counted in the navigation | Rules below |
 
-Routes (all `GET`): `/`, `/s/<nickname>`, `/api/sessions`,
+Routes (all `GET`): `/`, `/s/<nickname>`, `/runs/<run_id>`, `/api/sessions`,
 `/api/sessions/<nickname>`, `/api/runs/<run_id>`, `/api/runs/<run_id>/events`,
 `/api/runs/<run_id>/stream`, `/api/registry`, `/api/catalog`, `/api/routing`,
 `/api/concurrency`, `/api/incidents`.
@@ -867,7 +884,7 @@ Additions to section 6.6 of the gateway proposal:
 | Credential in the repository directory | `gateway.json` stays ignored by Git. A variant should point at a file outside the repository where possible; the sample points inside only because that is where the file is today. |
 | Child environment | The supervisor's allowlisted environment, then `env_unset`, then `env`. Values are never written to events. |
 | Scan | Sanitized environment, no shell, no model call, bounded time and output. The auth probe stores a verdict only, not the command's output, which can contain an account email. |
-| State files | Mode 0600, directories 0700, `O_NOFOLLOW` on every write. |
+| State files | Record, lock, journal and log files are created with mode 0600 and opened with `O_NOFOLLOW`. The directories the platform creates (`nicknames/`, `limits/`, `catalog/observed/`, each run directory) are 0700. The state directory itself is the existing private one and keeps its own mode. |
 | Nickname as input | Validated against `^[a-z]{3,6}$` before it touches a path, a tmux target or a URL route. |
 | Bypass mode | Unchanged. Routing never adds a permission flag. |
 | Untrusted text | Model ids from observations are validated against the id pattern before they can reach an argv. Observed-only models are not routable by default. |
@@ -921,8 +938,8 @@ in [project-structure.md](../design/project-structure.md).
 | Kiro flags | `kiro-cli chat --help`, `kiro-cli --help-all` | `--model`, `--effort`, `--list-models`, `whoami` |
 | Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. For this design only its key names were listed, with values hidden. |
 | Nickname library | `python3 scripts/nicknames.py validate` | 1000 names, 1000 unique, lengths 3/4/5/6 = 40/320/320/320, matches the generator |
-| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | 100 tests, all pass |
-| Mockup | Headless Chrome screenshots at 1440 and 1024 px | Six views render; no external requests in the file |
+| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | 101 tests, all pass |
+| Mockup | Headless Chrome screenshots: Sessions at 1440 and 1024 px, the other five views at 1024 px | All six views were rendered and inspected; none scrolls horizontally at page level and the file has no external reference. Interaction (tab clicks, session selection, timeline filter, copy button) was not exercised. |
 | Model calls | none | none made |
 | Existing test suite | none | not run; no existing file changed |
 

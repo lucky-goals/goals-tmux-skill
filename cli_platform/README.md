@@ -30,6 +30,7 @@ src/cli_platform/
   limiter.py                 leases, queue, cooldown, crash recovery
   supervisor.py              run states, supervisor contract, Platform wiring
   events.py                  append-only run event log
+  fsutil.py                  private directory creation
   adapters/workbench.py      placeholder: routes and read model
   adapters/mcp.py            placeholder: tool table
   __main__.py                command line
@@ -60,7 +61,7 @@ directory.
 python3 -m unittest discover -s tests -t tests
 ```
 
-100 tests: nickname library and allocation, router precedence and fallback,
+101 tests: nickname library and allocation, router precedence and fallback,
 limiter caps, queue, cooldown and crash recovery (including a cross-process
 check), config loading and settings-file checks, and the session flow.
 
