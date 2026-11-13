@@ -49,6 +49,26 @@ allow_unreviewed = false       # observed-only models are not routable
 [ui]
 locale = "auto"
 
+# Execution transports (decisions D01, D04, D05). Each turn runs one CLI
+# process over one transport, bound before the turn's commit point (the
+# fsync of turn_started). Before it, a transport fault may fall back to the
+# next allowed transport; after it, never. ACP is used only for a variant
+# whose acp_gate is "enabled" (Phase 0 probe, 2026-11-13).
+[execution]
+transport_order = ["acp", "headless"]
+cancel_grace_seconds = 5       # wait for the agent to acknowledge a cancel
+close_grace_seconds = 3        # wait for an exit after stdin EOF, then SIGTERM
+quiet_timeout_seconds = 600    # a turn with no output this long fails
+
+[execution.acp]
+protocol_versions = [1]
+handshake_timeout_seconds = 10
+setup_timeout_seconds = 30
+breaker_consecutive_faults = 2   # the breaker opens after 2 consecutive faults
+breaker_window_turns = 10        # ... or 3 of the last 10 ACP turns
+breaker_window_faults = 3
+breaker_retry_seconds = 1800     # then one trial turn after 30 minutes
+
 # ---------------------------------------------------------------------------
 # Accounts: the unit a vendor rate-limits. Variants that bill the same
 # subscription share one account and therefore one cap.
@@ -83,12 +103,28 @@ max_parallel = 1
 # The id is permanent; it appears in run records and audit entries.
 # Optional max_parallel caps one variant on top of its account's cap, for
 # example a gateway endpoint with a smaller quota than the account.
+#
+# Execution keys:
+#   transport        auto | acp | headless. An explicit value is strict: it is
+#                    never replaced by a fallback.
+#   transport_order  optional; overrides [execution].transport_order
+#   acp_gate         enabled | verified_not_default | blocked | disabled |
+#                    absent | pending. Only "enabled" lets a turn use ACP.
+#   env_allow        names the child inherits on top of PATH, HOME, LANG,
+#                    LC_ALL, TMPDIR, USER, LOGNAME, SHELL, TERM and XDG_*.
+#                    Names only; the values are never written here.
 # ---------------------------------------------------------------------------
 
+# Claude Code has no ACP mode: headless only (D02). Its headless auth fails in
+# the sanitized environment unless the OAuth token is inherited (probe:
+# p0c_claude_headless.json vs p0c_claude_headless_auth.json).
 [variants.claude]
 adapter = "claude"
 binary = "claude"
 account = "anthropic-sub"
+transport = "headless"
+acp_gate = "absent"
+env_allow = ["CLAUDE_CODE_OAUTH_TOKEN"]
 
 # Same binary, different API endpoint. The base URL and its credential live in
 # the settings file; this file only points at it.
@@ -99,27 +135,48 @@ account = "anthropic-gateway"
 settings_file = "../../gateway.json"
 env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 env_unset = ["ANTHROPIC_API_KEY"]
+transport = "headless"
+acp_gate = "absent"
+# No env_allow: the gateway's credential comes from its settings file, and the
+# subscription token must not reach this variant.
 note = "Launches as: claude --settings <path>. The file must be owner-only (0600)."
 
+# ACP disabled: session/load answers -32602 and sessions are not portable
+# between transports (gate check 3 fails). A passing handshake is not enough.
 [variants.cursor]
 adapter = "cursor"
 binary = "agent"
 account = "cursor-pro"
+transport = "headless"
+acp_gate = "disabled"
 
+# ACP v2 permission flow verified, but v3 (the default engine) is blocked by a
+# parse error in the user's ~/.kiro/settings/permissions.yaml, which the
+# platform never edits. Headless until v3 passes.
 [variants.kiro]
 adapter = "kiro"
 binary = "kiro-cli"
 account = "kiro-idc"
+transport = "headless"
+acp_gate = "blocked"
 
 [variants.codex]
 adapter = "codex"
 binary = "codex"
 account = "openai-codex"
+transport = "headless"
+acp_gate = "pending"
 
+# The first ACP-enabled adapter: handshake, prompt, resume both ways, cancel
+# and subagent wait verified. It cannot serve read_only_auto stages: in
+# default mode it ran commands without asking.
 [variants.agy]
 adapter = "agy"
 binary = "agy"
 account = "google-agy"
+transport = "auto"
+transport_order = ["acp", "headless"]
+acp_gate = "enabled"
 
 # ---------------------------------------------------------------------------
 # Models (curated overlay). display_name, context_tokens and cost_tier are

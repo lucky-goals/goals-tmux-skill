@@ -7,8 +7,14 @@ F10).** Sections 1 to 12 are kept as the assessment the user decided on;
 where a decision differs from a recommendation below, the register wins,
 and each affected section points to it. The decisions are applied in the
 [final design](2026-11-13-cli-platform-final-design.md) (revision 4, its
-section 21), the scaffold and the mockup. The ACP transport itself is still
-not implemented.
+section 21), the scaffold and the mockup.
+
+**Gate status, 2026-11-13.** The authorized Phase 0 probe has run
+([probe report](../research/2026-11-13-acp-phase0-probes.md)). Its result
+per adapter is recorded in [section 10.8](#108-gate-status-after-the-phase-0-probe-2026-11-13),
+and the facts F01 to F10 in Appendix A.2 carry their answered status. The
+P1 runner core implements this gate: a variant uses ACP only when its
+`acp_gate` is `enabled` (section 7.7; final design sections 11.6 and 12).
 
 - **Adjudication landed by**: `cli-platform-decisions-landing-20261113-g1-bb8d0b9c-C01-dd8fb85c`
 
@@ -539,7 +545,14 @@ decision (item 4 of section 11).
 > commands. The decision order below (record the request, answer, record
 > the answer, never `allow_always`) still describes how the ACP transport
 > answers, with the profile in place of the allow rules. See Appendix A and
-> section 9.4 of the final design.
+> section 9.4 of the final design. Enforcement of `read_only_auto` is
+> launch-flag based (or, over ACP, the answer policy), not a sandbox: an
+> adapter and transport whose flags cannot guarantee "read, search and fetch
+> only; no command execution" is skipped for a `read_only_auto` stage with
+> `PERMISSION_PROFILE_UNSUPPORTED`. The probe showed agy running commands in
+> default mode without a permission request, and Claude's plan mode still
+> running `Bash`, so no "plan" mode counts as a guarantee (section 10.8;
+> final design 9.4 lists the rendering per adapter).
 
 An ACP agent may send `session/request_permission` with the tool call and a
 list of options, each of kind `allow_once`, `allow_always`, `reject_once` or
@@ -765,11 +778,13 @@ Written to the run stream by the supervisor, `source: "supervisor"`.
 
 ### 7.7 Configuration this would add
 
-> **D05** adopts these defaults, all configurable. The keys are added to
-> the loader together with the code that reads them.
+> **D05** adopts these defaults, all configurable. The keys were added to
+> the loader in P1 with the runner core, together with `cancel_grace_seconds`,
+> `close_grace_seconds`, `quiet_timeout_seconds` and the per-variant
+> `transport_order`, `acp_gate` and `env_allow` (D11). Final design
+> section 12 is the authoritative key list.
 
-Not applied. The loader refuses unknown keys, so these would be added to the
-schema together with the code that reads them. They are additive;
+The block below is the proposal as first written. The keys are additive;
 `schema_version` stays 1.
 
 ```toml
@@ -1062,6 +1077,21 @@ Where a name already exists in 19.6, it is used here.
 | Derived rows (`lost`, stale lease, incidents) are labeled "derived" and are not in `events.jsonl` (19.5) | Views, not events | Same rule. It is what "the log is the truth" requires: a view may derive, and must say that it did. |
 | Resume id for Kiro: "an ACP `sessionId` in the stream is [doc]" (19.2) | `session/new` returns the `sessionId` before the prompt | On the ACP transport the identifier is known before the commit point for every agent. On Kiro's headless stream it stays unverified. |
 
+### 8.7 Caveats from the probe
+
+The Phase 0 probe ([report](../research/2026-11-13-acp-phase0-probes.md),
+sections 3 to 5) recorded wire behavior that sections 8.3 and 8.4 did not
+anticipate. The normalizer and the transports handle each case as follows.
+
+| Observation | Evidence | Handling |
+| --- | --- | --- |
+| Cursor `agent acp` and Kiro v3 `kiro-cli acp` do not exit within 3 s of stdin EOF. agy and Kiro v2 (`--agent-engine v2`) exit with status 0 on EOF. | [p0c_cursor_acp.json](../research/phase0-20261113/fixtures/p0c_cursor_acp.json), [p0c_kiro_acp.json](../research/phase0-20261113/fixtures/p0c_kiro_acp.json), [p0c_agy_acp.json](../research/phase0-20261113/fixtures/p0c_agy_acp.json), [p0e_kiro_acp_v2_allow.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_v2_allow.json) | After closing stdin the client waits the close grace, then sends SIGTERM (exit 143). A SIGTERM after a completed turn is an expected exit: `exit` with `expected: true` (section 8.3). |
+| Kiro emits vendor JSON-RPC notifications `_kiro/*` (v3) and `_kiro.dev/*` (v2) outside `session/update`. | [p0c_kiro_acp.json](../research/phase0-20261113/fixtures/p0c_kiro_acp.json), [p0e_kiro_acp_v2_allow.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_v2_allow.json) | Every method that starts with `_` is ignored by the normalizer: counted, kept in `raw.jsonl`, never turned into `adapter_unknown`. All observed ones were notifications; a `_`-prefixed request with an `id` (not observed) still gets JSON-RPC `-32601`, as in section 8.3. |
+| Kiro headless `--output-format stream-json` wraps ACP updates in its own envelope (F07 refuted): `runStarted`; `sessionUpdate`, whose `data.update` is an ACP `session/update` object; `runFinished` with `status`, `stopReason` and `finalText`. | [p0c_kiro_headless.json](../research/phase0-20261113/fixtures/p0c_kiro_headless.json) | The Kiro headless reader unwraps `sessionUpdate` and maps `data.update` with the ACP table of section 8.3. `runFinished` ends the turn. |
+| Claude headless can emit several `type: "result"` lines in one process, for example when a background subagent finishes after the first result. | [p0f_claude_hl_subagent.json](../research/phase0-20261113/fixtures/p0f_claude_hl_subagent.json) | The reader reads until stdout EOF and uses the last `result` as the turn's terminal record. |
+| agy headless takes the prompt as the value of `-p`, not as a trailing argument. | [p0c_agy_headless.json](../research/phase0-20261113/fixtures/p0c_agy_headless.json), [p0c_agy_headless_ok.json](../research/phase0-20261113/fixtures/p0c_agy_headless_ok.json) | The agy headless argv is `-p <prompt>`. |
+| Cursor's plan limit appears as assistant text ("Upgrade your plan to continue") with stop reason `end_turn` and no JSON-RPC error (F05). | [p0e_cursor_acp_allow.json](../research/phase0-20261113/fixtures/p0e_cursor_acp_allow.json), [p0e_cursor_acp_reject.json](../research/phase0-20261113/fixtures/p0e_cursor_acp_reject.json) | Not detected as a rate limit. The turn completes with that text. Matching assistant text is not adopted, because the text is not a stable contract. |
+
 ## 9. SSE semantics
 
 > **D09** adopts this section as written: the read-only server hosts SSE,
@@ -1298,7 +1328,8 @@ proposal already asks for in its Phase 0, extended to both transports.
 ### 10.6 Open questions
 
 > Recorded as facts F01 to F09 in Appendix A, authorized for the Phase 0
-> probe (D03) and pending. F10 was added by D06.
+> probe (D03). F10 was added by D06. The probe has answered them, some only
+> in part: see A.2 and section 10.8.
 
 1. Does an identifier created over ACP resume in headless mode, and the
    reverse, for Cursor and for Kiro?
@@ -1330,6 +1361,49 @@ proposal already asks for in its Phase 0, extended to both transports.
 | Headless permission answering is verified for Claude (`--permission-prompts host`) and the others gain it | D becomes adequate; keep the interface |
 | CLIs ship protocol version 2 with further breaking changes | Keep B, but leave the default preference on headless until the mapper catches up |
 | The user wants the first working turn with the least code | A now, with the interface of section 6 reserved, and B later |
+
+### 10.8 Gate status after the Phase 0 probe (2026-11-13)
+
+Source: the [Phase 0 probe report](../research/2026-11-13-acp-phase0-probes.md),
+sections 3 to 5. Each probe ran in a fresh temporary directory with the
+sanitized environment unless the report says otherwise. Fixture links point
+into `../research/phase0-20261113/fixtures/`.
+
+**A successful ACP handshake (check 1) and prompt (check 2) are not
+sufficient; an adapter is enabled only when all checks that gate its use
+pass.** Check 6 gates the use that depends on a permission answer, which is
+a `read_only_auto` stage. Under `bypass` the policy answers `allow_once` to
+any request, so an agent that never sends one does not change the outcome.
+An adapter whose check 6 is unverified can therefore be enabled for
+`bypass` stages and is skipped for `read_only_auto` stages (final design
+9.4). This refines "all of these" in section 10.4.
+
+| Adapter and version | ACP gate | Default transport | `resume_portable` | Evidence | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `agy 1.5.8` | **enabled**, the first ACP-enabled adapter | `acp`, then `headless` | `true` | initialize, protocol 1: [p0b_agy_handshake_sanitized.json](../research/phase0-20261113/fixtures/p0b_agy_handshake_sanitized.json); trivial prompt: [p0c_agy_acp.json](../research/phase0-20261113/fixtures/p0c_agy_acp.json); resume both ways: [p0d_agy_acp_resume.json](../research/phase0-20261113/fixtures/p0d_agy_acp_resume.json), [p0d_agy_acp_to_hl.json](../research/phase0-20261113/fixtures/p0d_agy_acp_to_hl.json), [p0d_agy_hl_to_acp.json](../research/phase0-20261113/fixtures/p0d_agy_hl_to_acp.json), [f08_agy_session_load.json](../research/phase0-20261113/fixtures/f08_agy_session_load.json); cancel: [p0_cancel_agy_acp.json](../research/phase0-20261113/fixtures/p0_cancel_agy_acp.json); subagent wait: [p0f_agy_acp_subagent.json](../research/phase0-20261113/fixtures/p0f_agy_acp_subagent.json) | Checks 1 to 5 and 7 pass. `session/cancel` acknowledged in 4.4 ms. `session/prompt` waits for a background subagent. Clean exit with status 0 on stdin EOF. Check 6 is unverified: agy never sent `session/request_permission` in default mode ([p0e_agy_acp_py_reject.json](../research/phase0-20261113/fixtures/p0e_agy_acp_py_reject.json)). That is why it cannot serve `read_only_auto`; it does not block `bypass` stages. |
+| `cursor agent 2026.11.11-b912975` | **disabled** | `headless` | `false` | `session/load` fails: [p0d_cursor_acp_load.json](../research/phase0-20261113/fixtures/p0d_cursor_acp_load.json), [p0d_cursor_acp_load_realpath_check.json](../research/phase0-20261113/fixtures/p0d_cursor_acp_load_realpath_check.json), [p0d_cursor_hl_to_acp.json](../research/phase0-20261113/fixtures/p0d_cursor_hl_to_acp.json); not portable: [p0d_cursor_acp_to_hl.json](../research/phase0-20261113/fixtures/p0d_cursor_acp_to_hl.json); headless: [p0d_cursor_hl_resume.json](../research/phase0-20261113/fixtures/p0d_cursor_hl_resume.json), [p0c_cursor_headless_auto.json](../research/phase0-20261113/fixtures/p0c_cursor_headless_auto.json), [p0c_cursor_headless.json](../research/phase0-20261113/fixtures/p0c_cursor_headless.json) | Checks 1, 2, 4 and 5 pass, but check 3 fails: `session/load` answers JSON-RPC `-32602` "Session not found" for ACP- and headless-created sessions, although `initialize` advertises `loadSession: true`. Check 6 is blocked by the plan limit. Headless resume works; headless needs `--trust` in a fresh directory. |
+| `kiro-cli 3.3.0` | **blocked** (v3); v2 is "verified, not default" | `headless` until v3 passes check 6 | `true` | v2 permission flow both ways: [p0e_kiro_acp_v2_allow.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_v2_allow.json), [p0e_kiro_acp_v2_reject.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_v2_reject.json); v3 blocked: [p0e_kiro_acp_autopilot_off.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_autopilot_off.json), [p0f_kiro_acp_subagent.json](../research/phase0-20261113/fixtures/p0f_kiro_acp_subagent.json); resume both ways: [p0d_kiro_acp_to_hl.json](../research/phase0-20261113/fixtures/p0d_kiro_acp_to_hl.json), [p0d_kiro_hl_to_acp.json](../research/phase0-20261113/fixtures/p0d_kiro_hl_to_acp.json) | Checks 1 to 5 and 7 pass (check 2 with the vendor notifications of section 8.7). v3's permission flow is blocked by a pre-existing parse error at line 79 of the user's `~/.kiro/settings/permissions.yaml`. The platform does not touch that file (D06). |
+| `claude 2.1.311` | **headless only** (no ACP mode, D02) | `headless` | `false` (single transport) | [p0c_claude_headless.json](../research/phase0-20261113/fixtures/p0c_claude_headless.json) (fails) against [p0c_claude_headless_auth.json](../research/phase0-20261113/fixtures/p0c_claude_headless_auth.json) (passes); [f10_claude_auth_env.json](../research/phase0-20261113/fixtures/f10_claude_auth_env.json) | The variant's env allowlist must include `CLAUDE_CODE_OAUTH_TOKEN`, or headless auth fails in the sanitized environment. |
+| `codex` | **pending** | `headless` | unverified | none: not installed | Nothing verified. |
+
+**Consequences.**
+
+- **T5 (section 7.2)** treats a JSON-RPC `-32602` whose message says "not
+  found" like `-32002`: reason `ACP_SESSION_NOT_FOUND`. Cursor answers a
+  missing session that way.
+- **Section 10.3, item 3** named Cursor as the first ACP candidate. The
+  probe makes agy the first ACP-enabled adapter; Cursor stays headless.
+- **D10.** A run may change transport between turns only on agy and Kiro,
+  whose `resume_portable` is verified. On Kiro this has no effect until its
+  ACP gate is enabled.
+- **Configuration.** The status column is the value of the per-variant
+  `acp_gate` key (final design section 12). The binding uses ACP only when
+  it is `enabled`.
+
+**Still open after the probe.** Check 6 on Cursor (plan limit) and Kiro v3
+(`permissions.yaml`); agy's `session/request_permission` wire shape; a
+transient HTTP 429 on any adapter and transport (F05); `session/load`
+latency on long conversations (F08).
 
 ## 11. Adjudication list
 
@@ -1433,10 +1507,12 @@ against; no field or code path may be added for it).
 
 ### A.2 Facts
 
-All ten are **authorized and pending** (D03). Each is answered by one probe
-of the Phase 0 run below. A fact moves to "answered" only with a recorded
-fixture or event; until then every design statement that depends on it is
-an assumption.
+All ten were authorized by D03 and probed on 2026-11-13
+([probe report](../research/2026-11-13-acp-phase0-probes.md), section 4).
+The Status column below records the answer; section 10.8 records what it
+means for each adapter's gate. A fact moves to "answered" only with a
+recorded fixture or event; a part still marked unverified remains an
+assumption wherever a design statement depends on it.
 
 | Probe | What it does | Model call |
 | --- | --- | --- |
@@ -1449,16 +1525,16 @@ an assumption.
 
 | Id | Question (source) | Answered by | Status |
 | --- | --- | --- | --- |
-| F01 | Does a session created over ACP resume headless, and the reverse, on Cursor and Kiro? (10.6 item 1) | P0-D | authorized, pending |
-| F02 | Can `agent acp` select a model: a parent option or a session configuration option? (10.6 item 2) | P0-C on Cursor | authorized, pending |
-| F03 | Does `kiro-cli acp` complete the handshake once logged in, with which protocol version and capabilities? (10.6 item 3) | P0-B on Kiro, after login | authorized, pending |
-| F04 | In default mode, do the agents send `session/request_permission`, and with which option kinds? (10.6 item 4) | P0-E | authorized, pending |
-| F05 | How does a rate limit appear over ACP: a JSON-RPC error, a stop reason or text? (10.6 item 5) | P0-C, recorded if a limit occurs; otherwise the first live occurrence. A limit is not provoked on purpose. | authorized, pending |
-| F06 | Does an ACP agent wait for background subagents before it answers `session/prompt`? (10.6 item 6) | P0-F | authorized, pending |
-| F07 | Is Kiro's `stream-json` output exactly the ACP `session/update` payloads? (10.6 item 7) | P0-C on Kiro, both transports, fixtures compared | authorized, pending |
-| F08 | How long does `session/load` take on a long conversation? (10.6 item 8) | P0-D, timed on a conversation with many turns | authorized, pending |
-| F09 | Does the ACP handshake (and the auth hint) need more of the user's environment than the per-variant allowlist? (10.6 item 9; final design section 20) | P0-B, allowlisted run compared with the full-environment run | authorized, pending |
-| F10 | How does each adapter express `bypass` and `read_only_auto` at launch, per transport, without changing the CLI's own permission configuration? (D06) | P0-A for the flags, P0-E for the behavior | authorized, pending |
+| F01 | Does a session created over ACP resume headless, and the reverse, on Cursor and Kiro? (10.6 item 1) | P0-D | answered: refuted for Cursor, verified for Kiro and Agy |
+| F02 | Can `agent acp` select a model: a parent option or a session configuration option? (10.6 item 2) | P0-C on Cursor | answered: verified; a session configuration option (`model`, set with `session/set_config_option`), no parent option |
+| F03 | Does `kiro-cli acp` complete the handshake once logged in, with which protocol version and capabilities? (10.6 item 3) | P0-B on Kiro, after login | answered: verified; protocol version 1, `loadSession: true`, no `resume` capability |
+| F04 | In default mode, do the agents send `session/request_permission`, and with which option kinds? (10.6 item 4) | P0-E | answered: verified for Kiro v2, both ways; blocked for Kiro v3 (`permissions.yaml`) and Cursor (plan limit); unverified for Agy, which sent no request |
+| F05 | How does a rate limit appear over ACP: a JSON-RPC error, a stop reason or text? (10.6 item 5) | P0-C, recorded if a limit occurs; otherwise the first live occurrence. A limit is not provoked on purpose. | partially answered: Cursor plan limit verified (assistant text, `end_turn`, no JSON-RPC error); transient 429 unverified on every adapter |
+| F06 | Does an ACP agent wait for background subagents before it answers `session/prompt`? (10.6 item 6) | P0-F | answered: verified for Agy ACP and Claude headless (the turn waits); blocked for Kiro v3 and Cursor |
+| F07 | Is Kiro's `stream-json` output exactly the ACP `session/update` payloads? (10.6 item 7) | P0-C on Kiro, both transports, fixtures compared | answered: refuted; an envelope of `runStarted`, `sessionUpdate`, `runFinished` (section 8.7) |
+| F08 | How long does `session/load` take on a long conversation? (10.6 item 8) | P0-D, timed on a conversation with many turns | partially answered: verified for 1 to 2 turn sessions (Kiro about 1.5 s, Agy about 3.9 s); long sessions unverified; Cursor `session/load` fails |
+| F09 | Does the ACP handshake (and the auth hint) need more of the user's environment than the per-variant allowlist? (10.6 item 9; final design section 20) | P0-B, allowlisted run compared with the full-environment run | answered for handshakes: the allowlist suffices for the three ACP handshakes and the `agent status` and `kiro-cli whoami` hints; Claude headless needs `CLAUDE_CODE_OAUTH_TOKEN` in `env_allow` |
+| F10 | How does each adapter express `bypass` and `read_only_auto` at launch, per transport, without changing the CLI's own permission configuration? (D06) | P0-A for the flags, P0-E for the behavior | answered for flags; behavior only partially verified (final design 9.4: Claude plan mode still ran `Bash`; Agy default mode ran commands without asking) |
 
 ### A.3 Where a decision departs from the recommendation
 

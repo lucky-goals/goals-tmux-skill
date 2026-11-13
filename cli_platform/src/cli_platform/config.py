@@ -42,6 +42,14 @@ MODEL_STATUSES = ("enabled", "disabled", "deprecated")
 # Informational label for people choosing a model; the router does not read it.
 COST_TIERS = ("low", "medium", "high")
 DEFAULT_MODEL_ID = "@default"  # launch without a model flag; the CLI decides
+# Execution transports (decision D01). A variant's ``transport`` is ``auto``
+# (the configured order, ACP only where its gate is enabled) or one explicit
+# transport, which is strict: it is never replaced by a fallback.
+TRANSPORTS = ("acp", "headless")
+TRANSPORT_PREFERENCES = ("auto",) + TRANSPORTS
+# ACP evidence gate per variant (assessment section 10.4). Only ``enabled``
+# lets a turn use ACP; the other values record why it may not.
+ACP_GATES = ("enabled", "verified_not_default", "blocked", "disabled", "absent", "pending")
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 _STAGE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
@@ -73,6 +81,13 @@ class Variant:
     # Optional cap for this way of launching, on top of the account's cap.
     max_parallel: int | None = None
     note: str = ""
+    # Execution (P1). None means the adapter's built-in default (adapters.base).
+    transport: str = "auto"
+    transport_order: tuple[str, ...] | None = None
+    acp_gate: str | None = None
+    # Names the child may inherit on top of the base set (D11). Names only:
+    # the values come from the caller's environment and are never stored.
+    env_allow: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +146,27 @@ class Concurrency:
 
 
 @dataclass(frozen=True)
+class AcpSettings:
+    """Fallback thresholds of decision D05."""
+    protocol_versions: tuple[int, ...] = (1,)
+    handshake_timeout_seconds: int = 10
+    setup_timeout_seconds: int = 30
+    breaker_consecutive_faults: int = 2
+    breaker_window_turns: int = 10
+    breaker_window_faults: int = 3
+    breaker_retry_seconds: int = 1800
+
+
+@dataclass(frozen=True)
+class ExecutionSettings:
+    transport_order: tuple[str, ...] = TRANSPORTS
+    cancel_grace_seconds: int = 5      # wait for the agent to acknowledge a cancel
+    close_grace_seconds: int = 3       # wait for an exit after stdin EOF, then SIGTERM
+    quiet_timeout_seconds: int = 600   # a turn with no output this long fails
+    acp: AcpSettings = field(default_factory=AcpSettings)
+
+
+@dataclass(frozen=True)
 class NicknameSettings:
     library: Path
     cooldown_days: float = 7
@@ -161,6 +197,7 @@ class PlatformConfig:
     stages: dict[str, Stage]             # in configured order
     default_candidates: tuple[Candidate, ...]
     ui: UiSettings = UiSettings()
+    execution: ExecutionSettings = ExecutionSettings()
 
     def model(self, variant: str, model_id: str) -> ModelEntry | None:
         for entry in self.models:
@@ -224,7 +261,8 @@ def _variant(variant_id: str, raw: Any, base: Path, accounts: dict[str, Account]
     if not _ID_RE.fullmatch(variant_id):
         raise _fail(f"{where}: id must match {_ID_RE.pattern}")
     raw = _table(raw, where, {"adapter", "binary", "account", "enabled", "settings_file",
-                              "env", "env_unset", "extra_args", "max_parallel", "note"},
+                              "env", "env_unset", "extra_args", "max_parallel", "note",
+                              "transport", "transport_order", "acp_gate", "env_allow"},
                  {"adapter", "binary", "account"})
     adapter = _choice(raw, "adapter", ADAPTERS, "", where)
     account = _typed(raw, "account", str, "", where)
@@ -248,6 +286,17 @@ def _variant(variant_id: str, raw: Any, base: Path, accounts: dict[str, Account]
         raise _fail(f"{where}.settings_file must be a path string")
     if settings is not None and adapter != "claude":
         raise _fail(f"{where}.settings_file is only supported by the claude adapter")
+    env_allow = _strings(raw, "env_allow", where)
+    if not all(_ENV_NAME_RE.fullmatch(name) for name in env_allow):
+        raise _fail(f"{where}.env_allow must hold environment variable names")
+    clash = sorted(set(env_allow) & (set(env) | set(env_unset)))
+    if clash:
+        raise _fail(f"{where}.env_allow names {clash}, which env or env_unset already decide")
+    transport = _choice(raw, "transport", TRANSPORT_PREFERENCES, "auto", where)
+    order = _transport_order(raw, where) if "transport_order" in raw else None
+    acp_gate = _choice(raw, "acp_gate", ACP_GATES, "", where) if "acp_gate" in raw else None
+    if transport == "acp" and acp_gate not in (None, "enabled"):
+        raise _fail(f"{where}.transport = \"acp\" needs acp_gate = \"enabled\" (decision D01)")
     return Variant(
         id=variant_id, adapter=adapter, binary=_typed(raw, "binary", str, "", where),
         account=account, enabled=_typed(raw, "enabled", bool, True, where),
@@ -255,6 +304,48 @@ def _variant(variant_id: str, raw: Any, base: Path, accounts: dict[str, Account]
         env=dict(env), env_unset=env_unset, extra_args=_strings(raw, "extra_args", where),
         max_parallel=_positive(raw, "max_parallel", 1, where) if "max_parallel" in raw else None,
         note=_typed(raw, "note", str, "", where),
+        transport=transport, transport_order=order, acp_gate=acp_gate, env_allow=env_allow,
+    )
+
+
+def _transport_order(raw: dict, where: str) -> tuple[str, ...]:
+    order = _strings(raw, "transport_order", where)
+    if not order or len(set(order)) != len(order) or not set(order) <= set(TRANSPORTS):
+        raise _fail(f"{where}.transport_order must list distinct values from {list(TRANSPORTS)}")
+    return order
+
+
+def _execution(raw: Any) -> ExecutionSettings:
+    where = "execution"
+    raw = _table(raw, where, {"transport_order", "cancel_grace_seconds", "close_grace_seconds",
+                              "quiet_timeout_seconds", "acp"})
+    acp = _table(raw.get("acp", {}), "execution.acp",
+                 {"protocol_versions", "handshake_timeout_seconds", "setup_timeout_seconds",
+                  "breaker_consecutive_faults", "breaker_window_turns", "breaker_window_faults",
+                  "breaker_retry_seconds"})
+    versions = acp.get("protocol_versions", [1])
+    if (not isinstance(versions, list) or not versions
+            or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 1
+                       for item in versions)):
+        raise _fail("execution.acp.protocol_versions must be a non-empty list of positive integers")
+    here = "execution.acp"
+    settings = AcpSettings(
+        protocol_versions=tuple(sorted(set(versions))),
+        handshake_timeout_seconds=_positive(acp, "handshake_timeout_seconds", 10, here),
+        setup_timeout_seconds=_positive(acp, "setup_timeout_seconds", 30, here),
+        breaker_consecutive_faults=_positive(acp, "breaker_consecutive_faults", 2, here),
+        breaker_window_turns=_positive(acp, "breaker_window_turns", 10, here),
+        breaker_window_faults=_positive(acp, "breaker_window_faults", 3, here),
+        breaker_retry_seconds=_positive(acp, "breaker_retry_seconds", 1800, here),
+    )
+    if settings.breaker_window_faults > settings.breaker_window_turns:
+        raise _fail("execution.acp.breaker_window_faults cannot exceed breaker_window_turns")
+    return ExecutionSettings(
+        transport_order=_transport_order(raw, where) if "transport_order" in raw else TRANSPORTS,
+        cancel_grace_seconds=_positive(raw, "cancel_grace_seconds", 5, where),
+        close_grace_seconds=_positive(raw, "close_grace_seconds", 3, where),
+        quiet_timeout_seconds=_positive(raw, "quiet_timeout_seconds", 600, where),
+        acp=settings,
     )
 
 
@@ -335,7 +426,8 @@ def _stage(index: int, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
 def parse_config(raw: dict, path: Path) -> PlatformConfig:
     base = Path(path).resolve().parent
     raw = _table(raw, "config", {"schema_version", "platform", "nicknames", "concurrency", "catalog",
-                                 "accounts", "variants", "models", "stages", "routing", "ui"},
+                                 "accounts", "variants", "models", "stages", "routing", "ui",
+                                 "execution"},
                  {"schema_version", "concurrency", "accounts", "variants", "models", "stages"})
     if raw["schema_version"] != SCHEMA_VERSION:
         raise _fail(f"schema_version must be {SCHEMA_VERSION}")
@@ -423,7 +515,8 @@ def parse_config(raw: dict, path: Path) -> PlatformConfig:
     return PlatformConfig(path=Path(path).resolve(), state_dir=state_dir, nicknames=nicknames,
                           concurrency=concurrency, catalog=catalog, accounts=accounts,
                           variants=variants, models=models, stages=stages,
-                          default_candidates=default_candidates, ui=UiSettings(locale))
+                          default_candidates=default_candidates, ui=UiSettings(locale),
+                          execution=_execution(raw.get("execution", {})))
 
 
 def load_config(path: Path | str) -> PlatformConfig:

@@ -48,6 +48,19 @@ class RouterTest(unittest.TestCase):
         self.assertEqual([step["source"] for step in caught.exception.details["steps"]],
                          ["pin", "task", "stage", "stage", "default"])
 
+    def test_a_profile_the_adapter_cannot_guarantee_skips_the_candidate(self):
+        # code_review is read_only_auto; kiro has no read-only launch mode.
+        raw = raw_config()
+        stage(raw, "code_review")["candidates"] = [
+            {"variant": "gamma", "model": "@default", "effort": "medium"},
+            {"variant": "alpha", "model": "small", "effort": "medium"}]
+        result = self.router(raw).resolve(RouteRequest(stage="code_review"))
+        self.assertEqual(result.selected.variant, "alpha")
+        self.assertEqual((result.steps[0].outcome, list(result.steps[0].reasons)),
+                         ("skipped", ["PERMISSION_PROFILE_UNSUPPORTED"]))
+        stage(raw, "code_review")["permission_profile"] = "bypass"
+        self.assertEqual(self.router(raw).resolve(RouteRequest(stage="code_review")).selected.variant, "gamma")
+
     def test_task_candidates_precede_the_stage_list(self):
         result = self.resolve("design", task_candidates=(Candidate("beta", "quick", "high"),))
         self.assertEqual((result.selected.variant, result.source), ("beta", "task"))

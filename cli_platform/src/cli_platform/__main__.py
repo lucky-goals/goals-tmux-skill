@@ -1,8 +1,20 @@
-"""Command line for the scaffold: ``python -m cli_platform <command>``.
+"""Command line: ``python -m cli_platform <command>``.
 
-Every command is read-only except ``plan --commit``, and none makes a model
-call. Output is JSON unless stated. JSON keys and codes are never translated;
-``--locale`` only changes the human ``text`` added to refusals.
+Every command is read-only except ``plan --commit`` and the ``run`` group,
+and only ``run send`` starts a CLI (one turn, one process, in this process;
+there is no daemon). Output is JSON unless stated. JSON keys and codes are
+never translated; ``--locale`` only changes the human ``text`` added to
+refusals.
+
+    run create <stage> --cwd DIR      allocate a nickname, write the run
+    run send <run> TEXT | --file F    route, lease, bind, run one turn
+    run cancel <run>                  ask the run's supervisor to stop the turn
+    run status <run> / events <run>   read state and events (--after-seq N)
+    run close <run>                   release the nickname
+    run reconcile <run>               mark a run whose supervisor died as lost
+    run list
+
+``<run>`` is a run id or, for a live run, its nickname.
 """
 
 from __future__ import annotations
@@ -19,7 +31,7 @@ from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
 from .scanner import scan_all
-from .supervisor import Platform, SessionRequest
+from .supervisor import Platform, RunService, SessionRequest
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cli-platform.toml"
 
@@ -36,6 +48,8 @@ def _pin(text: str | None) -> Candidate | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cli_platform", description=__doc__)
     parser.add_argument("--config", type=Path, default=_DEFAULT_CONFIG)
+    parser.add_argument("--state-dir", type=Path,
+                        help="state directory for the run commands (default: platform.state_dir)")
     parser.add_argument("--locale", help=f"display language, one of {', '.join(SUPPORTED)} "
                                          "(default: ui.locale, then the OS locale, then en)")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -54,6 +68,32 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--run-id", default="run-DRYRUN0001")
     plan.add_argument("--commit", action="store_true",
                       help="use the configured state directory instead of a temporary one")
+    run = commands.add_parser("run", help="create, send, cancel and inspect runs")
+    runs = run.add_subparsers(dest="run_command", required=True)
+    create = runs.add_parser("create", help="create a run for a stage")
+    create.add_argument("stage")
+    create.add_argument("--cwd", default=str(Path.cwd()))
+    create.add_argument("--task-id", default="adhoc")
+    create.add_argument("--pin")
+    create.add_argument("--allow-fallback", action="store_true")
+    create.add_argument("--run-id")
+    send = runs.add_parser("send", help="run one turn")
+    send.add_argument("run")
+    send.add_argument("instruction", nargs="?")
+    send.add_argument("--file", type=Path, help="read the instruction from a file ('-' for stdin)")
+    send.add_argument("--request-id", help="idempotency key; a committed request is not run again")
+    cancel = runs.add_parser("cancel", help="cancel the running or queued turn")
+    cancel.add_argument("run")
+    cancel.add_argument("--reason", default="requested")
+    for name in ("status", "close"):
+        runs.add_parser(name).add_argument("run")
+    events = runs.add_parser("events", help="events after a cursor")
+    events.add_argument("run")
+    events.add_argument("--after-seq", type=int, default=0)
+    reconcile = runs.add_parser("reconcile", help="report or resolve a run whose supervisor is gone")
+    reconcile.add_argument("run")
+    reconcile.add_argument("--resolve", choices=("idle", "failed"))
+    runs.add_parser("list")
     args = parser.parse_args(argv)
     if args.locale and normalize(args.locale) is None:
         parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
@@ -72,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "scan":
             print(json.dumps([item.to_dict() for item in scan_all(probe_auth=args.auth)], indent=2))
             return 0
+        if args.command == "run":
+            return _run(args, config)
         scans = scan_all()
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
@@ -111,6 +153,40 @@ def _locale(args: argparse.Namespace, config) -> int:
         "text": Translator(chosen.locale).t("cli.locale.summary", locale=chosen.locale, source=chosen.source),
         "missing_keys": coverage,
     }, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _run(args: argparse.Namespace, config) -> int:
+    # Only a send starts a CLI, so only a send pays for the scan (local
+    # --version and --help commands; it records the CLI version for the breaker).
+    scans = scan_all() if args.run_command == "send" else None
+    service = RunService(Platform(config, scans, state_dir=args.state_dir))
+    command = args.run_command
+    if command == "create":
+        result = service.create(stage=args.stage, cwd=str(Path(args.cwd).resolve()),
+                                task_id=args.task_id, pin=_pin(args.pin),
+                                allow_fallback=args.allow_fallback, run_id=args.run_id)
+    elif command == "send":
+        if args.file is not None:
+            instruction = sys.stdin.read() if str(args.file) == "-" else args.file.read_text()
+        elif args.instruction is not None:
+            instruction = args.instruction
+        else:
+            raise SystemExit("run send needs an instruction or --file")
+        result = service.send(args.run, instruction, request_id=args.request_id)
+    elif command == "cancel":
+        result = service.cancel(args.run, args.reason)
+    elif command == "status":
+        result = service.status(args.run)
+    elif command == "events":
+        result = service.events(args.run, args.after_seq)
+    elif command == "close":
+        result = service.close(args.run)
+    elif command == "reconcile":
+        result = service.reconcile(args.run, args.resolve)
+    else:
+        result = service.list()
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
 

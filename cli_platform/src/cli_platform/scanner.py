@@ -19,8 +19,8 @@ _TIMEOUT_SECONDS = 8.0
 _MAX_OUTPUT_BYTES = 256 * 1024
 
 # Environment handed to probes: enough to run, nothing that carries secrets.
-_ENV_ALLOW = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER", "LOGNAME", "SHELL", "TERM",
-              "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+BASE_ENV_ALLOW = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER", "LOGNAME", "SHELL", "TERM",
+                  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ Runner = Callable[[list[str]], tuple[int | None, str]]
 
 def _run(argv: list[str]) -> tuple[int | None, str]:
     """Run a probe command; return (exit code or None on timeout, output)."""
-    env = {name: os.environ[name] for name in _ENV_ALLOW if name in os.environ}
+    env = {name: os.environ[name] for name in BASE_ENV_ALLOW if name in os.environ}
     try:
         done = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, env=env, timeout=_TIMEOUT_SECONDS,

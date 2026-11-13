@@ -13,8 +13,11 @@ Candidate order:
 4. ``routing.default_candidates``
 
 The resolution carries the stage's ``permission_profile``; the supervisor
-passes it to the CLI at launch. Stages are whatever the configuration lists,
-so an id that is not configured is ``STAGE_UNKNOWN``.
+passes it to the CLI at launch. A candidate whose adapter cannot render the
+profile on any transport it may use is skipped with
+``PERMISSION_PROFILE_UNSUPPORTED``: the profile is never widened to make a
+candidate fit (final design 9.4, rule 1). Stages are whatever the
+configuration lists, so an id that is not configured is ``STAGE_UNKNOWN``.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import errors
+from .adapters.base import profile_supported
 from .catalog import ModelCatalog
 from .config import EFFORT_ORDER, Candidate, PlatformConfig, Stage
 from .errors import PlatformError
@@ -175,6 +179,8 @@ class Router:
         state = self._registry.state(candidate.variant)
         if not state.available:
             return candidate, state.reasons, ()
+        if not profile_supported(state.variant, self._config.execution, stage.permission_profile):
+            return candidate, (errors.PERMISSION_PROFILE_UNSUPPORTED,), ()
         entry = self._catalog.get(candidate.variant, candidate.model)
         if entry is None:
             return candidate, ("MODEL_NOT_IN_CATALOG",), ()

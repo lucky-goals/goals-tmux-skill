@@ -9,13 +9,12 @@ values win; observations only add provenance and warning flags.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import MODEL_ID_RE, ModelEntry, PlatformConfig
-from .fsutil import private_dir
+from .events import StreamLog
 
 # Strongest evidence first. ``run_event`` is a model id reported by a real
 # turn; ``help_text`` only proves the CLI documents a name.
@@ -53,7 +52,11 @@ class CatalogEntry:
 
 
 class ObservationStore:
-    """Append-only observation log, one JSONL file per variant."""
+    """Append-only observation log, one ``catalog`` stream per variant.
+
+    Each line is a v1 envelope whose ``payload`` is the observation. Lines
+    written before the envelope existed (the bare observation) still load.
+    """
 
     def __init__(self, state_dir: Path) -> None:
         self._root = Path(state_dir) / "catalog" / "observed"
@@ -64,14 +67,9 @@ class ObservationStore:
         if not MODEL_ID_RE.fullmatch(observation.model_id):
             # An observed id may end up in an argv; refuse anything flag-shaped.
             raise ValueError("observed model id has an unsupported shape")
-        private_dir(self._root)
-        line = json.dumps(asdict(observation), sort_keys=True) + "\n"
-        fd = os.open(self._root / f"{observation.variant}.jsonl",
-                     os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(fd, line.encode())
-        finally:
-            os.close(fd)
+        StreamLog(self._root / f"{observation.variant}.jsonl", stream="catalog",
+                  key=f"catalog.{observation.variant}").append(
+            "observation", asdict(observation), source="scanner")
 
     def load(self, variant: str) -> list[Observation]:
         try:
@@ -82,6 +80,8 @@ class ObservationStore:
         for line in text.splitlines():
             try:
                 raw = json.loads(line)
+                if raw.get("v") == 1 and raw.get("stream") == "catalog":
+                    raw = raw["payload"]
                 # Fields this version does not know are ignored, not fatal.
                 raw = {key: value for key, value in raw.items() if key in _OBSERVATION_FIELDS}
                 raw["efforts"] = tuple(raw.get("efforts", ()))

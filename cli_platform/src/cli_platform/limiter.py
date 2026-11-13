@@ -32,6 +32,7 @@ from typing import Callable, Iterator
 from . import errors
 from .config import PlatformConfig
 from .errors import PlatformError
+from .events import StreamLog
 from .fsutil import private_dir
 from .snapshots import empty_limits, summarize_limits
 
@@ -68,6 +69,7 @@ class Outcome:
     ticket_id: str | None = None
     position: int | None = None      # 1 is the head of the queue
     blocked_on: tuple[str, ...] = () # e.g. ("account:anthropic-sub", "cooldown:...", "variant:...")
+    ref: str | None = None           # "limits:<seq>" of the journal event that granted the lease
 
     @property
     def granted(self) -> bool:
@@ -104,7 +106,7 @@ class Limiter:
             self._reap(state, now)
             for lease in state["leases"].values():
                 if lease["session_id"] == request.session_id:
-                    return Outcome("granted", lease_id=lease["lease_id"])
+                    return Outcome("granted", lease_id=lease["lease_id"], ref=lease.get("ref"))
             for ticket in state["queue"]:
                 if ticket["session_id"] == request.session_id:
                     return self._advance(state, ticket["ticket_id"], now)
@@ -116,7 +118,8 @@ class Limiter:
             }
             blocked = self._blocked_behind_queue(state, entry, len(state["queue"]), now)
             if not blocked:
-                return Outcome("granted", lease_id=self._grant(state, entry, now))
+                lease_id = self._grant(state, entry, now)
+                return Outcome("granted", lease_id=lease_id, ref=state["leases"][lease_id]["ref"])
             if not queue:
                 return Outcome("busy", blocked_on=blocked)
             if len(state["queue"]) >= self._config.concurrency.queue_max_depth:
@@ -281,14 +284,17 @@ class Limiter:
         state["queue"].pop(position)
         entry = {key: ticket.get(key, "") for key in ("session_id", "nickname", "account", "stage",
                                                       "holder", "variant", "pid", "pid_started")}
-        return Outcome("granted", lease_id=self._grant(state, entry, now, waited=waited))
+        lease_id = self._grant(state, entry, now, waited=waited)
+        return Outcome("granted", lease_id=lease_id, ref=state["leases"][lease_id]["ref"])
 
     def _grant(self, state: dict, entry: dict, now: float, waited: float = 0.0) -> str:
         lease_id = f"lease-{uuid.uuid4().hex[:12]}"
         lease = dict(entry, lease_id=lease_id, acquired_at=now,
                      expires_at=now + self._config.concurrency.lease_ttl_seconds)
         state["leases"][lease_id] = lease
-        self._journal("lease_granted", lease, now, waited=round(waited, 3))
+        # The limits stream is authoritative for leases; a run stream's
+        # lease_granted carries this reference instead of a copy.
+        lease["ref"] = self._journal("lease_granted", lease, now, waited=round(waited, 3))
         return lease_id
 
     def _reap(self, state: dict, now: float, keep_ticket: str | None = None) -> None:
@@ -336,16 +342,16 @@ class Limiter:
         finally:
             os.close(fd)
 
-    def _journal(self, kind: str, subject: dict, now: float, **extra: object) -> None:
-        # Called with the state lock held, so the journal has one writer at a time.
-        record = {"ts": now, "type": kind, **extra}
+    def _journal(self, kind: str, subject: dict, now: float, **extra: object) -> str:
+        """Append to the ``limits`` stream and return ``limits:<seq>``.
+
+        Called with the state lock held, so the stream has one writer at a time.
+        """
+        payload: dict[str, object] = {"at": now, **extra}
         for key in ("lease_id", "ticket_id", "session_id", "nickname", "account", "stage", "variant",
                     "holder"):
             if key in subject:
-                record[key] = subject[key]
-        fd = os.open(self._root / "journal.jsonl",
-                     os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(fd, (json.dumps(record, sort_keys=True) + "\n").encode())
-        finally:
-            os.close(fd)
+                payload[key] = subject[key]
+        event = StreamLog(self._root / "journal.jsonl", stream="limits").append(
+            kind, payload, source="limiter")
+        return event["event_id"]

@@ -1,11 +1,12 @@
 # CLI platform: final design
 
-Status: final design, 2026-11-13, revision 4. The design is final for the
+Status: final design, 2026-11-13, revision 5. The design is final for the
 items listed in section 2. The scaffold under `cli_platform/` implements and
 tests the platform logic (nicknames, configuration, variants, catalog merge,
-routing, limiter) and the layer boundaries. The run supervisor, the MCP
-server, the workbench server and the settings editor are still not
-implemented. No existing runtime file, test, reference or earlier proposal
+routing, limiter) and the layer boundaries. The P1 runner core (supervisor,
+both transports, normalizer, binding and breaker) is implemented (section
+16). The MCP server, the workbench server and the settings editor are still
+not implemented. No existing runtime file, test, reference or earlier proposal
 was changed.
 
 Revision 2 removes the per-candidate service-tier option entirely: the
@@ -34,6 +35,20 @@ observation reads `config_applied` events and snapshots instead of the
 configuration file (section 5). The per-model sub-cap and capacity
 reservation are removed from the open questions: the first is not
 implemented, the second is never supported.
+
+Revision 5 records the authorized Phase 0 probe
+([probe report](../research/2026-11-13-acp-phase0-probes.md)) and the P1
+runner core. Section 11.6 gives the gate status per adapter: agy is the
+first ACP-enabled adapter; Cursor's ACP is disabled because `session/load`
+cannot continue a session in a second process; Kiro's ACP is blocked on its
+v3 permission flow; Claude stays headless-only; codex is pending. Section
+9.4 states that `read_only_auto` is enforced by launch flags or, over ACP,
+by the answer policy, not by a sandbox, and lists per adapter and transport
+whether it can be rendered; where it cannot, the candidate is skipped with
+`PERMISSION_PROFILE_UNSUPPORTED`. Section 12 lists the execution and
+per-variant keys now in the loader (`acp_gate`, `env_allow`, `transport`,
+`transport_order` and the timeouts). Sections 16, 17 and 20 are updated to
+match.
 
 - **Dispatch**: `cli-platform-final-design-20261113-g1-7c9d2ec0-C01-6f530449`;
   revision 2: `cli-platform-design-v2-20261113-g1-43213fb6-C01-f2cd19b6`;
@@ -879,8 +894,8 @@ Rules:
    is fact F10. An adapter and transport that cannot express a profile
    exactly is skipped for that stage with reason
    `PERMISSION_PROFILE_UNSUPPORTED`; the profile is never widened to make a
-   candidate fit. (P1, with the adapters; the scaffold's router carries the
-   profile but does not yet check adapter support.)
+   candidate fit. (Implemented in P1: the router skips such candidates with
+   `PERMISSION_PROFILE_UNSUPPORTED`, using the rendering table below.)
 2. **Defaults.** The five sample ids have the defaults above. A stage with
    any other id has no default and must set `permission_profile`; the
    loader refuses it otherwise. The workbench starts a new stage at
@@ -903,6 +918,39 @@ Over ACP, the profile decides the answer to `session/request_permission`:
 every other kind. `allow_always` and `reject_always` are never chosen. The
 request and the answer are each appended and fsynced before the answer is
 sent (assessment section 6.6).
+
+**Enforcement.** `read_only_auto` is enforced by launch flags or, over ACP,
+by the answer policy. It is not a sandbox. An adapter and transport whose
+flags cannot guarantee "read, search and fetch only; no command execution"
+is skipped for a `read_only_auto` stage with
+`PERMISSION_PROFILE_UNSUPPORTED`, so `code_review` (`read_only_auto` by
+default) is never routed to it. Over ACP, `read_only_auto` answers
+`allow_once` only for tool kinds `read`, `search` and `fetch` and
+`reject_once` otherwise, and is still usable only on an adapter the table
+below lists as supported: an agent that never asks is never refused.
+
+The Phase 0 probe showed why flags and modes are not trusted by name. agy
+in default mode ran `echo` and `python3 -c` without sending a permission
+request ([p0e_agy_acp_allow.json](../research/phase0-20261113/fixtures/p0e_agy_acp_allow.json),
+[p0e_agy_acp_py_reject.json](../research/phase0-20261113/fixtures/p0e_agy_acp_py_reject.json)).
+Claude with `--permission-mode plan --permission-prompts none` still ran
+`Bash(echo ...)` ([p0e_claude_hl_plan.json](../research/phase0-20261113/fixtures/p0e_claude_hl_plan.json)).
+A "plan" mode is therefore not treated as a guarantee on any adapter.
+
+| Adapter | Transport | `bypass` | `read_only_auto` | Basis |
+| --- | --- | --- | --- | --- |
+| claude | headless | `--dangerously-skip-permissions` | `--permission-prompts none --tools Read,Grep,Glob,WebFetch,WebSearch` | A tool allowlist without any command tool. Flags from F10; the behavior of `--tools` was not exercised by a probe. |
+| cursor | headless | `--force` | unsupported | `--trust` is passed on every turn (a fresh directory needs it). Only `--mode plan` is available for read-only, and a plan mode is not a guarantee; Cursor's P0-E was blocked by its plan limit. |
+| kiro | headless | `--trust-all-tools` | unsupported | `--trust-tools=` in non-interactive mode is unverified; the v3 permission flow is blocked (section 11.6). |
+| agy | acp | the answer policy chooses `allow_once`; no launch flag | unsupported | Default mode ran commands without a permission request. |
+| agy | headless | `--dangerously-skip-permissions` | unsupported | Same evidence; no read-only flag is verified. |
+| codex | headless | `--dangerously-bypass-approvals-and-sandbox` | `--sandbox read-only` | Unverified: not installed. The read-only flag is an OS sandbox flag. |
+
+Cursor and Kiro over ACP are not listed because their ACP gate is not
+enabled (section 11.6). On the probed host this leaves Claude headless as
+the only installed adapter that can serve `read_only_auto`; in the sample
+configuration `code_review` resolves past `codex` (not installed) and
+`cursor` (unsupported) to `claude-gateway`.
 
 ## 10. Concurrency limits
 
@@ -1219,6 +1267,28 @@ and 7.
 - **Permissions.** Both transports apply the stage's `permission_profile`
   (section 9.4).
 
+### 11.6 Adapter gate status
+
+Result of the Phase 0 probe of 2026-11-13. The full table, with every
+fixture and the rule for check 6, is
+[assessment section 10.8](2026-11-13-acp-first-layering-assessment.md#108-gate-status-after-the-phase-0-probe-2026-11-13);
+the probe itself is the [probe report](../research/2026-11-13-acp-phase0-probes.md).
+A successful ACP handshake and prompt are not sufficient: an adapter is
+enabled only when all checks that gate its use pass.
+
+| Adapter and version | ACP gate (`acp_gate`) | Default transport | `resume_portable` | Evidence | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `agy 1.5.8` | **enabled** (`enabled`) | `acp`, then `headless` | `true` | [p0c_agy_acp.json](../research/phase0-20261113/fixtures/p0c_agy_acp.json), [p0d_agy_acp_resume.json](../research/phase0-20261113/fixtures/p0d_agy_acp_resume.json), [p0_cancel_agy_acp.json](../research/phase0-20261113/fixtures/p0_cancel_agy_acp.json) | The first ACP-enabled adapter. Check 6 unverified (no permission request in default mode), so it cannot serve `read_only_auto` (9.4); `bypass` stages are not blocked. |
+| `cursor agent 2026.11.11-b912975` | **disabled** (`disabled`) | `headless` | `false` | [p0d_cursor_acp_load.json](../research/phase0-20261113/fixtures/p0d_cursor_acp_load.json), [p0d_cursor_acp_to_hl.json](../research/phase0-20261113/fixtures/p0d_cursor_acp_to_hl.json), [p0d_cursor_hl_resume.json](../research/phase0-20261113/fixtures/p0d_cursor_hl_resume.json) | Handshake and prompt pass, but `session/load` answers `-32602` "Session not found" (check 3 fails). T5 treats `-32602` with "not found" like `-32002`. Headless needs `--trust`. |
+| `kiro-cli 3.3.0` | **blocked** (`blocked`); v2 verified, not default | `headless` until v3 passes check 6 | `true` | [p0e_kiro_acp_v2_allow.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_v2_allow.json), [p0e_kiro_acp_autopilot_off.json](../research/phase0-20261113/fixtures/p0e_kiro_acp_autopilot_off.json), [p0d_kiro_acp_to_hl.json](../research/phase0-20261113/fixtures/p0d_kiro_acp_to_hl.json) | v3 permission flow blocked by a pre-existing parse error at line 79 of the user's `~/.kiro/settings/permissions.yaml`, which the platform does not touch. |
+| `claude 2.1.311` | **headless only** (`absent`, D02) | `headless` | `false` | [p0c_claude_headless_auth.json](../research/phase0-20261113/fixtures/p0c_claude_headless_auth.json), [f10_claude_auth_env.json](../research/phase0-20261113/fixtures/f10_claude_auth_env.json) | `env_allow` must include `CLAUDE_CODE_OAUTH_TOKEN`. |
+| `codex` | **pending** (`pending`) | `headless` | unverified | none: not installed | Nothing verified. |
+
+Normalizer and transport caveats found by the probe (exit by SIGTERM after
+stdin EOF, Kiro's `_`-prefixed notifications, Kiro's headless envelope,
+several Claude `result` lines, agy's `-p <prompt>`, Cursor's plan limit as
+text) are in [assessment section 8.7](2026-11-13-acp-first-layering-assessment.md#87-caveats-from-the-probe).
+
 ## 12. Configuration
 
 One file, `cli-platform.toml`, TOML, read with the standard library. The
@@ -1234,16 +1304,56 @@ complete example is `cli_platform/config/cli-platform.toml`.
 | `[catalog]` | `stale_after_days`, `allow_unreviewed` |
 | `[accounts.<id>]` | `vendor`, `max_parallel` |
 | `[variants.<id>]` | `adapter`, `binary`, `account`, `enabled`, `settings_file`, `env`, `env_unset`, `extra_args`, `max_parallel`, `note` |
-| `[variants.<id>]`, P1 | `env_allow` (names of variables the child may inherit, D11), `transport` (`auto`, `acp` or `headless`) |
+| `[variants.<id>]`, added in P1 | `transport` (`auto`, `acp` or `headless`), `transport_order`, `acp_gate`, `env_allow` (names of variables the child may inherit, D11) |
 | `[[models]]` | `variant`, `id`, `display_name`, `efforts`, `default_effort`, `context_tokens`, `cost_tier`, `status`, `verified_at`, `note` |
 | `[[stages]]` (ordered) | `id`, `permission_profile` (`bypass` or `read_only_auto`), `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `allow_pins_outside` |
 | `[routing]` | `default_candidates` |
 | `[ui]` | `locale` (`auto`, `en`, `ja` or `zh-Hant`; regional tags are normalized; section 18.2) |
-| `[execution]`, `[execution.acp]`, P1 | `transport_order`; `protocol_versions`, `handshake_timeout_seconds` (10), `setup_timeout_seconds` (30), `breaker_consecutive_faults` (2), `breaker_window_turns` (10), `breaker_window_faults` (3), `breaker_retry_seconds` (1800) (D05) |
+| `[execution]`, `[execution.acp]`, added in P1 | `transport_order`, `cancel_grace_seconds` (5), `close_grace_seconds` (3), `quiet_timeout_seconds` (600); `protocol_versions`, `handshake_timeout_seconds` (10), `setup_timeout_seconds` (30), `breaker_consecutive_faults` (2), `breaker_window_turns` (10), `breaker_window_faults` (3), `breaker_retry_seconds` (1800) (D05) |
 
-Keys marked P1 are decided but are added to the loader together with the
-code that reads them; until then the loader refuses them as unknown. There
-is no key for a per-model cap (D12) or for reserving capacity (D14).
+The keys marked "added in P1" were added to the loader in P1 with the
+runner core, which reads them:
+
+```toml
+[execution]
+transport_order = ["acp", "headless"]
+cancel_grace_seconds = 5
+close_grace_seconds = 3
+quiet_timeout_seconds = 600
+
+[execution.acp]
+protocol_versions = [1]
+handshake_timeout_seconds = 10
+setup_timeout_seconds = 30
+breaker_consecutive_faults = 2
+breaker_window_turns = 10
+breaker_window_faults = 3
+breaker_retry_seconds = 1800
+
+[variants.<id>]
+transport = "auto"            # auto | acp | headless; an explicit value is strict (never replaced)
+transport_order = ["acp", "headless"]   # optional, overrides [execution].transport_order
+acp_gate = "enabled"          # enabled | verified_not_default | blocked | disabled | absent | pending; ACP is used only when "enabled"
+env_allow = ["CLAUDE_CODE_OAUTH_TOKEN"]  # names inherited by the child on top of the base set (D11)
+```
+
+Sample defaults, from the gate status of section 11.6:
+
+| Variant | `transport` | `acp_gate` | `env_allow` |
+| --- | --- | --- | --- |
+| claude | `headless` | `absent` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| claude-gateway | `headless` | `absent` | none: the credential comes from its settings file, and the subscription token must not reach this variant |
+| agy | `auto`, ACP first | `enabled` | none |
+| cursor | `headless` | `disabled` | none |
+| kiro | `headless` | `blocked` | none |
+| codex | `headless` | `pending` | none |
+
+The child environment is the sanitized base set (`PATH`, `HOME`, `LANG`,
+`LC_ALL`, `TMPDIR`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, `XDG_STATE_HOME`) plus the variant's `env_allow`; then
+`env_unset` removes names, and the variant's `env` is applied last
+(section 14). There is no key for a per-model cap
+(D12) or for reserving capacity (D14).
 
 Loader rules: unknown keys are errors; every reference must resolve
 (variant to account, model to variant, candidate to a curated model);
@@ -1358,7 +1468,7 @@ platform adds to that phase.
 | Phase | Platform deliverable | Acceptance gate |
 | --- | --- | --- |
 | P0. Scaffold (this change) and probe | `cli_platform/` package, config with the configurable stage list and profiles, nickname library, tests, mockup. The authorized Phase 0 probe (D03), including Kiro's login, answers F01 to F10. | Library validator passes. The targeted tests pass. `python -m cli_platform check-config`, `scan`, `resolve` and `plan` run on the host. Each fact has a fixture or stays "pending" with the reason. |
-| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. Headless transport for every adapter; permission profiles rendered at launch (F10); environment from the allowlist (D11). `tmuxctl run` accepts nicknames and names new sessions `gt-<nickname>` (D13). Scan results published as snapshots. One envelope for the limiter, adapters, catalog and configuration streams (D07); `config_applied` (D08). The ACP transport and breaker, enabled per adapter only after its gate (D01, D05). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
+| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. Headless transport for every adapter; permission profiles rendered at launch (F10); environment from the allowlist (D11). `tmuxctl run` accepts nicknames and names new sessions `gt-<nickname>` (D13). Scan results published as snapshots. One envelope for the limiter, adapters, catalog and configuration streams (D07); `config_applied` (D08). The ACP transport and breaker, enabled per adapter only after its gate (D01, D05; status in section 11.6). **Implemented** in `cli_platform/src/cli_platform/`: `adapters/base.py` (transport-neutral interface, launch spec, gate records, permission rendering), `adapters/acp.py` (JSON-RPC over stdio client), `adapters/headless.py` (argv and NDJSON reader), `normalize.py` (pure mapping), `events.py` (one envelope for the run, limits, adapters and catalog streams), `transport.py` (binding, commit point, breaker), `supervisor.py` (per-turn supervisor, Run service, reconciler), and the `python -m cli_platform run` command group (`create`, `send`, `cancel`, `status`, `events`, `close`, `reconcile`). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
 | P2. With task integration | Nickname in task records, audit entries and `resource_report`. `stage` and `pin` on `run_create`. Fallback disclosure text from the resolution. Rate-limit mapping in each verified adapter. | A real task shows the nickname in its record, log path and audit index. A pin for an unavailable model is refused, not replaced. A recorded rate-limit fixture produces a cooldown. |
 | P3. With the MCP adapter | The read tools of section 11.4, nickname addressing | A host completes a task using stage names only, and can explain each choice from `route_explain`. |
 | P4. With the workbench | The views and routes of section 13, localized through the catalogs (section 18). The settings editor as its own entry point (section 5.7). | `/s/<nickname>` opens the live session. Every workbench route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. A settings save changes only `cli-platform.toml`, refuses an invalid draft, and refuses when the file changed since it was opened. |
@@ -1382,7 +1492,7 @@ in [project-structure.md](../design/project-structure.md).
 | Kiro flags | `kiro-cli chat --help`, `kiro-cli --help-all` | `--model`, `--effort`, `--list-models`, `whoami` |
 | Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. Revision 2 did not open the file. |
 | Nickname library | `python3 scripts/nicknames.py validate` | 1000 names, 1000 unique, lengths 3/4/5/6 = 40/320/320/320, matches the generator |
-| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | Revision 4: 155 tests, all pass (142 before; 13 added: 8 in `test_config.py` for the stage list and profiles, with one fixed-five-stages test replaced; 2 in `test_router.py`; 3 in `test_limiter.py`). Per module: config 30, router 31, limiter 27, i18n 27, layering 10, nicknames 22, session flow 8. Revision 3: 142 tests, all pass (115 before; 27 added in `test_i18n.py`). Revision 2: 115 (101 before; 2 deleted, 16 added). |
+| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | Revision 5: 222 tests, all pass (155 before; 67 added: `test_normalize.py` 18 on the probe fixtures, `test_events.py` 11, `test_transport.py` 19 for binding, fallback, portability and the breaker, `test_runner.py` 18 end to end against `fake_acp_agent.py` and `fake_headless_cli.py`, 1 in `test_router.py`). Per module: config 30, router 32, limiter 27, i18n 27, layering 10, nicknames 22, session flow 8, normalize 18, events 11, transport 19, runner 18. Revision 4: 155 tests, all pass (142 before; 13 added: 8 in `test_config.py` for the stage list and profiles, with one fixed-five-stages test replaced; 2 in `test_router.py`; 3 in `test_limiter.py`). Per module: config 30, router 31, limiter 27, i18n 27, layering 10, nicknames 22, session flow 8. Revision 3: 142 tests, all pass (115 before; 27 added in `test_i18n.py`). Revision 2: 115 (101 before; 2 deleted, 16 added). |
 | Catalogs | `python3 -m cli_platform locale`, `python3 scripts/i18n_embed.py check` | Revision 4: 357 keys in each of `en`, `ja`, `zh-Hant` (29 added for the stage editor), no key missing, the mockup's copy matches. Revision 3: 328 keys in each of `en`, `ja`, `zh-Hant`; no key missing against English; the mockup's copy matches |
 | Locale option | `python3 -m cli_platform --locale ja resolve nope`, `--locale zh-CN locale` | Refusal keeps `code` and the English `message` and adds Japanese `text`; `zh-CN` is refused with a usage error (exit 2) |
 | Service-tier option removed | The dispatch's case-insensitive whole-word grep for the option's name over `cli_platform/`, this document and the mockup | no match (repeated in revision 4, also over the ACP assessment: no match) |
@@ -1395,26 +1505,29 @@ in [project-structure.md](../design/project-structure.md).
 | Model calls | none | none made |
 | Existing test suite | none | not run; no existing file changed |
 
-Decision status (revision 4). Each decision of the
+Decision status (revision 5). Each decision of the
 [register](2026-11-13-acp-first-layering-assessment.md#appendix-a-decision-register)
 and the files that carry it. "Applied" means the design, and where the
 decision reaches code, the scaffold and the mockup, now say what the
 decision says; code that belongs to a later phase is named as such in the
-cited section.
+cited section. "P1 code" means the runner core in
+`cli_platform/src/cli_platform/` (section 16, P1 row): `adapters/base.py`,
+`adapters/acp.py`, `adapters/headless.py`, `normalize.py`, `events.py`,
+`transport.py`, `supervisor.py` and the `run` command group.
 
 | Id | Status | Carried by |
 | --- | --- | --- |
-| D01 | applied (design); ACP code P1, after the gate | This document 2, 11.5, 16; assessment 10.3, A.1 |
+| D01 | applied; P1 code (ACP per adapter by `acp_gate`; agy enabled, section 11.6) | This document 2, 11.5, 11.6, 16; assessment 10.3, 10.8, A.1; `adapters/base.py`, `adapters/acp.py`, `transport.py` |
 | D02 | applied (design) | This document 1, 2, 11.5; assessment A.1 |
-| D03 | applied; probe pending | This document 16, 20; assessment A.1, A.2 (F01 to F10) |
+| D03 | applied; probe run 2026-11-13, results in the gate records | This document 11.6, 16, 20; assessment 10.8, A.1, A.2 (F01 to F10); `docs/research/phase0-20261113/`; `adapters/base.py` |
 | D04 | applied (design) | This document 11.5; assessment A.1 |
-| D05 | applied (design); keys added in P1 | This document 11.5, 12; assessment 7.7, A.1 |
+| D05 | applied; P1 code (keys in the loader, breaker) | This document 11.5, 12; assessment 7.7, A.1; `config.py`, `transport.py` |
 | D06 | applied (design, scaffold, mockup) | This document 9.1, 9.4, 5.7, 12, 14; `cli_platform/src/cli_platform/config.py`, `router.py`, `limiter.py`, `adapters/workbench.py`, `__main__.py`; `cli_platform/config/cli-platform.toml`; `cli_platform/tests/test_config.py`, `test_router.py`, `test_limiter.py`; `docs/design/workbench-mockup.html`; `i18n/*.json` |
-| D07 | applied (design); journal code P1 | This document 4, 5.4, 11.3; assessment 8.2 |
+| D07 | applied; P1 code (one envelope for the run, limits, adapters and catalog streams) | This document 4, 5.4, 11.3; assessment 8.2; `events.py` |
 | D08 | applied (design); publishers P1, server P4 | This document 4, 5.2, 5.3, 13 |
 | D09 | applied (design); server P4 | This document 5.4, 13; assessment 9 |
-| D10 | applied (design) | This document 11.3, 11.5 |
-| D11 | applied (design); `env_allow` key P1 | This document 7.2, 12, 14 |
+| D10 | applied; P1 code (`resume_portable` from the gate records) | This document 11.3, 11.5, 11.6; `adapters/base.py`, `transport.py` |
+| D11 | applied; P1 code (`env_allow` key, child environment from the allowlist) | This document 7.2, 12, 14; `config.py`, `adapters/base.py` |
 | D12 | applied | This document 1, 10.1, 12, 20; `cli_platform/config/cli-platform.toml` (comment); `limiter.py` (docstring) |
 | D13 | applied (design); `tmuxctl` naming P1 | This document 6.3, 16, 20; `cli_platform/config/cli-platform.toml` (comment) |
 | D14 | applied | This document 1, 10.1, 12, 20; `cli_platform/config/cli-platform.toml` (comment); `limiter.py` (docstring); `test_config.py` (an unknown stage key such as `reserved_slots` is refused) |
@@ -1801,18 +1914,32 @@ model call.
 
 Revision 4 closes the questions the user decided: the per-model sub-cap is
 not implemented (D12), new tmux sessions only are named `gt-<nickname>`
-(D13), and capacity reservation is never supported (D14). The remaining
-questions are facts, authorized for the Phase 0 probe and pending:
+(D13), and capacity reservation is never supported (D14). The Phase 0
+probe of 2026-11-13 answered the remaining facts in part
+([probe report](../research/2026-11-13-acp-phase0-probes.md), section 4):
 
-1. What does each CLI emit when rate-limited, in headless mode and over
-   ACP? Section 10.4 depends on it. (Fact F05.)
-2. Do the handshakes and the auth hints (`agent status`, `kiro-cli whoami`)
-   need more of the user's environment than the per-variant allowlist?
-   (Fact F09.)
-3. Which launch flags express `bypass` and `read_only_auto` on each adapter
-   and transport? (Fact F10.)
+1. **Rate limits (F05): partly answered.** Cursor's plan limit over ACP is
+   verified: assistant text ("Upgrade your plan to continue") with stop
+   reason `end_turn` and no JSON-RPC error. The normalizer does not detect
+   it as a rate limit (assessment 8.7). A transient HTTP 429 was not
+   provoked and stays unverified on every adapter and transport, so the
+   rate-limit mapping of section 10.4 still has no fixture.
+2. **Environment (F09): answered for handshakes.** The per-variant
+   allowlist suffices for the three ACP handshakes and for the auth hints
+   `agent status` and `kiro-cli whoami`. Claude headless needs
+   `CLAUDE_CODE_OAUTH_TOKEN`: without it auth fails in the sanitized
+   environment, so the claude variant's `env_allow` includes it
+   (section 12).
+3. **Permission flags (F10): flags recorded, behavior only partially
+   verified.** The flags are in the rendering table of section 9.4. Claude's
+   plan mode still ran `Bash`, and agy's default mode ran commands without
+   asking; `--tools` on Claude and `--trust-tools=` on Kiro were not
+   exercised. Where no flag is verified to exclude command execution, the
+   adapter is marked unsupported for `read_only_auto`.
 
-F01 to F10, with the probe that answers each, are in the
+Also still open: `session/load` latency on long conversations (F08), and
+gate check 6 on Cursor, Kiro v3 and agy (section 11.6). F01 to F10, with
+their answered status, are in the
 [fact register](2026-11-13-acp-first-layering-assessment.md#a2-facts).
 
 ## 21. Decisions
@@ -1825,9 +1952,9 @@ in the ACP assessment. This document does not restate it; it applies it.
 
 | Id | Decision, in short | Applied in |
 | --- | --- | --- |
-| D01 | ACP preferred per adapter after its gate; headless fallback | 1, 2, 11.5, 16 |
+| D01 | ACP preferred per adapter after its gate; headless fallback | 1, 2, 11.5, 11.6, 16 |
 | D02 | Any transport that passes its gate; Claude headless-only in phase 1; no bridge | 1, 2, 11.5 |
-| D03 | Phase 0 probe authorized, Kiro login included; F01 to F10 pending | 16, 20 |
+| D03 | Phase 0 probe authorized, Kiro login included; run on 2026-11-13, outcomes in the gate table | 11.6, 16, 20 |
 | D04 | One ACP process per turn | 11.5 |
 | D05 | Handshake 10 s, setup 30 s, breaker 2 consecutive or 3 of 10, retry 30 min; configurable | 11.5, 12 |
 | D06 | Per-stage `permission_profile`; defaults `bypass` and `read_only_auto` for `code_review`; stages added, removed and reordered in the workbench | 3, 5.7, 9.1, 9.4, 12, 13, 14, 19 |
