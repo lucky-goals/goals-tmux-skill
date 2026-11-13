@@ -282,8 +282,9 @@ class Service:
             task = self.tasks.get(context.get("task_id", ""))
             if not task or task.get("coordinator_id") != context.get("coordinator_id"):
                 raise DomainError("TASK_CONTEXT_REQUIRED", "create a task and supply its coordinator before dispatch")
-            if task.get("status") in {"accepted", "finalizing", "settled", "completed"}:
-                raise DomainError("TASK_FINALIZING", "accepted tasks cannot create or dispatch business work")
+            if (task.get("status") in {"accepted", "finalizing", "aborted", "settled", "completed"}
+                    or task.get("phase") in {"finalizing", "aborted", "settled"}):
+                raise DomainError("TASK_FINALIZING", "accepted, finalizing, or aborted tasks cannot create or dispatch business work")
         if op in contract.CLOSE_OPERATIONS:
             self._close_plan(request, snap, affected, records)
         return records
@@ -362,8 +363,8 @@ class Service:
         outstanding independently of an already successful tmux pane close.
         """
         task = self.tasks.get(task_id)
-        if not task or task.get("phase") not in {"finalizing", "settled"}:
-            raise DomainError("FINALIZATION_REQUIRED", "accept work before viewer cleanup")
+        if not task or task.get("phase") not in {"finalizing", "aborted", "settled"}:
+            raise DomainError("FINALIZATION_REQUIRED", "accept or abort work before viewer cleanup")
         outcomes = []
         for path, receipt in self._task_viewer_receipts(task_id):
             previous = receipt.get("gui_cleanup", {})
@@ -1332,10 +1333,12 @@ class Service:
                 raise DomainError("RESOURCE_RETAINED", "borrowed or retained resources cannot be automatically closed")
             if record.get("cleanup_status") in {"unknown", "closing"}:
                 raise DomainError("CLOSE_OUTCOME_UNKNOWN", "reconcile prior closing before another close")
-            if not args.get("force") and (record.get("execution_status") != "completed" or
-                                         record.get("coordinator_phase") != "finalizing" or
-                                         record.get("monitor_status") != "stopped"):
-                raise DomainError("FINALIZATION_REQUIRED", "accept work and stop its writing monitor before cleanup")
+            ready_for_cleanup = (
+                (record.get("coordinator_phase") == "finalizing" and record.get("execution_status") == "completed")
+                or (record.get("coordinator_phase") == "aborted" and record.get("execution_status") in {"canceled", "failed"})
+            )
+            if not args.get("force") and (not ready_for_cleanup or record.get("monitor_status") != "stopped"):
+                raise DomainError("FINALIZATION_REQUIRED", "accept or abort work and stop its writing monitor before cleanup")
         windows = {p["window_id"] for p in affected}
         if request["operation"] in {"close_window", "close_session"}:
             for window in windows:
@@ -1377,9 +1380,10 @@ class Service:
         for record in records:
             recovery = next(item["recovery"] for item in receipt["panes"] if item["pane_id"] == record["pane_id"])
             quality = recovery.get("status", "unknown") if record.get("cli") else "not_applicable"
+            closing_phase = "aborted" if record.get("coordinator_phase") == "aborted" else "finalizing"
             closing_records.append(self.registry.update(record["record_id"], _context(record),
                                    {"cleanup_status": "closing", "monitor_status": "stopped",
-                                    "coordinator_phase": "finalizing", "recovery": recovery,
+                                    "coordinator_phase": closing_phase, "recovery": recovery,
                                     "recovery_status": quality, "recovery_record_id": receipt_id,
                                     "recovery_record_path": str(receipt_path)}))
         try:
@@ -1407,7 +1411,7 @@ class Service:
                 if quality == "unknown":
                     quality = "degraded" if record.get("cli") else "not_applicable"
                 updated = self.registry.update(record["record_id"], _context(record), {"cleanup_status": status,
-                                               "coordinator_phase": "settled" if status == "closed" else "finalizing",
+                                               "coordinator_phase": "settled" if status == "closed" else record.get("coordinator_phase", "finalizing"),
                                                "recovery_status": quality})
                 receipt["outcomes"].append({"pane_id": record["pane_id"], "status": status, "record": updated})
             atomic_json(receipt_path, receipt)
@@ -1422,7 +1426,7 @@ class Service:
             raise DomainError("CLOSE_UNVERIFIED", "one or more original panes remain", status="partial", side_effects="unknown", data=receipt)
         viewers = []
         for task_id in sorted({record["task_id"] for record in closing_records}):
-            if self.tasks.get(task_id).get("phase") in {"finalizing", "settled"}:
+            if self.tasks.get(task_id).get("phase") in {"finalizing", "aborted", "settled"}:
                 viewers.extend(self.cleanup_task_viewers(task_id))
             elif self._task_viewer_receipts(task_id):
                 # An explicitly authorized force-close can precede business

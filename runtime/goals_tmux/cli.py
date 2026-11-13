@@ -73,11 +73,14 @@ def parser():
     create.add_argument("--timezone", default="Asia/Shanghai")
     create.add_argument("--acceptance", action="append", default=[])
     qs.add_parser("list")
-    for action in ("show", "accept", "settle", "event", "observe-dispatch"):
+    for action in ("show", "accept", "abort", "settle", "event", "observe-dispatch"):
         cmd = qs.add_parser(action)
         cmd.add_argument("--task-id", required=True)
         if action == "accept":
             cmd.add_argument("--evidence", action="append", required=True)
+            cmd.add_argument("--monitor-stopped", action="store_true")
+        if action == "abort":
+            cmd.add_argument("--reason", required=True)
             cmd.add_argument("--monitor-stopped", action="store_true")
         if action == "event":
             cmd.add_argument("--kind", required=True)
@@ -128,6 +131,25 @@ def parser():
     q.add_argument("--timeout", type=float, default=30)
     q.add_argument("--json", action="store_true")
     return p
+
+
+def _transition_task_records(registry, task_id, *, execution_status, coordinator_phase):
+    """Transition open task registry records to a post-active coordinator phase."""
+
+    for record in registry.list(task_id=task_id):
+        if record.get("cleanup_status") == "closed" or record.get("coordinator_phase") == "settled":
+            continue
+        patch = {
+            "execution_status": execution_status,
+            "coordinator_phase": coordinator_phase,
+            "monitor_status": "stopped",
+        }
+        if record.get("cleanup_status") == "retained" and record.get("retention_reason"):
+            patch["coordinator_phase"] = "settled"
+            if record.get("recovery_status") == "unknown":
+                patch["recovery_status"] = "degraded"
+        registry.update(record["record_id"], _context(record), patch)
+    return registry.report(task_id)
 
 
 def _load_request(path, supplied=None):
@@ -186,17 +208,16 @@ def run(args):
                 if not args.monitor_stopped:
                     raise DomainError("MONITOR_STOP_REQUIRED", "stop the task's writing monitor and pass --monitor-stopped")
                 data = tasks.accept(args.task_id, evidence=args.evidence)
-                records = registry.list(task_id=args.task_id)
-                for record in records:
-                    if record.get("cleanup_status") == "closed":
-                        continue
-                    patch = {"execution_status": "completed", "coordinator_phase": "finalizing", "monitor_status": "stopped"}
-                    if record.get("cleanup_status") == "retained" and record.get("retention_reason"):
-                        patch["coordinator_phase"] = "settled"
-                        if record.get("recovery_status") == "unknown":
-                            patch["recovery_status"] = "degraded"
-                    registry.update(record["record_id"], _context(record), patch)
-                data = {"task": data, "resources": registry.report(args.task_id)}
+                resources = _transition_task_records(
+                    registry, args.task_id, execution_status="completed", coordinator_phase="finalizing"
+                )
+                data = {"task": data, "resources": resources}
+            elif args.action == "abort":
+                data = tasks.abort(args.task_id, reason=args.reason)
+                resources = _transition_task_records(
+                    registry, args.task_id, execution_status="canceled", coordinator_phase="aborted"
+                )
+                data = {"task": data, "resources": resources}
             elif args.action == "settle":
                 task = tasks.get(args.task_id)
                 if task.get("settled"):
@@ -276,7 +297,7 @@ def run(args):
                 if not record:
                     raise DomainError("TARGET_MISSING", "unknown registry record")
                 patch = {"cleanup_status": "retained", "cleanup_policy": "retain", "retention_reason": args.reason}
-                if record.get("execution_status") == "completed" and record.get("monitor_status") == "stopped":
+                if record.get("execution_status") in {"completed", "canceled", "failed"} and record.get("monitor_status") == "stopped":
                     patch["coordinator_phase"] = "settled"
                     if record.get("recovery_status") == "unknown":
                         patch["recovery_status"] = "degraded"

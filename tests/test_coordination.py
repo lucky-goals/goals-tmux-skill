@@ -303,6 +303,62 @@ class TaskStoreTests(unittest.TestCase):
             self.store.settle("task-1", resource_report=altered_report)
         self.assertEqual(mismatch.exception.code, "TASK_ALREADY_SETTLED")
 
+    def test_abort_unaccepted_task_unblocks_settle_without_acceptance(self):
+        aborted = self.store.abort("task-1", reason="superseded")
+        self.assertEqual(aborted["phase"], "aborted")
+        self.assertIn(aborted.get("accepted"), (False, None))
+        self.assertFalse(aborted["settled"])
+
+        with self.assertRaises(DomainError) as forged:
+            self.store.event("task-1", "task_aborted", {"reason": "forged"})
+        self.assertEqual(forged.exception.code, "RESERVED_EVENT_KIND")
+
+        settled = self.store.settle(
+            "task-1", resource_report={"registered": ["%3"], "unsettled_resources": []}
+        )
+        self.assertTrue(settled["settled"])
+        self.assertEqual(settled["phase"], "settled")
+        self.assertEqual(settled["status"], "settled")
+        self.assertIn(settled.get("accepted"), (False, None))
+
+    def test_aborted_task_rejects_new_dispatch_and_empty_reason(self):
+        for blank in ("", "   "):
+            with self.assertRaises(DomainError) as empty_reason:
+                self.store.abort("task-1", reason=blank)
+            self.assertEqual(empty_reason.exception.code, "INVALID_METADATA")
+
+        aborted = self.store.abort("task-1", reason="superseded")
+        self.assertEqual(aborted["phase"], "aborted")
+
+        with self.assertRaises(DomainError):
+            self.store.create_dispatch(
+                "task-1",
+                pane_id="%3",
+                generation=1,
+                instructions="must be blocked after abort",
+                coordinator_id="coordinator-1",
+            )
+        with self.assertRaises(DomainError):
+            self.store.accept("task-1", evidence=["/tmp/project/after-abort.log"])
+
+    def test_abort_rejects_already_settled_task(self):
+        self.store.accept("task-1", evidence=["/tmp/project/verification.log"])
+        self.store.settle("task-1", resource_report={"registered": ["%3"], "unsettled_resources": []})
+        with self.assertRaises(DomainError):
+            self.store.abort("task-1", reason="cannot abort after accept settle")
+
+        self.store.create(
+            "task-2",
+            goal="Abort then settle then reject re-abort",
+            cwd="/tmp/project",
+            coordinator_id="coordinator-1",
+            acceptance=["abort lifecycle"],
+        )
+        self.store.abort("task-2", reason="superseded")
+        self.store.settle("task-2", resource_report={"registered": ["%4"], "unsettled_resources": []})
+        with self.assertRaises(DomainError):
+            self.store.abort("task-2", reason="cannot abort after aborted settle")
+
 
 if __name__ == "__main__":
     unittest.main()

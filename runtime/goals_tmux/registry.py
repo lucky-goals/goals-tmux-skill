@@ -21,7 +21,7 @@ CLEANUP_POLICIES = frozenset({"auto_owned", "retain"})
 EXECUTION_STATUSES = frozenset({"running", "waiting_user", "completed", "failed", "canceled", "paused"})
 CLEANUP_STATUSES = frozenset({"pending", "closing", "closed", "retained", "blocked", "unknown"})
 RECOVERY_STATUSES = frozenset({"unknown", "ready", "degraded", "not_applicable"})
-COORDINATOR_PHASES = frozenset({"active", "finalizing", "settled"})
+COORDINATOR_PHASES = frozenset({"active", "finalizing", "aborted", "settled"})
 MONITOR_STATUSES = frozenset({"unknown", "running", "stopped", "failed"})
 MONITOR_MODES = frozenset({"inline", "background", "none", "unknown"})
 
@@ -401,6 +401,8 @@ class Registry:
                 _fail("COORDINATOR_SETTLED", f"pane {checked['identity']['pane_id']} is already settled")
             if checked["coordinator_phase"] == "finalizing" and not allow_finalizing:
                 _fail("COORDINATOR_FINALIZING", f"pane {checked['identity']['pane_id']} is finalizing")
+            if checked["coordinator_phase"] == "aborted" and not allow_finalizing:
+                _fail("COORDINATOR_ABORTED", f"pane {checked['identity']['pane_id']} is aborted")
 
     def guard(self, records: list, context: dict, *, allow_finalizing: bool = False) -> None:
         """Check ownership and CAS values against the current registry snapshot."""

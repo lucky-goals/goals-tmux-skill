@@ -46,7 +46,7 @@ _FORWARD_TRANSITIONS = {
 _COUNT_KEYS = ("count", "resource_count", "total_count", "registered_count", "registered")
 _UNSETTLED_KEYS = ("unsettled", "unsettled_count", "unsettled_resources")
 _RESERVED_EVENT_KINDS = frozenset(
-    {"task_created", "dispatch_prepared", "dispatch_status", "task_accepted", "task_settled"}
+    {"task_created", "dispatch_prepared", "dispatch_status", "task_accepted", "task_aborted", "task_settled"}
 )
 
 
@@ -408,19 +408,27 @@ class TaskStore:
                     dispatches[dispatch_id]["updated_at"] = event.get("recorded_at")
         return list(dispatches.values())
 
-    def _phase(self, task_id: str) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+    def _phase(
+        self, task_id: str
+    ) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
         accepted = None
+        aborted = None
         settled = None
         phase = "active"
         for event in self._event_records(task_id):
             if event["kind"] == "task_accepted":
                 accepted = event
+                aborted = None
                 settled = None
                 phase = "finalizing"
-            elif event["kind"] == "task_settled" and accepted is not None:
+            elif event["kind"] == "task_aborted":
+                aborted = event
+                settled = None
+                phase = "aborted"
+            elif event["kind"] == "task_settled" and (accepted is not None or aborted is not None):
                 settled = event
                 phase = "settled"
-        return phase, accepted, settled
+        return phase, accepted, aborted, settled
 
     def _settled_resource_report(self, task_id: str, settled: dict[str, Any] | None) -> Any:
         if settled is None:
@@ -465,12 +473,22 @@ class TaskStore:
     def _task_view(self, task_id: str) -> dict[str, Any]:
         task = dict(self._task_record(task_id))
         event_records = self._event_records(task_id)
-        phase, accepted, settled = self._phase(task_id)
+        phase, accepted, aborted, settled = self._phase(task_id)
         dispatches = self._dispatches(task_id)
         task.update(
             phase=phase,
             accepted=accepted is not None,
-            status=("settled" if settled is not None else "accepted" if accepted is not None else "active"),
+            aborted=aborted is not None,
+            abort_reason=(aborted.get("details", {}).get("reason") if aborted else None),
+            status=(
+                "settled"
+                if settled is not None
+                else "accepted"
+                if accepted is not None
+                else "aborted"
+                if aborted is not None
+                else "active"
+            ),
             acceptance_evidence=(accepted.get("details", {}).get("evidence", []) if accepted else []),
             settled=settled is not None,
             resource_report=self._settled_resource_report(task_id, settled),
@@ -786,7 +804,7 @@ class TaskStore:
         with lock(self._lock_path(task_id), timeout=5):
             task = self._task_record(task_id)
             self._assert_healthy(task_id)
-            phase, _accepted, _settled = self._phase(task_id)
+            phase, _accepted, _aborted, _settled = self._phase(task_id)
             if phase != "active":
                 raise _error("TASK_FINALIZING", f"task {task_id!r} is {phase} and cannot accept a new dispatch")
             if coordinator_id != task["coordinator_id"]:
@@ -1015,7 +1033,7 @@ class TaskStore:
         with lock(self._lock_path(task_id), timeout=5):
             self._task_record(task_id)
             self._assert_healthy(task_id)
-            phase, accepted, _settled = self._phase(task_id)
+            phase, accepted, _aborted, _settled = self._phase(task_id)
             if accepted is not None:
                 old_evidence = accepted.get("details", {}).get("evidence", [])
                 if clean_evidence == old_evidence:
@@ -1035,6 +1053,34 @@ class TaskStore:
                 task_id,
                 "task_accepted",
                 {"evidence": clean_evidence, "caller_attested": True, "verified_by_this_store": False, "phase": "finalizing"},
+                pane_id=None,
+                cli_round=None,
+            )
+            return self._task_view(task_id)
+
+    def abort(self, task_id: str, *, reason: str) -> dict[str, Any]:
+        """Transition an active unaccepted task to the aborted cleanup phase."""
+
+        task_id = _safe_task_id(task_id)
+        clean_reason = _validate_text(reason, "reason", max_bytes=4096)
+        self._prepare_dirs()
+        with lock(self._lock_path(task_id), timeout=5):
+            self._task_record(task_id)
+            self._assert_healthy(task_id)
+            phase, accepted, aborted, settled = self._phase(task_id)
+            if settled is not None:
+                raise _error("TASK_ALREADY_SETTLED", f"task {task_id!r} is already settled")
+            if aborted is not None:
+                old_reason = aborted.get("details", {}).get("reason")
+                if clean_reason == old_reason:
+                    return self._task_view(task_id)
+                raise _error("TASK_ALREADY_ABORTED", "task is already aborted with a different reason")
+            if accepted is not None or phase != "active":
+                raise _error("TASK_ALREADY_ACCEPTED", f"task {task_id!r} is {phase} and cannot be aborted")
+            self._append_event_locked(
+                task_id,
+                "task_aborted",
+                {"reason": clean_reason, "phase": "aborted"},
                 pane_id=None,
                 cli_round=None,
             )
@@ -1113,14 +1159,14 @@ class TaskStore:
         with lock(self._lock_path(task_id), timeout=5):
             self._task_record(task_id)
             self._assert_healthy(task_id)
-            phase, accepted, settled = self._phase(task_id)
-            if accepted is None:
-                raise _error("TASK_NOT_ACCEPTED", "task must be accepted before resource settlement")
+            phase, accepted, aborted, settled = self._phase(task_id)
+            if accepted is None and aborted is None:
+                raise _error("TASK_NOT_ACCEPTED", "task must be accepted or aborted before resource settlement")
             if settled is not None:
                 if self._matches_settled_report(task_id, settled, resource_report, digest):
                     return self._task_view(task_id)
                 raise _error("TASK_ALREADY_SETTLED", "task already has a settled resource report")
-            if phase != "finalizing":
+            if phase not in {"finalizing", "aborted"}:
                 raise _error("TASK_STATE_CONFLICT", f"task cannot settle from phase {phase!r}")
             details = {
                 "phase": "settled",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 from copy import deepcopy
 import hashlib
+import io
+import json
 import os
 import shlex
 import signal
@@ -12,6 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from runtime.goals_tmux import cli as cli_module
 from runtime.goals_tmux.errors import DomainError
 from runtime.goals_tmux.capture import read_capture
 from runtime.goals_tmux.service import Service
@@ -823,6 +827,170 @@ class ServiceIntegrationTests(unittest.TestCase):
         dead_close = self.invoke(self.pane_request("close_pane", {}, dead_pane, dead_record))
         self.assertEqual("ok", dead_close["status"], dead_close)
         self.assertEqual("closed", self.current_record(dead_pane, dead_task)["cleanup_status"])
+
+    def _run_cli(self, *cli_args: str) -> tuple[int, dict]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exit_code = cli_module.main(
+                [
+                    "--state-dir",
+                    str(self.state_dir),
+                    "--config",
+                    str(self.config_path),
+                    "--socket",
+                    self.socket_path,
+                    "--tmux-binary",
+                    TMUX,
+                    *cli_args,
+                ]
+            )
+        return exit_code, json.loads(stdout.getvalue())
+
+    @staticmethod
+    def _shell_process_evidence(created: dict) -> tuple[dict, dict]:
+        pane = created["pane"]
+        row = {
+            "pid": pane["pid"],
+            "ppid": 1,
+            "pgid": pane["pid"],
+            "tpgid": pane["pid"],
+            "tty": str(pane.get("tty", "")).removeprefix("/dev/"),
+            "state": "S",
+            "start_time": pane["process_start"],
+            "executable": "sh",
+        }
+        identity = {"pid": pane["pid"], "start_time": " ".join(pane["process_start"].split())}
+        return {"complete": True, "records": [row]}, identity
+
+    def test_abort_unaccepted_task_unblocks_pane_close_viewer_cleanup_and_settle(self) -> None:
+        created = self.managed_session(["/bin/sh"], name="abort-cleanup")
+        pane_id = created["target"]["pane_id"]
+        pane_table, pane_identity = self._shell_process_evidence(created)
+
+        with patch("runtime.goals_tmux.service.process_table", return_value=pane_table), \
+             patch("runtime.goals_tmux.process_inspection.process_identity", return_value=pane_identity):
+            before_close = self.invoke(
+                self.pane_request("close_pane", {}, pane_id, self.current_record(pane_id))
+            )
+        self.assertEqual("refused", before_close["status"], before_close)
+        self.assertEqual("FINALIZATION_REQUIRED", before_close["code"], before_close)
+
+        with self.assertRaises(DomainError) as before_viewer:
+            self.service.cleanup_task_viewers(self.task_id)
+        self.assertEqual("FINALIZATION_REQUIRED", before_viewer.exception.code)
+
+        abort_exit, abort_payload = self._run_cli(
+            "task", "abort", "--task-id", self.task_id, "--reason", "superseded", "--monitor-stopped"
+        )
+        self.assertEqual(0, abort_exit, abort_payload)
+        self.assertEqual("ok", abort_payload["status"], abort_payload)
+
+        aborted_task = self.service.tasks.get(self.task_id)
+        self.assertEqual("aborted", aborted_task["phase"])
+        self.assertIn(aborted_task.get("accepted"), (False, None))
+        aborted_record = self.current_record(pane_id)
+        self.assertEqual("aborted", aborted_record["coordinator_phase"])
+        self.assertEqual("stopped", aborted_record["monitor_status"])
+
+        with patch("runtime.goals_tmux.service.process_table", return_value=pane_table), \
+             patch("runtime.goals_tmux.process_inspection.process_identity", return_value=pane_identity):
+            closed = self.invoke(self.pane_request("close_pane", {}, pane_id, aborted_record))
+        self.assertEqual("ok", closed["status"], closed)
+        self.assertEqual("closed", self.current_record(pane_id)["cleanup_status"])
+        self.assertNotIn(pane_id, {pane["pane_id"] for pane in self.resources()["panes"]})
+
+        viewer_outcomes = self.service.cleanup_task_viewers(self.task_id)
+        self.assertEqual([], viewer_outcomes)
+
+        settle_exit, settle_payload = self._run_cli("task", "settle", "--task-id", self.task_id)
+        self.assertEqual(0, settle_exit, settle_payload)
+        self.assertEqual("ok", settle_payload["status"], settle_payload)
+        settled_task = self.service.tasks.get(self.task_id)
+        self.assertEqual("settled", settled_task["phase"])
+        self.assertEqual("settled", settled_task["status"])
+        self.assertTrue(settled_task["settled"])
+        self.assertIn(settled_task.get("accepted"), (False, None))
+
+    def test_aborted_task_rejects_new_dispatch_and_empty_reason(self) -> None:
+        created = self.managed_session(["/bin/cat"], name="abort-reject")
+        pane_id = created["target"]["pane_id"]
+
+        blank_exit, blank_payload = self._run_cli(
+            "task", "abort", "--task-id", self.task_id, "--reason", "   ", "--monitor-stopped"
+        )
+        self.assertNotEqual(0, blank_exit)
+        self.assertEqual("refused", blank_payload["status"], blank_payload)
+        self.assertEqual("INVALID_METADATA", blank_payload["code"], blank_payload)
+
+        with self.assertRaises(DomainError) as empty_direct:
+            self.service.tasks.abort(self.task_id, reason="")
+        self.assertEqual("INVALID_METADATA", empty_direct.exception.code)
+
+        abort_exit, abort_payload = self._run_cli(
+            "task", "abort", "--task-id", self.task_id, "--reason", "superseded", "--monitor-stopped"
+        )
+        self.assertEqual(0, abort_exit, abort_payload)
+
+        record = self.current_record(pane_id)
+        refused_dispatch = self.invoke(
+            self.pane_request("dispatch", {"instructions": "No dispatch after abort."}, pane_id, record)
+        )
+        self.assertEqual("refused", refused_dispatch["status"], refused_dispatch)
+
+        refused_create = self.invoke(
+            self.request(
+                "create_session",
+                {
+                    "cwd": str(Path.cwd()),
+                    "program_argv": ["/bin/cat"],
+                    "name": "blocked-after-abort",
+                    "tui": {"enabled": False},
+                },
+                task_context={"task_id": self.task_id, "coordinator_id": self.coordinator_id},
+            )
+        )
+        self.assertEqual("refused", refused_create["status"], refused_create)
+
+        refused_split = self.invoke(
+            self.pane_request(
+                "split_pane",
+                {"cwd": str(Path.cwd()), "program_argv": ["/bin/cat"]},
+                pane_id,
+                record,
+            )
+        )
+        self.assertEqual("refused", refused_split["status"], refused_split)
+
+        refused_send = self.invoke(
+            self.pane_request("send_text", {"text": "ABORTED_SENTINEL"}, pane_id, record)
+        )
+        self.assertEqual("refused", refused_send["status"], refused_send)
+        self.assertNotIn("ABORTED_SENTINEL", read_capture(self.service.tmux, pane_id)["text"])
+
+    def test_abort_rejects_already_settled_task(self) -> None:
+        created = self.managed_session(["/bin/sh"], name="abort-settled")
+        pane_id = created["target"]["pane_id"]
+        pane_table, pane_identity = self._shell_process_evidence(created)
+        self.accept_and_finalize(self.task_id)
+
+        with patch("runtime.goals_tmux.service.process_table", return_value=pane_table), \
+             patch("runtime.goals_tmux.process_inspection.process_identity", return_value=pane_identity):
+            closed = self.invoke(
+                self.pane_request("close_pane", {}, pane_id, self.current_record(pane_id))
+            )
+        self.assertEqual("ok", closed["status"], closed)
+
+        settle_exit, settle_payload = self._run_cli("task", "settle", "--task-id", self.task_id)
+        self.assertEqual(0, settle_exit, settle_payload)
+
+        with self.assertRaises(DomainError):
+            self.service.tasks.abort(self.task_id, reason="already settled")
+
+        abort_exit, abort_payload = self._run_cli(
+            "task", "abort", "--task-id", self.task_id, "--reason", "already settled", "--monitor-stopped"
+        )
+        self.assertNotEqual(0, abort_exit)
+        self.assertEqual("refused", abort_payload["status"], abort_payload)
 
 
 if __name__ == "__main__":

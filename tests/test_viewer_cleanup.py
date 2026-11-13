@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import shutil
 import tempfile
@@ -8,6 +10,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
+from runtime.goals_tmux import cli as cli_module
 from runtime.goals_tmux.cli import parser, run
 from runtime.goals_tmux.errors import DomainError
 from runtime.goals_tmux.service import Service
@@ -78,13 +81,13 @@ class ViewerCleanupIntegrationTests(unittest.TestCase):
             result["expected_observation"] = observation
         return result
 
-    def create_session(self, name: str = "viewer-cleanup") -> dict:
+    def create_session(self, name: str = "viewer-cleanup", *, program_argv: list[str] | None = None) -> dict:
         result = self.service.invoke(
             self.request(
                 "create_session",
                 {
                     "cwd": str(Path.cwd()),
-                    "program_argv": ["/bin/sleep", "30"],
+                    "program_argv": program_argv or ["/bin/sleep", "30"],
                     "name": name,
                     "width": 100,
                     "height": 24,
@@ -169,7 +172,7 @@ class ViewerCleanupIntegrationTests(unittest.TestCase):
         return path
 
     @staticmethod
-    def pane_process_evidence(created: dict) -> tuple[dict, dict]:
+    def pane_process_evidence(created: dict, *, executable: str = "sleep") -> tuple[dict, dict]:
         pane = created["pane"]
         if not pane.get("pid") or not pane.get("process_start"):
             raise AssertionError(f"fixture pane has incomplete process identity: {pane}")
@@ -181,7 +184,7 @@ class ViewerCleanupIntegrationTests(unittest.TestCase):
             "tty": str(pane.get("tty", "")).removeprefix("/dev/"),
             "state": "S",
             "start_time": pane["process_start"],
-            "executable": "sleep",
+            "executable": executable,
         }
         identity = {"pid": pane["pid"], "start_time": " ".join(pane["process_start"].split())}
         return {"complete": True, "records": [row]}, identity
@@ -462,6 +465,105 @@ class ViewerCleanupIntegrationTests(unittest.TestCase):
         self.assertEqual("VIEWER_SERVER_UNRESOLVED", outcomes[0]["reason"])
         close.assert_not_called()
         self.assertEqual(1, len(self.service.resource_report(self.task_id)["pending_viewers"]))
+
+    def _run_cli(self, *cli_args: str) -> tuple[int, dict]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exit_code = cli_module.main(
+                [
+                    "--state-dir",
+                    str(self.state_dir),
+                    "--config",
+                    str(self.root / "config.json"),
+                    "--socket",
+                    self.socket_path,
+                    "--tmux-binary",
+                    TMUX,
+                    *cli_args,
+                ]
+            )
+        return exit_code, json.loads(stdout.getvalue())
+
+    def test_abort_unaccepted_task_unblocks_pane_close_viewer_cleanup_and_settle(self) -> None:
+        created = self.create_session(name="abort-viewer-cleanup", program_argv=["/bin/sh"])
+        pane_id = created["target"]["pane_id"]
+        receipt = self.add_viewer_receipt(created)
+        pane_table, pane_identity = self.pane_process_evidence(created, executable="sh")
+
+        with self.assertRaises(DomainError) as before_viewer:
+            self.service.cleanup_task_viewers(self.task_id)
+        self.assertEqual("FINALIZATION_REQUIRED", before_viewer.exception.code)
+
+        resources = self.service.invoke(self.request("list_resources", {}))["data"]
+        record = self.service.registry.get(created["record"]["record_id"])
+        before_close_req = self.request(
+            "close_pane",
+            {},
+            target={
+                "endpoint_id": self.service.endpoint_id,
+                "server_instance_id": resources["server"]["instance_id"],
+                "pane_id": pane_id,
+            },
+            task_context=self.context(record),
+            observation=resources["observation"],
+        )
+        with patch("runtime.goals_tmux.service.process_table", return_value=pane_table), \
+             patch("runtime.goals_tmux.process_inspection.process_identity", return_value=pane_identity):
+            before_close = self.service.invoke(before_close_req)
+        self.assertEqual("refused", before_close["status"], before_close)
+        self.assertEqual("FINALIZATION_REQUIRED", before_close["code"], before_close)
+
+        abort_exit, abort_payload = self._run_cli(
+            "task", "abort", "--task-id", self.task_id, "--reason", "superseded", "--monitor-stopped"
+        )
+        self.assertEqual(0, abort_exit, abort_payload)
+        self.assertEqual("ok", abort_payload["status"], abort_payload)
+        aborted_task = self.service.tasks.get(self.task_id)
+        self.assertEqual("aborted", aborted_task["phase"])
+        self.assertIn(aborted_task.get("accepted"), (False, None))
+
+        after_resources = self.service.invoke(self.request("list_resources", {}))["data"]
+        aborted_record = self.service.registry.get(created["record"]["record_id"])
+        close_pane_req = self.request(
+            "close_pane",
+            {},
+            target={
+                "endpoint_id": self.service.endpoint_id,
+                "server_instance_id": after_resources["server"]["instance_id"],
+                "pane_id": pane_id,
+            },
+            task_context=self.context(aborted_record),
+            observation=after_resources["observation"],
+        )
+        with patch.object(Viewer, "close", return_value={"status": "closed"}) as close, \
+             patch("runtime.goals_tmux.service.process_table",
+                   side_effect=[pane_table, {"complete": True, "records": []}]), \
+             patch("runtime.goals_tmux.process_inspection.process_identity", return_value=pane_identity):
+            close_result = self.service.invoke(close_pane_req)
+
+        self.assertEqual("ok", close_result["status"], close_result)
+        self.assertEqual([{"status": "closed"}], close_result["data"]["viewer_cleanup"])
+        close.assert_called_once()
+        self.assertEqual("closed", json.loads(receipt.read_text())["gui_cleanup"]["status"])
+        self.assertEqual("closed", self.service.resource_report(self.task_id)["viewers"][0]["cleanup"]["status"])
+
+        with patch.object(Viewer, "close") as direct_close:
+            outcomes = self.service.cleanup_task_viewers(self.task_id)
+        self.assertEqual([{"status": "closed"}], outcomes)
+        direct_close.assert_not_called()
+
+        with patch.object(Viewer, "close") as settle_close:
+            settle_exit, settle_payload = self._run_cli("task", "settle", "--task-id", self.task_id)
+        self.assertEqual(0, settle_exit, settle_payload)
+        self.assertEqual("ok", settle_payload["status"], settle_payload)
+        settle_close.assert_not_called()
+
+        settled_task = self.service.tasks.get(self.task_id)
+        self.assertEqual("settled", settled_task["phase"])
+        self.assertEqual("settled", settled_task["status"])
+        self.assertTrue(settled_task["settled"])
+        self.assertIn(settled_task.get("accepted"), (False, None))
+        self.assertEqual([], self.service.resource_report(self.task_id)["unsettled"])
 
 
 if __name__ == "__main__":
