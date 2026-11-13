@@ -6,3 +6,5 @@ __pycache__/
 dist/
 build/
 gateway.json
+.DS_Store
+.trae-html-share-packages/
