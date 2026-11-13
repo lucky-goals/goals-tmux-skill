@@ -1470,9 +1470,9 @@ Seeded with verified repository state at baseline commit `6f488bf` on 2026-11-13
 | **`B0.2` (Baseline: Config, nicknames, scanner, catalog, router, limiter, i18n, snapshots, events, normalizer)** | `DONE` | `1bc02ea`..`6f488bf` | 185 unit tests (`test_config` 30, `test_router` 32, `test_limiter` 27, `test_i18n` 27, `test_nicknames` 22, `test_normalize` 18, `test_events` 11, `test_layering` 10, `test_session_flow` 8); 394 i18n keys x 3 locales | Verified at `6f488bf`; `check-config`, `i18n_embed.py check`, `nicknames.py validate` all exit `0` |
 | **`B1.1` (Baseline: P1 transport binder, ACP/headless runner, circuit breaker & sync `RunService`)** | `DONE` | `6f488bf` | 37 unit/integration tests (`test_transport` 19, `test_runner` 18) -> **222 total `cli_platform` tests passing**; **283 + 46** legacy `goals_tmux` tests passing | Synchronous single-process per-turn execution (`RunService.send`) |
 | **`T0.1` (Collector `setsid` / `start_new_session=True`)** | `PENDING` | — | — | `G02`; Phase L0; zero dependencies |
-| **`T0.2` (`settlement-report.json` reference to fix `METADATA_TOO_LARGE`)** | `PENDING` | — | — | `G01`; Phase L0; zero dependencies |
+| **`T0.2` (`settlement-report.json` reference to fix `METADATA_TOO_LARGE`)** | `DONE` | (back-fill next commit) | `red/T0.2=2b10e39`, GREEN=`309b493`, Verifier `PASS` (dispatch #1, fresh context); 13 `test_coordination` + 18 `test_service` (`LC_TIME=C`) + 10 `test_layering` OK | `G01`; Phase L0; zero dependencies |
 | **`T0.3` (`task abort` phase + aborted pane/viewer cleanup)** | `PENDING` | — | — | `G02`; Phase L0; zero dependencies |
-| **`T0.4` (`verify_visible` `list-clients -F` fix + `doctor --viewers`)** | `PENDING` | — | — | `G01`; Phase L0; zero dependencies |
+| **`T0.4` (`verify_visible` `list-clients -F` fix + `doctor --viewers`)** | `IN_PROGRESS` | — | — | `G01`; Phase L0; zero dependencies |
 | **`T0.5` (Post-settlement orphan tmux/viewer reconciliation)** | `PENDING` | — | — | `G03`; Depends on `T0.1`–`T0.4` |
 | **`T1.1` (`redact.py` in `configuration` + `RawLog`/`StreamLog` redaction & `redactions` count)** | `PENDING` | — | — | `G03`; Phase P1.5; zero dependencies |
 | **`T1.2a` (`config` stream, `config_applied`/`config_rejected`, `read_config_snapshot`)** | `PENDING` | — | — | `G04`; depends on `T1.1` |

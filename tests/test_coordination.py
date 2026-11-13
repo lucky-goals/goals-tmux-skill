@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import hashlib
+import json
 import stat
 import tempfile
 import unittest
@@ -199,6 +200,108 @@ class TaskStoreTests(unittest.TestCase):
         daily = next((self.state_dir / "audits" / "task-1").glob("2026-*.md"))
         self.assertIn("Recovery projection appended from durable event JSON", daily.read_text(encoding="utf-8"))
         self.assertEqual(len(list((self.state_dir / "audits" / "task-1" / "events").glob("E*.json"))), before + 1)
+
+    def test_settle_large_resource_report_writes_artifact_and_avoids_metadata_too_large(self):
+        accepted = self.store.accept("task-1", evidence=["/tmp/project/verification.log"])
+        self.assertEqual(accepted["phase"], "finalizing")
+        large_report = {
+            "count": 12,
+            "unsettled_count": 0,
+            "receipts": [
+                {
+                    "viewer_id": f"viewer-{idx:02d}",
+                    "pane_id": f"%{idx}",
+                    "detail": "r" * 5600,
+                }
+                for idx in range(12)
+            ],
+        }
+        settled = self.store.settle("task-1", resource_report=large_report)
+        self.assertTrue(settled["settled"])
+        self.assertEqual(settled["phase"], "settled")
+        self.assertEqual(settled["status"], "settled")
+        self.assertEqual(settled["resource_report"], large_report)
+
+        hydrated = self.store._task_view("task-1")
+        self.assertTrue(hydrated["settled"])
+        self.assertEqual(hydrated["resource_report"], large_report)
+        self.assertEqual(self.store.get("task-1")["resource_report"], large_report)
+
+        report_path = self.state_dir / "audits" / "task-1" / "settlement-report.json"
+        self.assertTrue(report_path.is_file())
+        self.assertEqual(stat.S_IMODE(report_path.stat().st_mode), 0o600)
+        self.assertGreaterEqual(report_path.stat().st_size, 65536)
+        self.assertEqual(json.loads(report_path.read_text(encoding="utf-8")), large_report)
+
+        event_files = sorted((self.state_dir / "audits" / "task-1" / "events").glob("E*.json"))
+        settled_events = [
+            (path, json.loads(path.read_text(encoding="utf-8")))
+            for path in event_files
+        ]
+        settled_pairs = [(path, ev) for path, ev in settled_events if ev.get("kind") == "task_settled"]
+        self.assertEqual(len(settled_pairs), 1)
+        settled_event_path, settled_event = settled_pairs[0]
+        self.assertLess(settled_event_path.stat().st_size, 4096)
+        self.assertEqual(settled_event["details"].get("resource_report_ref"), "settlement-report.json")
+        self.assertNotIn("resource_report", settled_event["details"])
+
+    def test_settle_idempotent_replay_and_legacy_inline_compat(self):
+        self.store.accept("task-1", evidence=["/tmp/project/verification.log"])
+        large_report = {
+            "count": 12,
+            "unsettled_count": 0,
+            "receipts": [{"viewer_id": f"v-{idx:02d}", "payload": "a" * 5600} for idx in range(12)],
+        }
+        first = self.store.settle("task-1", resource_report=large_report)
+        replayed = self.store.settle("task-1", resource_report=large_report)
+        self.assertTrue(replayed["settled"])
+        self.assertEqual(replayed["resource_report"], large_report)
+        self.assertEqual(replayed["event_count"], first["event_count"])
+
+        self.store.create(
+            "task-legacy",
+            goal="Verify legacy inline task_settled hydration",
+            cwd="/tmp/project",
+            coordinator_id="coordinator-1",
+            acceptance=["legacy inline report hydrates"],
+        )
+        self.store.accept("task-legacy", evidence=["/tmp/project/legacy.log"])
+        legacy_report = {"count": 1, "unsettled_count": 0, "registered": ["%9"]}
+        legacy_event = {
+            "schema_version": 1,
+            "task_id": "task-legacy",
+            "event_id": "E000003",
+            "kind": "task_settled",
+            "recorded_at": "2026-11-10T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "pane_id": None,
+            "binding": None,
+            "cli_round": None,
+            "details": {"resource_report": legacy_report, "phase": "settled"},
+        }
+        legacy_event_path = self.state_dir / "audits" / "task-legacy" / "events" / "E000003.json"
+        legacy_event_path.write_text(json.dumps(legacy_event), encoding="utf-8")
+        legacy_event_path.chmod(0o600)
+        self.assertFalse((self.state_dir / "audits" / "task-legacy" / "settlement-report.json").exists())
+
+        hydrated_legacy = self.store._task_view("task-legacy")
+        self.assertTrue(hydrated_legacy["settled"])
+        self.assertEqual(hydrated_legacy["phase"], "settled")
+        self.assertEqual(hydrated_legacy["resource_report"], legacy_report)
+
+    def test_settle_rejects_unsettled_or_mismatched_re_settle(self):
+        # Guard test: verifies RESOURCES_UNSETTLED and TASK_ALREADY_SETTLED refusals remain intact.
+        self.store.accept("task-1", evidence=["/tmp/project/verification.log"])
+        with self.assertRaises(DomainError) as unsettled:
+            self.store.settle("task-1", resource_report={"count": 12, "unsettled_count": 1})
+        self.assertEqual(unsettled.exception.code, "RESOURCES_UNSETTLED")
+
+        initial_report = {"count": 2, "unsettled_count": 0, "registered": ["%1", "%2"]}
+        self.store.settle("task-1", resource_report=initial_report)
+        altered_report = {"count": 2, "unsettled_count": 0, "registered": ["%1", "%3"]}
+        with self.assertRaises(DomainError) as mismatch:
+            self.store.settle("task-1", resource_report=altered_report)
+        self.assertEqual(mismatch.exception.code, "TASK_ALREADY_SETTLED")
 
 
 if __name__ == "__main__":

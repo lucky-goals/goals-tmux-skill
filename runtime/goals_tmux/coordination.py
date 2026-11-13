@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 import secrets
-import tempfile
+import stat
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -60,7 +60,7 @@ def _now(timezone: ZoneInfo) -> datetime:
     return datetime.now(timezone)
 
 
-def _encoded_json(value: Any, *, max_bytes: int, label: str) -> bytes:
+def _encoded_json(value: Any, *, max_bytes: int | None, label: str) -> bytes:
     try:
         encoded = json.dumps(
             value,
@@ -71,7 +71,7 @@ def _encoded_json(value: Any, *, max_bytes: int, label: str) -> bytes:
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise _error("INVALID_METADATA", f"{label} must contain finite JSON-compatible values") from exc
-    if len(encoded) > max_bytes:
+    if max_bytes is not None and len(encoded) > max_bytes:
         raise _error("METADATA_TOO_LARGE", f"{label} exceeds {max_bytes} bytes")
     return encoded
 
@@ -194,35 +194,61 @@ def _render_event(event: dict[str, Any], *, recovery: bool = False) -> str:
     return "\n".join(lines)
 
 
-def _write_text_atomic(path: Path, value: str) -> None:
-    """Atomically replace a derived Markdown index, with owner-only mode."""
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Atomically replace a private audit file with 0600 mode, O_NOFOLLOW, and fsync."""
 
-    data = value.encode("utf-8")
-    private_dir(path.parent)
+    parent = private_dir(path.parent)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     fd = -1
     temp_path: Path | None = None
     try:
-        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        temp_path = Path(name)
+        for _ in range(8):
+            candidate = parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
+            try:
+                fd = os.open(candidate, flags, 0o600)
+                temp_path = candidate
+                break
+            except FileExistsError:
+                continue
+        if temp_path is None:
+            raise OSError(f"could not allocate unique temporary file for {path}")
         os.fchmod(fd, 0o600)
         view = memoryview(data)
         while view:
             written = os.write(fd, view)
             if written <= 0:
-                raise OSError("short write while updating audit index")
+                raise OSError("short write while updating private audit file")
             view = view[written:]
         os.fsync(fd)
         os.close(fd)
         fd = -1
+        try:
+            mode = os.lstat(path).st_mode
+        except FileNotFoundError:
+            pass
+        else:
+            if stat.S_ISLNK(mode):
+                raise _error("UNSAFE_STATE_PATH", f"state file path must not be a symlink: {path}")
+            if not stat.S_ISREG(mode):
+                raise _error("UNSAFE_STATE_FILE", f"state path must be a regular file: {path}")
         os.replace(temp_path, path)
         temp_path = None
-        dir_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+    except DomainError:
+        raise
     except OSError as exc:
-        raise _error("AUDIT_WRITE_FAILED", f"could not update derived audit file {path}: {exc}", status="unknown", side_effects="unknown") from exc
+        raise _error(
+            "AUDIT_WRITE_FAILED",
+            f"could not update derived audit file {path}: {exc}",
+            status="unknown",
+            side_effects="unknown",
+        ) from exc
     finally:
         if fd >= 0:
             os.close(fd)
@@ -231,6 +257,12 @@ def _write_text_atomic(path: Path, value: str) -> None:
                 temp_path.unlink()
             except OSError:
                 pass
+
+
+def _write_text_atomic(path: Path, value: str) -> None:
+    """Atomically replace a derived Markdown index, with owner-only mode."""
+
+    _write_bytes_atomic(path, value.encode("utf-8"))
 
 
 def _append_text(path: Path, value: str) -> None:
@@ -300,6 +332,9 @@ class TaskStore:
 
     def _index_file(self, task_id: str) -> Path:
         return self._audit_dir(task_id) / "index.md"
+
+    def _settlement_report_file(self, task_id: str) -> Path:
+        return self._audit_dir(task_id) / "settlement-report.json"
 
     def _pending_file(self, task_id: str) -> Path:
         return self._audit_dir(task_id) / ".write-pending.json"
@@ -387,19 +422,60 @@ class TaskStore:
                 phase = "settled"
         return phase, accepted, settled
 
+    def _settled_resource_report(self, task_id: str, settled: dict[str, Any] | None) -> Any:
+        if settled is None:
+            return None
+        details = settled.get("details")
+        if not isinstance(details, dict):
+            return None
+        ref = details.get("resource_report_ref")
+        if ref is None:
+            return details.get("resource_report")
+        if not isinstance(ref, str) or Path(ref).name != ref or ref in {".", ".."}:
+            raise _error("INVALID_SETTLEMENT_REPORT", f"invalid resource_report_ref {ref!r}")
+        report_path = self._audit_dir(task_id) / ref
+        report = read_json(report_path, default=None)
+        if not isinstance(report, dict):
+            raise _error("SETTLEMENT_REPORT_MISSING", f"settlement report {report_path} is missing or invalid")
+        expected_sha256 = details.get("resource_report_sha256")
+        if expected_sha256 is not None:
+            encoded = _encoded_json(report, max_bytes=None, label="resource_report")
+            actual_sha256 = hashlib.sha256(encoded).hexdigest()
+            if not isinstance(expected_sha256, str) or actual_sha256 != expected_sha256:
+                raise _error("SETTLEMENT_REPORT_CORRUPT", f"settlement report {report_path} failed sha256 verification")
+        return report
+
+    def _matches_settled_report(
+        self,
+        task_id: str,
+        settled: dict[str, Any],
+        resource_report: dict[str, Any],
+        digest: str,
+    ) -> bool:
+        details = settled.get("details")
+        if not isinstance(details, dict):
+            return False
+        if details.get("resource_report_ref") is not None:
+            expected_sha256 = details.get("resource_report_sha256")
+            if expected_sha256 is not None and expected_sha256 != digest:
+                return False
+            return self._settled_resource_report(task_id, settled) == resource_report
+        return details.get("resource_report") == resource_report
+
     def _task_view(self, task_id: str) -> dict[str, Any]:
         task = dict(self._task_record(task_id))
         event_records = self._event_records(task_id)
         phase, accepted, settled = self._phase(task_id)
+        dispatches = self._dispatches(task_id)
         task.update(
             phase=phase,
             accepted=accepted is not None,
             status=("settled" if settled is not None else "accepted" if accepted is not None else "active"),
             acceptance_evidence=(accepted.get("details", {}).get("evidence", []) if accepted else []),
             settled=settled is not None,
-            resource_report=(settled.get("details", {}).get("resource_report") if settled else None),
-            dispatches=self._dispatches(task_id),
-            dispatches_by_id={item["dispatch_id"]: item for item in self._dispatches(task_id)},
+            resource_report=self._settled_resource_report(task_id, settled),
+            dispatches=dispatches,
+            dispatches_by_id={item["dispatch_id"]: item for item in dispatches},
             event_count=len(event_records),
             latest_event_id=event_records[-1]["event_id"] if event_records else None,
             audit_index=str(self._index_file(task_id)),
@@ -1029,8 +1105,10 @@ class TaskStore:
         task_id = _safe_task_id(task_id)
         if not isinstance(resource_report, dict):
             raise _error("INVALID_RESOURCE_REPORT", "resource_report must be a JSON object")
-        _encoded_json(resource_report, max_bytes=MAX_EVENT_DETAILS_BYTES, label="resource_report")
-        self._resource_counts(resource_report)
+        encoded_report = _encoded_json(resource_report, max_bytes=None, label="resource_report")
+        digest = hashlib.sha256(encoded_report).hexdigest()
+        size = len(encoded_report)
+        count, _ = self._resource_counts(resource_report)
         self._prepare_dirs()
         with lock(self._lock_path(task_id), timeout=5):
             self._task_record(task_id)
@@ -1039,16 +1117,23 @@ class TaskStore:
             if accepted is None:
                 raise _error("TASK_NOT_ACCEPTED", "task must be accepted before resource settlement")
             if settled is not None:
-                old_report = settled.get("details", {}).get("resource_report")
-                if old_report == resource_report:
+                if self._matches_settled_report(task_id, settled, resource_report, digest):
                     return self._task_view(task_id)
                 raise _error("TASK_ALREADY_SETTLED", "task already has a settled resource report")
             if phase != "finalizing":
                 raise _error("TASK_STATE_CONFLICT", f"task cannot settle from phase {phase!r}")
+            details = {
+                "phase": "settled",
+                "resource_report_ref": "settlement-report.json",
+                "resource_report_sha256": digest,
+                "resource_report_bytes": size,
+                "resource_summary": {"count": count, "unsettled_count": 0},
+            }
+            _write_bytes_atomic(self._settlement_report_file(task_id), encoded_report)
             self._append_event_locked(
                 task_id,
                 "task_settled",
-                {"resource_report": resource_report, "phase": "settled"},
+                details,
                 pane_id=None,
                 cli_round=None,
             )
