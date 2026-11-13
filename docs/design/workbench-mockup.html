@@ -886,23 +886,36 @@ function traceTable(rows) {
 function routeLabel(s) { return s.variant + " / " + s.model + (s.effort ? " / " + s.effort : ""); }
 
 var selected = "kedo";
+var selectedRun = null;
 var filter = "all";
 var FILTERS = [["all", "All"], ["message", "Messages"], ["tool", "Tool calls"], ["diff", "Diffs"], ["error", "Errors"], ["platform", "Platform"], ["state", "Lifecycle"]];
+var IS_SERVED = /^https?:$/.test(window.location.protocol);
+var LIVE_DATA = { registry: null, catalog: null, routing: null, concurrency: null, incidents: null };
+
+function isSessionSelected(s) {
+  return selectedRun ? s.run === selectedRun : s.nick === selected;
+}
 
 function renderList() {
   var list = document.getElementById("slist");
   list.textContent = "";
   SESSIONS.forEach(function (s) {
     var button = el("button", null, null, [
-      el("span", "nick", s.nick),
+      el("span", "nick", s.nick || s.run),
       el("span", "right", null, [badge(s.state)]),
-      el("span", "l2", s.task + " · " + s.stage),
+      el("span", "l2", (s.task || "adhoc") + " · " + (s.stage || "—")),
       el("span", "l3", routeLabel(s)),
-      el("span", "l4", null, [el("span", null, s.lease), el("span", null, "turn " + s.turn + " · hb " + s.hb)])
+      el("span", "l4", null, [el("span", null, s.lease || s.state), el("span", null, "turn " + s.turn + " · hb " + (s.hb || "—"))])
     ]);
     button.type = "button";
-    button.setAttribute("aria-current", String(s.nick === selected));
-    button.addEventListener("click", function () { selected = s.nick; renderList(); renderDetail(); });
+    button.setAttribute("aria-current", String(isSessionSelected(s)));
+    button.addEventListener("click", function () {
+      selected = s.nick;
+      selectedRun = s.run;
+      renderList();
+      renderDetail();
+      if (IS_SERVED && typeof selectServedSession === "function") selectServedSession(s);
+    });
     list.appendChild(button);
   });
   var live = SESSIONS.filter(function (s) { return s.state !== "closed"; }).length;
@@ -930,27 +943,37 @@ function renderEvent(ev) {
 }
 
 function renderDetail() {
-  var s = SESSIONS.filter(function (item) { return item.nick === selected; })[0];
+  var s = SESSIONS.filter(isSessionSelected)[0] || SESSIONS[0];
   var root = document.getElementById("detail");
   root.textContent = "";
+  if (!s) {
+    root.appendChild(el("div", "empty", "No sessions recorded."));
+    return;
+  }
 
+  var permProfile = s.permission_profile || STAGE_DEFAULTS[s.stage] || "read_only_auto";
   var title = el("div", "title", null, [
-    el("span", "nick", s.nick), el("span", "ref", s.nick + "#" + s.inc), badge(s.state),
+    el("span", "nick", s.nick || s.run), el("span", "ref", s.ref || (s.nick ? s.nick + "#" + s.inc : s.run)), badge(s.state),
     // The profile recorded with the route (route_resolved / turn_started.permission_profile).
-    badge(STAGE_DEFAULTS[s.stage] || "read_only_auto", "permission_profile: " + (STAGE_DEFAULTS[s.stage] || "read_only_auto"), true),
-    el("span", "muted", s.task + " · " + s.stage + " · turn " + s.turn)]);
+    badge(permProfile, "permission_profile: " + permProfile, true),
+    el("span", "muted", (s.task || "adhoc") + " · " + (s.stage || "—") + " · turn " + s.turn)]);
   var left = el("dl", "kv"), right = el("dl", "kv");
   fact(left, "run id", s.run);
-  fact(left, "tmux session", "gt-" + s.nick + (s.state === "handed_off" ? "  (attached by human)" : "  (reserved; created on takeover)"));
-  fact(left, "run log", "runs/" + s.nick + "-" + s.run + "/events.jsonl");
-  fact(left, "workbench URL", "/s/" + s.nick + "   permalink /runs/" + s.run);
+  fact(left, "tmux session", (s.tmux_session || ("gt-" + s.nick)) + (s.state === "handed_off" ? "  (attached by human)" : "  (reserved; created on takeover)"));
+  fact(left, "run log", "runs/" + (s.dir_name || ((s.nick || "run") + "-" + s.run)) + "/events.jsonl");
+  fact(left, "workbench URL", (s.nick ? "/s/" + s.nick + "   " : "") + "permalink /runs/" + s.run);
   fact(right, "route", routeLabel(s));
-  fact(right, "route source", s.source);
-  fact(right, "lease", s.lease);
+  fact(right, "route source", s.source || "—");
+  fact(right, "lease", s.lease || "none");
   fact(right, "resume id", s.resume || "none yet");
-  var head = el("div", "dhead", null, [title, el("div", "facts", null, [left, right]),
-    el("div", "faint", s.takeoverLabel || "Takeover command"), copyBox(s.takeover), el("p", "note", s.takeoverNote)]);
-  head.children[2].style.cssText = "font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px";
+  var headKids = [title, el("div", "facts", null, [left, right])];
+  if (s.takeover) {
+    var lbl = el("div", "faint", s.takeoverLabel || "Takeover command");
+    lbl.style.cssText = "font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px";
+    headKids.push(lbl, copyBox(s.takeover));
+  }
+  if (s.takeoverNote) headKids.push(el("p", "note", s.takeoverNote));
+  var head = el("div", "dhead", null, headKids);
   root.appendChild(head);
 
   var bar = el("div", "filters", null, [el("span", null, "Timeline")]);
@@ -967,7 +990,7 @@ function renderDetail() {
   var timeline = el("div", "timeline");
   var shown = s.events.filter(function (ev) { return filter === "all" || ev[1] === filter; });
   shown.forEach(function (ev) { timeline.appendChild(renderEvent(ev)); });
-  if (!shown.length) timeline.appendChild(el("div", "empty", "No events of this type in the sample for " + s.nick + "."));
+  if (!shown.length) timeline.appendChild(el("div", "empty", "No events of this type for " + (s.nick || s.run) + "."));
   root.appendChild(timeline);
 }
 
@@ -989,6 +1012,37 @@ function variantRuntime(v) {
 }
 
 function renderRegistry() {
+  if (LIVE_DATA.registry) {
+    var reg = LIVE_DATA.registry;
+    var adapters = reg.adapters || {};
+    var scanRows = Object.keys(adapters).sort().map(function (name) {
+      var s = adapters[name] || {};
+      var installed = !!s.installed;
+      return [{ mono: name }, { mono: s.binary || name }, { mono: s.path || "not found on PATH" },
+        { mono: s.version || "—", nowrap: true }, { mono: s.auth_hint || "—" },
+        badge(installed ? "ok" : "unavailable", installed ? "installed" : "not installed")];
+    });
+    table("t-scan", ["Adapter", "Binary", "Path", "Version", "Auth hint (not a model call)", "State"], scanRows);
+    var variants = reg.variants || [];
+    var cfgVariants = reg.config_variants || {};
+    var acctsState = reg.accounts_state || {};
+    table("t-variants", ["Variant id", "Adapter", "Binary", "Settings file", "Environment overrides", "Account", "State"], variants.map(function (v) {
+      var cfgV = cfgVariants[v.variant] || {};
+      var sf = v.settings;
+      var settings = sf ? [sf.path || "(settings)", sf.ok ? "owner/mode check ok" : ((sf.problems || []).join(", ") || "check failed"), "contents never read or shown"] : ["none"];
+      var env = (v.env_names || []).map(function (n) { return "set " + n + "=(configured)"; }).concat((v.env_unset || []).map(function (n) { return "unset " + n; }));
+      var acct = acctsState[v.account] || {};
+      var state = !v.available ? "unavailable" : (acct.cooldown_remaining > 0 ? "cooldown" : "ready");
+      var label = !v.available ? ((v.reasons || []).join(", ") || "unavailable") : (acct.cooldown_remaining > 0 ? "cooling down " + Math.ceil(acct.cooldown_remaining) + "s" : "ready");
+      return [{ mono: v.variant, nowrap: true }, { mono: v.adapter }, { mono: (cfgV.binary || v.binary_path || v.adapter) },
+        stack(settings.map(function (line, i) { return el("div", i ? "muted" : "mono", line); })),
+        stack((env.length ? env : ["none"]).map(function (line) { return el("div", line === "none" ? "faint" : "mono", line); })),
+        stack([el("div", "mono", v.account), v.max_parallel ? el("div", "faint", "variant cap " + v.max_parallel) : null].filter(Boolean)),
+        badge(state, label)];
+    }));
+    document.getElementById("n-registry").textContent = String(variants.length);
+    return;
+  }
   table("t-scan", ["Adapter", "Binary", "Path", "Version", "Auth hint (not a model call)", "State"], SCAN.map(function (row) {
     return [{ mono: row[0] }, { mono: row[1] }, { mono: row[2] }, { mono: row[3], nowrap: true }, { mono: row[4] },
       badge(row[5] === "installed" ? "ok" : "unavailable", row[5] === "installed" ? "installed" : "not installed")];
@@ -1008,6 +1062,30 @@ function renderRegistry() {
 }
 
 function renderCatalog() {
+  if (LIVE_DATA.catalog) {
+    var entries = LIVE_DATA.catalog.entries || [];
+    var unconf = 0;
+    table("t-catalog", ["Variant", "Model id", "Efforts", "Status · flags", "Provenance", "Overlay"], entries.map(function (entry) {
+      var flags = entry.flags || [];
+      if (flags.indexOf("unconfirmed") !== -1) unconf += 1;
+      var effortsList = entry.efforts || [];
+      var efforts = effortsList.length ? stack([chips(effortsList), entry.default_effort ? el("div", "faint", "default " + entry.default_effort) : null].filter(Boolean))
+        : el("span", "muted", "no effort levels");
+      var prov = entry.provenance || [];
+      var provLines = prov.length
+        ? [prov[0].method + (prov[0].command ? " · " + prov[0].command : ""), (prov[0].cli_version ? "CLI " + prov[0].cli_version + " · " : "") + (prov[0].observed_at || ""), prov.length + " observation(s)"]
+        : ["curated overlay", "no observation recorded yet", ""];
+      return [{ mono: entry.variant, nowrap: true },
+        stack([el("div", "mono", entry.id), entry.display_name ? el("div", "muted", entry.display_name) : null].filter(Boolean)),
+        efforts,
+        stack([badge(entry.status || "enabled")].concat(flags.map(function (flag) { return badge(flag, flag, true); }))),
+        stack(provLines.filter(Boolean).map(function (line, idx) { return el("div", idx === 0 ? "mono" : idx === 1 ? "muted" : "faint", line); })),
+        badge(entry.curated ? "info" : "warning", entry.curated ? "curated" : "observed", true)];
+    }));
+    document.getElementById("catalog-sub").textContent = entries.length + " models · " + unconf + " unconfirmed";
+    document.getElementById("n-catalog").textContent = String(entries.length);
+    return;
+  }
   var cfg = SAVED, unconfirmed = 0;
   table("t-catalog", ["Variant", "Model id", "Efforts", "Status · flags", "Provenance", "Overlay"], cfg.models.map(function (m) {
     var v = variantByKey(cfg, m.variant) || { id: "?" };
@@ -1052,6 +1130,59 @@ function candCells(cfg, list) {
 
 var routingStaticDone = false;
 function renderRouting() {
+  if (LIVE_DATA.routing) {
+    var rt = LIVE_DATA.routing;
+    var variantMap = {};
+    (rt.variants || []).forEach(function (v) { variantMap[v.variant] = v; });
+    var catalogMap = {};
+    (rt.catalog || []).forEach(function (e) { catalogMap[e.variant + "\n" + e.id] = e; });
+    var accountsMap = rt.accounts || {};
+    function liveCandReason(c) {
+      var v = variantMap[c.variant];
+      var m = catalogMap[c.variant + "\n" + c.model];
+      if (!v) return "VARIANT_UNKNOWN";
+      if (!v.available) return (v.reasons && v.reasons[0]) || "BINARY_NOT_FOUND";
+      if (!m) return "MODEL_NOT_IN_CATALOG";
+      if (m.status !== "enabled") return "MODEL_DISABLED";
+      var acct = accountsMap[v.account];
+      if (acct && acct.cooldown_remaining > 0) return "ACCOUNT_COOLDOWN";
+      return null;
+    }
+    function liveCandCells(list) {
+      var cands = el("div");
+      (list || []).forEach(function (c, index) {
+        var why = liveCandReason(c);
+        var text = c.variant + " / " + c.model + (c.effort ? " / " + c.effort : "");
+        var row = el("div", "cand" + (why ? " off" : ""), null, [el("span", "n", String(index + 1)), el("span", "c", text)]);
+        if (why) row.appendChild(el("span", "why mono", why));
+        cands.appendChild(row);
+      });
+      if (!(list || []).length) cands.appendChild(el("span", "faint", "none"));
+      return cands;
+    }
+    var stages = rt.stages || [];
+    var liveRows = stages.map(function (stage) {
+      var policy = el("dl", "kv");
+      fact(policy, "on_busy", stage.on_busy || "queue");
+      fact(policy, "effort_fallback", stage.effort_fallback || "lower");
+      fact(policy, "allow_pins_outside", String(!!stage.allow_pins_outside));
+      fact(policy, "stage cap", String(stage.max_parallel));
+      return [stageCell(stage.id), profileView(stage.permission_profile || "read_only_auto"), liveCandCells(stage.candidates), policy];
+    });
+    liveRows.push([{ mono: "default", nowrap: true }, el("span", "faint", "—"), liveCandCells(rt.default_candidates || []),
+      el("div", "muted", "routing.default_candidates: last resort when a stage's own list has no usable candidate")]);
+    table("t-matrix", ["Stage", "permission_profile", "Priority order", "Policy"], liveRows);
+    document.getElementById("n-routing").textContent = String(stages.length);
+    if (!routingStaticDone) {
+      routingStaticDone = true;
+      var codes = document.getElementById("codes");
+      CODES.forEach(function (code) {
+        var kind = code === "SELECTED" ? "selected" : code === "QUEUED" ? "queued" : code === "EFFORT_LOWERED" ? "adjusted" : "skipped";
+        codes.appendChild(badge(kind, code, true));
+      });
+    }
+    return;
+  }
   var cfg = SAVED;
   // Read-only: stages in configured order, each with its permission profile as a badge.
   var rows = cfg.stages.map(function (stage) {
@@ -1102,6 +1233,68 @@ function meters(target, items) {
 }
 
 function renderConcurrency() {
+  if (LIVE_DATA.concurrency) {
+    var conc = LIVE_DATA.concurrency;
+    if (conc.unreadable) {
+      document.getElementById("n-conc").textContent = "!";
+      meters("m-global", [{ name: "global", slots: "", cap: 0, hint: conc.unreadable, warn: true }]);
+      meters("m-accounts", []);
+      meters("m-variants", []);
+      meters("m-stages", []);
+      table("t-queue", ["Ticket", "Nickname", "Stage", "Wanted account", "Position", "Blocked on", "Waited"], []);
+      table("t-leases", ["Lease", "Nickname", "Account", "Stage", "Holder pid", "Expires in", "Holder"], []);
+      return;
+    }
+    var leases = conc.leases || [];
+    var queue = conc.queue || [];
+    function slotsFor(pred) {
+      return leases.filter(pred).map(function (l) {
+        return l.stale ? "s" : (l.holder === "human" ? "h" : "u");
+      }).join("");
+    }
+    var g = conc.global || { in_use: 0, cap: 0 };
+    meters("m-global", [{ name: "global", slots: slotsFor(function () { return true; }), cap: g.cap, hint: g.in_use + " held" }]);
+    var acctObj = conc.accounts || {};
+    meters("m-accounts", Object.keys(acctObj).sort().map(function (id) {
+      var a = acctObj[id];
+      var cooling = (a.cooldown_remaining || 0) > 0;
+      var hint = cooling ? ("cooldown " + Math.ceil(a.cooldown_remaining) + "s · effective cap " + a.effective_cap) : (a.in_use + " active");
+      return { name: id, slots: slotsFor(function (l) { return l.account === id; }), cap: a.cap, cooling: cooling, hint: hint, warn: cooling };
+    }));
+    var varObj = conc.variants || {};
+    meters("m-variants", Object.keys(varObj).sort().map(function (id) {
+      var v = varObj[id];
+      return { name: id, slots: slotsFor(function (l) { return l.variant === id; }), cap: v.cap, hint: v.in_use + " active" };
+    }));
+    var stgObj = conc.stages || {};
+    meters("m-stages", Object.keys(stgObj).sort().map(function (id) {
+      var st = stgObj[id];
+      return { name: id, slots: slotsFor(function (l) { return l.stage === id; }), cap: st.cap, hint: st.in_use + " active" };
+    }));
+    var lcfg = conc.limits_config || {};
+    var qTimeout = Number(lcfg.queue_timeout_seconds || 0);
+    var qDepth = lcfg.queue_max_depth || 0;
+    var qMin = Math.floor(qTimeout / 60), qSec = qTimeout % 60;
+    document.getElementById("queue-sub").textContent = "depth " + queue.length + (qDepth ? " of " + qDepth : "") + (qTimeout ? " · timeout " + qMin + ":" + (qSec < 10 ? "0" : "") + qSec : "");
+    document.getElementById("leases-sub").textContent = "TTL " + (lcfg.lease_ttl_seconds || "—") + " s · heartbeat " + (lcfg.heartbeat_seconds || "—") + " s";
+    table("t-queue", ["Ticket", "Nickname", "Stage", "Wanted account", "Position", "Blocked on", "Waited"], queue.map(function (q) {
+      return [q.ticket_id, q.nickname, q.stage, q.account, String(q.position), (q.blocked_on || []).join(", ") || "—", Math.max(0, Math.round(q.waited || 0)) + " s"]
+        .map(function (cell) { return { mono: String(cell || "—"), nowrap: true }; });
+    }));
+    var nowEpoch = conc.now || (Date.now() / 1000);
+    table("t-leases", ["Lease", "Nickname", "Account", "Stage", "Holder pid", "Expires in", "Holder"], leases.map(function (l) {
+      var rem = Math.round((l.expires_at || 0) - nowEpoch);
+      var expText = l.stale ? ("expired " + Math.abs(rem) + " s ago") : (rem + " s");
+      var cells = [l.lease_id, l.nickname, l.account, l.stage, l.holder === "human" ? "human" : String(l.pid || "—"), expText]
+        .map(function (cell) { return { mono: String(cell || "—"), nowrap: true }; });
+      var hState = l.stale ? "stale" : (l.holder === "human" ? "human" : "running");
+      cells.push(badge(hState, hState === "running" ? "supervisor" : hState));
+      return cells;
+    }));
+    document.getElementById("n-conc").textContent = g.in_use + "/" + g.cap;
+    document.getElementById("clock").textContent = new Date().toISOString().slice(0, 19).replace("T", " ") + " UTC · state dir " + (conc.state_dir || "");
+    return;
+  }
   var cfg = SAVED;
   var capOf = function (list, id) { var hit = list.filter(function (a) { return a.id === id; })[0]; return hit ? hit.max_parallel : "0"; };
   meters("m-global", GLOBAL.map(function (g) { return { name: g.name, slots: g.slots, cap: cfg.concurrency.global_max_parallel, hint: g.hint }; }));
@@ -1135,14 +1328,26 @@ function renderConcurrency() {
 function renderObservation() { renderRegistry(); renderCatalog(); renderRouting(); renderConcurrency(); }
 
 function renderIncidents() {
+  var openEl = document.getElementById("inc-open");
+  var doneEl = document.getElementById("inc-done");
+  openEl.textContent = "";
+  doneEl.textContent = "";
+  var list = LIVE_DATA.incidents ? LIVE_DATA.incidents.map(function (item) {
+    var sev = item.severity === "error" ? "critical" : (item.severity || "warning");
+    var title = tx("incident." + item.id) + (item.subject ? ": " + item.subject : "");
+    var detail = item.evidence_ref + (item.params && Object.keys(item.params).length ? " · " + JSON.stringify(item.params) : "");
+    return { sev: sev, title: title, text: detail, rule: item.id + " (" + item.source + ")", when: String(item.ts || "").slice(11, 19) || String(item.ts || ""), open: true };
+  }) : INCIDENTS;
   var open = 0;
-  INCIDENTS.forEach(function (item) {
+  list.forEach(function (item) {
     if (item.open) open += 1;
-    document.getElementById(item.open ? "inc-open" : "inc-done").appendChild(el("div", "inc", null, [
+    (item.open ? openEl : doneEl).appendChild(el("div", "inc", null, [
       el("div", null, null, [badge(item.sev)]),
       el("div", null, null, [el("h3", null, item.title), el("p", null, item.text), el("div", "rule", "rule: " + item.rule)]),
       el("div", "when", item.when)]));
   });
+  if (!openEl.children.length) openEl.appendChild(el("div", "empty", "No open incidents."));
+  if (!doneEl.children.length) doneEl.appendChild(el("div", "empty", "No resolved entries."));
   document.getElementById("inc-open-sub").textContent = open + " open";
   document.getElementById("n-incidents").textContent = String(open);
 }
@@ -2373,9 +2578,239 @@ Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function 
   button.addEventListener("click", function () { navigate(button.dataset.view); });
 });
 
+/* ---------------- served mode (HTTP/SSE) ---------------- */
+
+var activeEventSource = null;
+var SSE_EVENT_TYPES = [
+  "turn_started", "message_delta", "message", "tool_call", "tool_result", "turn_completed",
+  "error", "exit", "state_changed", "heartbeat", "adapter_unknown",
+  "nickname_assigned", "nickname_released", "route_resolved",
+  "lease_queued", "lease_granted", "lease_released", "rate_limited",
+  "worktree_prepared", "worktree_cleaned", "takeover_started", "takeover_released",
+  "adapter_selected", "adapter_degraded", "thought_delta", "thought", "tool_call_update",
+  "plan", "permission_requested", "permission_resolved", "session_meta", "usage"
+];
+
+function fetchJson(url) {
+  return fetch(url, { credentials: "same-origin", headers: { "Accept": "application/json" } }).then(function (resp) {
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " for " + url);
+    return resp.json();
+  });
+}
+
+function eventGroup(kind) {
+  if (kind === "message" || kind === "message_delta" || kind === "thought" || kind === "thought_delta") return "message";
+  if (kind === "tool_call" || kind === "tool_call_update" || kind === "tool_result") return "tool";
+  if (kind === "error" || kind === "exit") return "error";
+  if (kind === "state_changed" || kind === "turn_started" || kind === "turn_completed" || kind === "heartbeat") return "state";
+  return "platform";
+}
+
+function mapRawEvent(ev) {
+  var kind = ev.type || "event";
+  var payload = ev.payload || {};
+  var ts = String(ev.ts || "").slice(11, 19) || "—";
+  var summary = "";
+  var extra = { seq: ev.seq };
+  if (kind === "message" || kind === "message_delta" || kind === "thought" || kind === "thought_delta") {
+    summary = payload.text || payload.delta || JSON.stringify(payload);
+    extra.quote = true;
+  } else if (kind === "route_resolved") {
+    summary = "stage " + (payload.stage || "") + " · source: " + (payload.source || "") + " · selected " + (payload.selected || "");
+    if (Array.isArray(payload.steps) && payload.steps.length) {
+      extra.trace = payload.steps.map(function (st, i) {
+        return T(i + 1, st.candidate || st.label || "?", st.outcome || "skipped", st.code || st.reason || "—", st.detail || "");
+      });
+    }
+  } else if (kind === "tool_call" || kind === "tool_call_update" || kind === "tool_result") {
+    summary = (payload.tool || payload.name || kind) + (payload.summary ? "  " + payload.summary : "");
+    if (payload.status) extra.res = [payload.status === "ok" || payload.status === "completed" ? "ok" : "fail", String(payload.status)];
+  } else if (kind === "error") {
+    summary = (payload.code || "ERROR") + (payload.message ? " · " + payload.message : "");
+  } else if (kind === "state_changed") {
+    summary = (payload.from || "?") + " -> " + (payload.to || "?");
+  } else {
+    summary = Object.keys(payload).length ? JSON.stringify(payload) : kind;
+  }
+  return [ts, eventGroup(kind), kind, summary, extra];
+}
+
+function mapServedSession(item) {
+  var sel = item.selection || {};
+  var leaseObj = item.lease || null;
+  var ticketObj = item.queue_ticket || null;
+  var leaseText = leaseObj ? ("lease " + leaseObj.lease_id + " · " + leaseObj.account + (leaseObj.stale ? " · stale" : ""))
+    : ticketObj ? ("queued · position " + ticketObj.position + " · ticket " + ticketObj.ticket_id)
+    : ("no lease (" + item.state + ")");
+  var inc = 1;
+  if (item.ref && String(item.ref).indexOf("#") !== -1) {
+    inc = parseInt(String(item.ref).split("#")[1], 10) || 1;
+  }
+  return {
+    nick: item.nickname || item.run_id,
+    inc: inc,
+    ref: item.ref || item.run_id,
+    state: item.state || "created",
+    task: item.task_id || "adhoc",
+    stage: item.stage || "design",
+    permission_profile: item.permission_profile || null,
+    variant: sel.variant || item.transport || "—",
+    model: sel.model || "—",
+    effort: sel.effort || null,
+    turn: item.turns || 0,
+    hb: item.heartbeat_at ? String(item.heartbeat_at).slice(11, 19) : "—",
+    run: item.run_id,
+    dir_name: item.dir_name || null,
+    tmux_session: item.tmux_session || null,
+    resume: item.resume_id || null,
+    lease: leaseText,
+    source: item.route_source || "stage priority",
+    takeover: Array.isArray(item.takeover_argv) ? item.takeover_argv.join(" ") : ("tmuxctl run status --run-id " + item.run_id),
+    takeoverNote: "",
+    events: [],
+    _seenSeqs: {}
+  };
+}
+
+function appendServedEvents(sessionObj, rawEvents) {
+  if (!sessionObj || !Array.isArray(rawEvents)) return false;
+  var changed = false;
+  rawEvents.forEach(function (ev) {
+    var seq = ev && ev.seq;
+    if (typeof seq === "number" && sessionObj._seenSeqs[seq]) return;
+    if (typeof seq === "number") sessionObj._seenSeqs[seq] = true;
+    sessionObj.events.push(mapRawEvent(ev));
+    changed = true;
+  });
+  return changed;
+}
+
+function openRunSse(sessionObj) {
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+  if (!sessionObj || !sessionObj.run || typeof EventSource !== "function") return;
+  var lastSeq = sessionObj.events.reduce(function (acc, ev) {
+    var s = ev[4] && ev[4].seq;
+    return (typeof s === "number" && s > acc) ? s : acc;
+  }, 0);
+  var es = new EventSource("/api/runs/" + encodeURIComponent(sessionObj.run) + "/stream?after_seq=" + encodeURIComponent(String(lastSeq)));
+  activeEventSource = es;
+
+  function onFrame(event) {
+    if (!event || !event.data) return;
+    try {
+      var parsed = JSON.parse(event.data);
+      if (appendServedEvents(sessionObj, [parsed]) && isSessionSelected(sessionObj)) {
+        renderDetail();
+      }
+    } catch (err) { /* ignore keepalive or non-JSON frame */ }
+  }
+  SSE_EVENT_TYPES.forEach(function (kind) { es.addEventListener(kind, onFrame); });
+  es.onmessage = onFrame;
+  es.addEventListener("end", function () { es.close(); if (activeEventSource === es) activeEventSource = null; });
+  es.addEventListener("reset", function () {
+    sessionObj.events = [];
+    sessionObj._seenSeqs = {};
+    if (isSessionSelected(sessionObj)) renderDetail();
+  });
+}
+
+function selectServedSession(s) {
+  if (!s || !s.run) return;
+  var nickPromise = s.nick ? fetchJson("/api/sessions/" + encodeURIComponent(s.nick)).catch(function () { return null; }) : Promise.resolve(null);
+  var runPromise = fetchJson("/api/runs/" + encodeURIComponent(s.run)).catch(function () { return null; });
+  var eventsPromise = fetchJson("/api/runs/" + encodeURIComponent(s.run) + "/events").catch(function () { return null; });
+  Promise.all([nickPromise, runPromise, eventsPromise]).then(function (results) {
+    var runDetail = results[1];
+    var eventsResp = results[2];
+    if (runDetail) {
+      var updated = mapServedSession(runDetail);
+      updated.events = s.events;
+      updated._seenSeqs = s._seenSeqs;
+      Object.keys(updated).forEach(function (k) { s[k] = updated[k]; });
+    }
+    if (eventsResp && Array.isArray(eventsResp.events)) {
+      appendServedEvents(s, eventsResp.events);
+    }
+    if (isSessionSelected(s)) {
+      renderList();
+      renderDetail();
+      openRunSse(s);
+    }
+  });
+}
+
+function hydrateServedMode() {
+  var badgeNode = document.querySelector(".ro-badge");
+  if (badgeNode) badgeNode.textContent = "Observation read-only · live state";
+
+  var path = window.location.pathname || "/";
+  var nickMatch = path.match(/^\/s\/([^/]+)$/);
+  var runMatch = path.match(/^\/runs\/([^/]+)$/);
+
+  var deepPromise = Promise.resolve(null);
+  if (nickMatch) {
+    deepPromise = fetchJson("/api/sessions/" + encodeURIComponent(decodeURIComponent(nickMatch[1]))).catch(function () { return null; });
+  } else if (runMatch) {
+    deepPromise = fetchJson("/api/runs/" + encodeURIComponent(decodeURIComponent(runMatch[1]))).catch(function () { return null; });
+  }
+
+  Promise.all([
+    fetchJson("/api/sessions").catch(function () { return { sessions: [] }; }),
+    fetchJson("/api/registry").catch(function () { return null; }),
+    fetchJson("/api/catalog").catch(function () { return null; }),
+    fetchJson("/api/routing").catch(function () { return null; }),
+    fetchJson("/api/concurrency").catch(function () { return null; }),
+    fetchJson("/api/incidents").catch(function () { return { incidents: [] }; }),
+    deepPromise
+  ]).then(function (res) {
+    var sessionsResp = res[0] || { sessions: [] };
+    LIVE_DATA.registry = res[1];
+    LIVE_DATA.catalog = res[2];
+    LIVE_DATA.routing = res[3];
+    LIVE_DATA.concurrency = res[4];
+    LIVE_DATA.incidents = (res[5] && Array.isArray(res[5].incidents)) ? res[5].incidents : [];
+    var deep = res[6];
+
+    SESSIONS = (sessionsResp.sessions || []).map(mapServedSession);
+    if (deep) {
+      var target = deep.session || (deep.run_id ? deep : null) || ((deep.past_incarnations || [])[0] || null);
+      if (target) {
+        selectedRun = target.run_id;
+        selected = target.nickname || target.run_id;
+        if (!SESSIONS.some(function (item) { return item.run === target.run_id; })) {
+          SESSIONS.unshift(mapServedSession(target));
+        }
+      }
+    } else if (SESSIONS.length) {
+      selectedRun = SESSIONS[0].run;
+      selected = SESSIONS[0].nick;
+    } else {
+      selectedRun = null;
+      selected = null;
+    }
+
+    renderList();
+    renderDetail();
+    renderObservation();
+    renderIncidents();
+
+    var active = SESSIONS.filter(isSessionSelected)[0];
+    if (active) selectServedSession(active);
+  });
+}
+
 document.getElementById("lang").addEventListener("change", function (event) { setLocale(event.target.value); });
 applyStatic();
-renderList(); renderDetail(); renderObservation(); renderIncidents();
+if (IS_SERVED) {
+  SESSIONS = [];
+  renderList(); renderDetail();
+  hydrateServedMode();
+} else {
+  renderList(); renderDetail(); renderObservation(); renderIncidents();
+}
 show(location.hash.replace("#", ""));
 </script>
 </body>

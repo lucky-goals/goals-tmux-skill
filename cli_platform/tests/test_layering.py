@@ -6,6 +6,7 @@ show that the observation layer can neither block nor change execution state.
 
 import ast
 import fcntl
+import json
 import os
 import subprocess
 import sys
@@ -17,8 +18,12 @@ from pathlib import Path
 from support import ROOT, make_config
 
 from cli_platform.adapters import workbench
+from cli_platform.events import EventLog
 from cli_platform.limiter import LeaseRequest, Limiter
 from cli_platform.nicknames import NicknameAllocator, load_library
+from cli_platform.scanner import publish_environment_snapshots
+from cli_platform.supervisor import Platform, publish_config_applied
+from cli_platform.transport import Breaker
 from cli_platform.variants import VariantRegistry
 
 PACKAGE = ROOT / "src" / "cli_platform"
@@ -34,7 +39,7 @@ LAYER = {
     "supervisor": "execution", "__main__": "execution", "worktree": "execution", "adapters.mcp": "execution",
     "transport": "execution", "normalize": "execution", "adapters.base": "execution",
     "adapters.acp": "execution", "adapters.headless": "execution",
-    "adapters.workbench": "observation",
+    "adapters.workbench": "observation", "adapters.workbench_server": "observation",
 }
 MAY_IMPORT = {
     "configuration": {"configuration"},
@@ -42,10 +47,6 @@ MAY_IMPORT = {
     "execution": {"configuration", "event", "execution"},
     "observation": {"configuration", "event", "observation"},
 }
-# The two execution modules the observation layer may call. Both are pure
-# evaluations (catalog merge; variant check by ``which`` and ``lstat``); the
-# behavioral tests below show the read model built on them writes nothing.
-OBSERVATION_MAY_EVALUATE = {"catalog", "variants"}
 
 
 def _module_name(path: Path) -> str:
@@ -88,21 +89,25 @@ class ImportRulesTest(unittest.TestCase):
         for name, path in _modules().items():
             layer = LAYER[name]
             for target in _imports(path):
-                if layer == "observation" and target in OBSERVATION_MAY_EVALUATE:
-                    continue
                 with self.subTest(module=name, imports=target):
                     self.assertIn(LAYER[target], MAY_IMPORT[layer])
 
     def test_observation_never_imports_the_deciding_components(self):
-        imported = _imports(PACKAGE / "adapters" / "workbench.py")
-        for component in ("router", "limiter", "nicknames", "supervisor", "scanner", "adapters.mcp"):
-            self.assertNotIn(component, imported)
+        forbidden = ("router", "limiter", "nicknames", "supervisor", "scanner",
+                     "adapters.mcp", "catalog", "variants")
+        for rel in ("workbench.py", "workbench_server.py"):
+            path = PACKAGE / "adapters" / rel
+            if path.exists():
+                imported = _imports(path)
+                for component in forbidden:
+                    self.assertNotIn(component, imported)
 
     def test_loading_the_execution_layer_never_loads_the_workbench(self):
         # Zero-gate: nothing on the execution path can wait for a workbench.
         probe = ("import sys; import cli_platform.__main__, cli_platform.supervisor, "
                  "cli_platform.adapters.mcp; "
-                 "print('cli_platform.adapters.workbench' in sys.modules)")
+                 "print('cli_platform.adapters.workbench' in sys.modules or "
+                 "'cli_platform.adapters.workbench_server' in sys.modules)")
         done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
                               env=dict(os.environ, PYTHONPATH=str(ROOT / "src")), check=True)
         self.assertEqual(done.stdout.strip(), "False")
@@ -116,15 +121,32 @@ class ObservationIsolationTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.config = make_config(Path(self._tmp.name))
+        self.config.path.write_text("# test config\n", encoding="utf-8")
         self.state = self.config.state_dir
-        self.registry = VariantRegistry(self.config, which=lambda binary: f"/bin/{binary}")
 
     def read_model(self) -> dict:
-        return workbench.read_model(self.config, registry=self.registry, now=1_000_000.0)
+        return workbench.read_model(self.state, now=1_000_000.0)
 
     def populate(self) -> None:
-        NicknameAllocator(self.state, load_library(self.config.nicknames.library)).allocate("run-0001")
-        Limiter(self.config).acquire(LeaseRequest("run-0001", "kedo", "acct-a", "design"))
+        publish_config_applied(self.config, self.state)
+        registry = VariantRegistry(self.config, which=lambda binary: f"/bin/{binary}")
+        platform = Platform(self.config, [], state_dir=self.state, registry=registry)
+        publish_environment_snapshots(platform, self.state, [])
+        Breaker(self.state, self.config.execution.acp).record("alpha", "1.0.0", ok=True)
+        nick = NicknameAllocator(self.state, load_library(self.config.nicknames.library)).allocate("run-0001")
+        Limiter(self.config).acquire(LeaseRequest("run-0001", nick.nickname, "acct-a", "design"))
+        run_dir = self.state / "runs" / f"{nick.nickname}-run-0001"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "run.json").write_text(json.dumps({
+            "v": 1, "run_id": "run-0001", "nickname": nick.nickname,
+            "ref": nick.ref, "task_id": "T-iso", "stage": "design",
+        }), encoding="utf-8")
+        (run_dir / "state.json").write_text(json.dumps({
+            "v": 1, "run_id": "run-0001", "state": "idle", "turns": 0,
+        }), encoding="utf-8")
+        EventLog(
+            run_dir / "events.jsonl", run_id="run-0001", task_id="T-iso", nickname=nick.nickname,
+        ).append("nickname_assigned", {"nickname": nick.nickname, "ref": nick.ref})
 
     def tree(self) -> dict[str, tuple[int, int]]:
         return {str(path): (path.stat().st_mtime_ns, path.stat().st_size)
@@ -143,14 +165,23 @@ class ObservationIsolationTest(unittest.TestCase):
         self.assertEqual(model["concurrency"]["global"]["in_use"], 1)
         self.assertEqual([item["ref"] for item in model["nicknames"]],
                          [f"{model['nicknames'][0]['nickname']}#1"])
+        self.assertTrue(model["registry"])
+        self.assertTrue(model["catalog"])
+        self.assertIn("design", model["routing"])
 
     def test_read_model_does_not_wait_for_execution_locks(self):
         self.populate()
         held = []
-        for lock in (self.state / "limits" / "lock", self.state / "nicknames" / "lock"):
-            fd = os.open(lock, os.O_RDWR)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            held.append(fd)
+        for lock in (
+            self.state / "limits" / "lock",
+            self.state / "nicknames" / "lock",
+            self.state / "config" / "lock",
+            self.state / "adapters" / "lock",
+        ):
+            if lock.exists():
+                fd = os.open(lock, os.O_RDWR)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                held.append(fd)
         self.addCleanup(lambda: [os.close(fd) for fd in held])
         result: list[dict] = []
         reader = threading.Thread(target=lambda: result.append(self.read_model()), daemon=True)
