@@ -38,6 +38,14 @@ recover_after_turns = 5        # clean turns before the cap grows back by one
 stale_after_days = 14
 allow_unreviewed = false       # observed-only models are not routable
 
+# Display language for messages from the command line and the default for the
+# workbench: "auto" (OS locale, then English), "en", "ja" or "zh-Hant".
+# Regional tags are accepted and normalized (ja-JP -> ja, zh-TW -> zh-Hant).
+# `--locale` overrides it per command; a workbench viewer's own choice
+# overrides it in that browser. Codes, ids and logs are never translated.
+[ui]
+locale = "auto"
+
 # ---------------------------------------------------------------------------
 # Accounts: the unit a vendor rate-limits. Variants that bill the same
 # subscription share one account and therefore one cap.

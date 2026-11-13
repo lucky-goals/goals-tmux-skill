@@ -9,7 +9,8 @@ calls.
 
 Implemented and tested: configuration loading, the nickname library and
 allocator, variant checks and launch rendering, catalog merge, the router,
-the limiter, the event log, and the nickname-route-lease sequence.
+the limiter, the event log, the nickname-route-lease sequence, and message
+catalogs for English, Japanese and Traditional Chinese.
 Placeholders: the run supervisor process, the MCP server and the workbench
 server (contracts only).
 
@@ -20,6 +21,7 @@ pyproject.toml
 config/cli-platform.toml     example configuration
 data/nicknames.txt           1000 nicknames, generated
 scripts/nicknames.py         generate | validate the library
+scripts/i18n_embed.py        embed | check the mockup's copy of the catalogs
 src/cli_platform/
   config.py                  schema and strict loader
   nicknames.py               library rules, generator, allocator
@@ -32,6 +34,8 @@ src/cli_platform/
   events.py                  append-only run event log (event layer)
   snapshots.py               lock-free readers of published state (event layer)
   fsutil.py                  private directory creation
+  i18n/core.py               locale negotiation, translator, plurals, formatting
+  i18n/<locale>.json         message catalogs: en, ja, zh-Hant
   adapters/workbench.py      placeholder: routes and read model (observation layer)
   adapters/mcp.py            placeholder: tool table
   __main__.py                command line
@@ -50,11 +54,15 @@ python3 -m cli_platform variants
 python3 -m cli_platform catalog
 python3 -m cli_platform resolve code_review [--pin variant/model[/effort]]
 python3 -m cli_platform plan development      # dry run in a temporary state directory
+python3 -m cli_platform --locale ja locale     # negotiated language and catalog coverage
 python3 scripts/nicknames.py validate
+python3 scripts/i18n_embed.py check            # after editing a catalog: embed, then check
 ```
 
 `plan --commit` is the only command that writes to the configured state
-directory.
+directory. `--locale` (or `[ui] locale` in the configuration, or the OS
+locale) only adds a localized `text` to refusals; JSON keys and codes stay
+English.
 
 ## Tests
 
@@ -62,11 +70,13 @@ directory.
 python3 -m unittest discover -s tests -t tests
 ```
 
-115 tests: nickname library and allocation, router precedence and fallback,
+142 tests: nickname library and allocation, router precedence and fallback,
 limiter caps, queue, cooldown and crash recovery (including a cross-process
-check), config loading and settings-file checks, the session flow, and the
+check), config loading and settings-file checks, the session flow, the
 layer boundaries (import rules, and a read model that takes no lock and
-writes nothing).
+writes nothing), and localization (catalog parity, placeholders, plurals,
+fallback, negotiation, formatting, `ui.locale`, `--locale`, and the mockup's
+catalog copy and keys).
 
 ## Notes
 

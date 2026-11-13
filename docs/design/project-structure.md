@@ -45,10 +45,14 @@ cli_platform/
 ├── data/
 │   └── nicknames.txt                  new   exactly 1000 nicknames, generated
 ├── scripts/
-│   └── nicknames.py                   new   generate and validate the library
+│   ├── nicknames.py                   new   generate and validate the library
+│   └── i18n_embed.py                  new   copy the catalogs into the mockup, or check the copy
 ├── src/cli_platform/
 │   ├── errors.py                      new   PlatformError and stable codes
 │   ├── fsutil.py                      new   private (0700) directory creation
+│   ├── i18n/
+│   │   ├── core.py                    new   locale negotiation, translator, plurals, formatting
+│   │   └── en.json, ja.json, zh-Hant.json   new   message catalogs (package data)
 │   ├── config.py                      new   schema, strict loader, secret refusal
 │   ├── nicknames.py                   new   library rules, generator, allocator, tmux name
 │   ├── scanner.py                     new   installed-CLI scan
@@ -59,18 +63,19 @@ cli_platform/
 │   ├── events.py                      new   run event log with platform event types (event layer)
 │   ├── snapshots.py                   new   lock-free readers of published state, one limits projection (event layer)
 │   ├── supervisor.py                  new   run states, supervisor contract, Platform wiring
-│   ├── __main__.py                    new   check-config, scan, variants, catalog, resolve, plan
+│   ├── __main__.py                    new   check-config, locale, scan, variants, catalog, resolve, plan; --locale
 │   └── adapters/
 │       ├── workbench.py               new   placeholder: GET route table and read model over files (observation layer)
 │       └── mcp.py                     new   placeholder: tool table
-└── tests/                             new   115 unittest cases
+└── tests/                             new   142 unittest cases
     ├── support.py                           fixtures
     ├── test_nicknames.py                    library and allocation
     ├── test_router.py                       precedence, fallback, catalog
     ├── test_limiter.py                      caps, queue, cooldown, recovery, cross-process
     ├── test_config.py                       loading, validation, settings files
     ├── test_session_flow.py                 nickname, route, lease, events
-    └── test_layering.py                     layer table, import rules, lock-free and write-free read model
+    ├── test_layering.py                     layer table, import rules, lock-free and write-free read model
+    └── test_i18n.py                         catalogs, negotiation, fallback, plurals, formatting, mockup copy
 ```
 
 Layers and direction of dependencies (design section 5; enforced for
@@ -78,7 +83,7 @@ Layers and direction of dependencies (design section 5; enforced for
 
 | Layer | Modules | May import |
 | --- | --- | --- |
-| Configuration (shared input) | `config`, `errors`, `fsutil` | Configuration only |
+| Configuration (shared input) | `config`, `errors`, `fsutil`, `i18n.core` | Configuration only |
 | Event | `events`, `snapshots` | Configuration, event |
 | Execution | `scanner`, `variants`, `catalog`, `nicknames`, `router`, `limiter`, `supervisor`, `__main__`, `adapters/mcp`; planned `goals_tmux.runs`, `goals_tmux.mcp_server` | Configuration, event, execution |
 | Observation | `adapters/workbench`; planned `goals_tmux.workbench` | Configuration, event, and the pure evaluators `catalog` and `variants` |

@@ -16,6 +16,7 @@ from typing import Any
 
 from . import errors
 from .errors import PlatformError
+from .i18n.core import require_locale
 
 SCHEMA_VERSION = 1
 ADAPTERS = ("claude", "cursor", "codex", "agy", "kiro")
@@ -125,6 +126,11 @@ class CatalogSettings:
 
 
 @dataclass(frozen=True)
+class UiSettings:
+    locale: str = "auto"             # "auto" (OS locale, then English) or a supported locale
+
+
+@dataclass(frozen=True)
 class PlatformConfig:
     path: Path
     state_dir: Path
@@ -136,6 +142,7 @@ class PlatformConfig:
     models: tuple[ModelEntry, ...]
     stages: dict[str, Stage]
     default_candidates: tuple[Candidate, ...]
+    ui: UiSettings = UiSettings()
 
     def model(self, variant: str, model_id: str) -> ModelEntry | None:
         for entry in self.models:
@@ -301,7 +308,7 @@ def _stage(stage_id: str, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
 def parse_config(raw: dict, path: Path) -> PlatformConfig:
     base = Path(path).resolve().parent
     raw = _table(raw, "config", {"schema_version", "platform", "nicknames", "concurrency", "catalog",
-                                 "accounts", "variants", "models", "stages", "routing"},
+                                 "accounts", "variants", "models", "stages", "routing", "ui"},
                  {"schema_version", "concurrency", "accounts", "variants", "models", "stages"})
     if raw["schema_version"] != SCHEMA_VERSION:
         raise _fail(f"schema_version must be {SCHEMA_VERSION}")
@@ -372,10 +379,18 @@ def parse_config(raw: dict, path: Path) -> PlatformConfig:
     default_candidates = (_candidates(routing["default_candidates"], "routing.default_candidates", models)
                           if "default_candidates" in routing else ())
 
+    ui_table = _table(raw.get("ui", {}), "ui", {"locale"})
+    locale = _typed(ui_table, "locale", str, "auto", "ui")
+    if locale != "auto":
+        try:
+            locale = require_locale(locale, "ui.locale")
+        except PlatformError as exc:
+            raise _fail(exc.message) from exc
+
     return PlatformConfig(path=Path(path).resolve(), state_dir=state_dir, nicknames=nicknames,
                           concurrency=concurrency, catalog=catalog, accounts=accounts,
                           variants=variants, models=models, stages=stages,
-                          default_candidates=default_candidates)
+                          default_candidates=default_candidates, ui=UiSettings(locale))
 
 
 def load_config(path: Path | str) -> PlatformConfig:

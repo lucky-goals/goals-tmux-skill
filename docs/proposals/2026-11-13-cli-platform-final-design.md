@@ -1,6 +1,6 @@
 # CLI platform: final design
 
-Status: final design, 2026-11-13, revision 2. The design is final for the
+Status: final design, 2026-11-13, revision 3. The design is final for the
 items listed in section 2. The scaffold under `cli_platform/` implements and
 tests the platform logic (nicknames, configuration, variants, catalog merge,
 routing, limiter) and the layer boundaries. The run supervisor, the MCP
@@ -14,8 +14,15 @@ it, and a config that still sets one of its keys is refused as having an
 unknown key. It adds the layering model (section 5) and the settings interaction model
 (section 5.7, and the mockup's Configure pages).
 
+Revision 3 adds internationalization for English, Japanese and Traditional
+Chinese (section 18): locale negotiation, message catalogs with a loader and
+tests, the `[ui] locale` setting, a `--locale` option, and a language
+switcher in the mockup. It also adds a feasibility check of every element of
+the Sessions view against real data sources (section 19).
+
 - **Dispatch**: `cli-platform-final-design-20261113-g1-7c9d2ec0-C01-6f530449`;
-  revision 2: `cli-platform-design-v2-20261113-g1-43213fb6-C01-f2cd19b6`
+  revision 2: `cli-platform-design-v2-20261113-g1-43213fb6-C01-f2cd19b6`;
+  revision 3: `cli-platform-i18n-20261113-g1-795fafa8-C01-676c7fd6`
 - **Builds on**: [CLI gateway and workbench proposal](2026-11-13-cli-gateway-and-workbench.md)
   (called "the gateway proposal" below). Its recommendation stands: headless
   runner core, then MCP adapter, then read-only workbench, with no state of
@@ -61,6 +68,8 @@ automatic discovery of rate limits from vendor documentation.
 | Layering | Three layers and the shared configuration input, placement of every component, dependency rules, contracts, failure isolation, import and behavior tests | Versioning the limiter journal (section 5.4) |
 | Workbench | Information architecture, routes, read model over files only | The HTTP/SSE server (gateway proposal, Phase 4) |
 | Settings | Pages, fields, validation, save, cancel, reset, delete confirmation, unsaved-changes guard (mockup); the write protocol of section 5.7 | The editor's entry point and server |
+| Internationalization | Locales `en`, `ja`, `zh-Hant`; negotiation and fallback; catalog format, key naming, interpolation, plurals, number and date formats; codes versus text; what stays English; `ui.locale` and `--locale`; mockup switcher for chrome and settings labels (section 18) | Field hints and validation messages in the catalogs; more locales; right-to-left scripts |
+| Sessions view data | Source, required fields and verdict for every element; fallbacks for what a CLI does not report (section 19) | The adapter mappings themselves (Phase 0 fixtures); the event fields of section 19.6 |
 
 Three points amend the gateway proposal. Everything else in it is unchanged.
 
@@ -216,7 +225,7 @@ What was missing or conflated, and what this revision does about it:
 
 | Layer | Responsibility | Writes | Components | Scaffold modules |
 | --- | --- | --- | --- | --- |
-| Configuration (shared input) | Say what may run, where and with which limits | `cli-platform.toml`, through the settings editor only | Loader, settings editor | `config.py`, `errors.py`, `fsutil.py` |
+| Configuration (shared input) | Say what may run, where and with which limits; message catalogs every layer renders with | `cli-platform.toml`, through the settings editor only | Loader, settings editor, translator | `config.py`, `errors.py`, `fsutil.py`, `i18n/core.py` |
 | Execution | Decide and run: name, route, admit, launch, supervise, report back | Every file under the state directory, in event-layer formats | MCP adapter and command line, Run API, nickname allocator, stage router, variant registry, catalog merge, CLI scanner, concurrency limiter, run supervisor | `scanner`, `variants`, `catalog`, `nicknames`, `router`, `limiter`, `supervisor`, `__main__`, `adapters/mcp` |
 | Event | Keep the durable, ordered record and its formats. Give lock-free readers. Make no decision and own no process. | Nothing on its own; its write functions run inside execution components | Event log writer and reader, limiter journal, catalog observation store, published snapshots and their readers | `events.py`, `snapshots.py` |
 | Observation | Show state, derive incidents, stream events to people | Nothing | Workbench read model, views, incident rules, HTTP/SSE server (P4) | `adapters/workbench.py` |
@@ -1050,6 +1059,7 @@ complete example is `cli_platform/config/cli-platform.toml`.
 | `[[models]]` | `variant`, `id`, `display_name`, `efforts`, `default_effort`, `context_tokens`, `cost_tier`, `status`, `verified_at`, `note` |
 | `[stages.<id>]` | `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `allow_pins_outside` |
 | `[routing]` | `default_candidates` |
+| `[ui]` | `locale` (`auto`, `en`, `ja` or `zh-Hant`; regional tags are normalized; section 18.2) |
 
 Loader rules: unknown keys are errors; every reference must resolve
 (variant to account, model to variant, candidate to a curated model); all
@@ -1102,6 +1112,10 @@ Incident rules added to those of the gateway proposal:
 | Auth required | An `error` event with code `AUTH_REQUIRED` |
 | Nickname cooldown waived | A `nickname_assigned` event with `cooldown_waived: true` |
 
+Section 19 checks every element of the Sessions view against these sources.
+All text in the views comes from the catalogs of section 18, and data is
+shown as recorded.
+
 Derived incidents are shown inline in a session's timeline at the time they
 were first seen. The workbench reads the limiter state with
 `snapshots.read_limits`, without taking its lock. Because the file is
@@ -1153,7 +1167,7 @@ platform adds to that phase.
 | P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. `tmuxctl run` accepts nicknames. Scan results cached in state. Limiter journal gains `v` and `seq` (section 5.4). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
 | P2. With task integration | Nickname in task records, audit entries and `resource_report`. `stage` and `pin` on `run_create`. Fallback disclosure text from the resolution. Rate-limit mapping in each verified adapter. | A real task shows the nickname in its record, log path and audit index. A pin for an unavailable model is refused, not replaced. A recorded rate-limit fixture produces a cooldown. |
 | P3. With the MCP adapter | The read tools of section 11.4, nickname addressing | A host completes a task using stage names only, and can explain each choice from `route_explain`. |
-| P4. With the workbench | The views and routes of section 13. The settings editor as its own entry point (section 5.7). | `/s/<nickname>` opens the live session. Every workbench route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. A settings save changes only `cli-platform.toml`, refuses an invalid draft, and refuses when the file changed since it was opened. |
+| P4. With the workbench | The views and routes of section 13, localized through the catalogs (section 18). The settings editor as its own entry point (section 5.7). | `/s/<nickname>` opens the live session. Every workbench route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. A settings save changes only `cli-platform.toml`, refuses an invalid draft, and refuses when the file changed since it was opened. |
 | P5. Catalog probes | `list_models_command` and `run_event` observation writers; a review command that turns an observation into a curated entry | After a CLI upgrade the catalog flags `version_drift` and clears it after a re-probe. |
 
 Rollback at every phase: remove the `stage` argument and pass `cli`,
@@ -1174,15 +1188,395 @@ in [project-structure.md](../design/project-structure.md).
 | Kiro flags | `kiro-cli chat --help`, `kiro-cli --help-all` | `--model`, `--effort`, `--list-models`, `whoami` |
 | Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. Revision 2 did not open the file. |
 | Nickname library | `python3 scripts/nicknames.py validate` | 1000 names, 1000 unique, lengths 3/4/5/6 = 40/320/320/320, matches the generator |
-| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | 115 tests, all pass (101 before revision 2; 2 tests of the removed option deleted, 16 added, 10 of them in `test_layering.py`) |
+| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | Revision 3: 142 tests, all pass (115 before; 27 added in `test_i18n.py`). Revision 2: 115 (101 before; 2 deleted, 16 added). |
+| Catalogs | `python3 -m cli_platform locale`, `python3 scripts/i18n_embed.py check` | 328 keys in each of `en`, `ja`, `zh-Hant`; no key missing against English; the mockup's copy matches |
+| Locale option | `python3 -m cli_platform --locale ja resolve nope`, `--locale zh-CN locale` | Refusal keeps `code` and the English `message` and adds Japanese `text`; `zh-CN` is refused with a usage error (exit 2) |
 | Service-tier option removed | The dispatch's case-insensitive whole-word grep for the option's name over `cli_platform/`, this document and the mockup | no match |
 | Command line after the change | `check-config`, `resolve development`, `resolve code_review`, `plan development`, `catalog`, `variants` | All run. `resolve code_review` gives the trace of section 9.3. A pin with an effort outside the scale (for example a leftover suffix of the removed option) is refused with a usage message; before this revision it crashed the router. |
 | Mockup | Playwright with headless Chromium, `file://` URL, viewports 1440×900 and 1024×900, plus a context where `localStorage` throws | 257 scripted checks pass. Covered: add, edit, save (toast, timestamp, Save disabled afterwards), cancel, delete with confirmation (cancel, Escape and confirm, with cascade listing), blocked delete, inline validation (bad id, secret-shaped env name and value, non-claude settings file, non-integer caps, `lease_ttl` below twice `heartbeat`, `context_tokens`, duplicate model, `tmux_prefix`, `cooldown_days`, rate-limit bounds), unsaved-changes guard (Stay, Save, Discard, `beforeunload`), routing add, remove, reorder and duplicate, reload persistence, Reset demo data. Also checked: no page-level horizontal scroll on all 12 views at both widths, zero console errors, no network request besides the file. Not exercised: the blocked delete of a variant (same helper as the tested model path), Tab focus trapping in dialogs, the TOML preview's draft tab while errors exist. Observation views of sessions, incidents and traces remain fixed sample data. |
+| Mockup language switcher (revision 3) | Playwright with headless Chromium, `file://`, viewports 1440×900 and 1024×900, browser locales `en-US`, `ja-JP`, `zh-CN`, and a context where `localStorage` throws | 128 scripted checks pass: each language on all 12 views without page-level horizontal scroll, `<html lang>` follows the choice, no catalog miss recorded, nicknames, variant ids and configuration keys stay untranslated, the choice survives a reload, an unsaved draft survives a switch, `ja-JP` defaults to Japanese and `zh-CN` to English, switching works without storage, zero console errors, no network request. The 390-pixel width overflows horizontally, as it did before this revision. |
 | Mermaid diagrams | none | Not rendered: no Mermaid renderer is available offline on the host. The diagrams were checked by reading only. |
 | Model calls | none | none made |
 | Existing test suite | none | not run; no existing file changed |
 
-## 18. Open questions
+## 18. Internationalization
+
+Revision 3 adds multilingual display for three initial locales: English
+(`en`), Japanese (`ja`) and Traditional Chinese (`zh-Hant`). The rule that
+shapes the design: **records store stable codes, and only the edges turn
+them into text**. Run events, the limiter journal, refusals and configuration
+stay locale-free. The command line, the workbench and the settings editor
+localize at the moment they render. Changing the language therefore never
+changes a file, a run or a log.
+
+### 18.1 Locales
+
+| Locale | Accepted tags (normalized on input) | Notes |
+| --- | --- | --- |
+| `en` | `en`, `en-*`, `en_US.UTF-8` | Source language, and the last fallback for every lookup |
+| `ja` | `ja`, `ja-JP`, `ja_JP.UTF-8` | No grammatical number |
+| `zh-Hant` | `zh-Hant`, `zh-Hant-*`, `zh-TW`, `zh-HK`, `zh-MO` and their POSIX spellings | No grammatical number |
+
+Simplified Chinese (`zh`, `zh-CN`, `zh-SG`, `zh-Hans`, `zh-Hans-TW`) is not
+shipped and does **not** map to `zh-Hant`. Showing the wrong script is worse
+than showing English. Adding a locale means adding one catalog file, its
+plural categories and its row in this table. No code change is needed
+beyond the `SUPPORTED` tuple.
+
+### 18.2 Negotiation, preferences and unknown locales
+
+Command line (`python -m cli_platform`, and later the MCP adapter's human
+text):
+
+1. `--locale <tag>`, for one invocation;
+2. `ui.locale` in `cli-platform.toml`, the user's preference. The
+   configuration file and the state directory belong to one user, so this
+   is a per-user setting. `"auto"`, the default, skips this step;
+3. the OS message locale, read in POSIX order: `LC_ALL`, then `LC_MESSAGES`,
+   then `LANG`. The first variable that is set decides. If it names `C`,
+   `POSIX` or an unsupported locale, the search stops there, as POSIX
+   prescribes, and the value is reported in `skipped`. GNU `LANGUAGE` is not
+   read. On macOS a GUI-only language setting with no `LANG` is not seen;
+4. `en`.
+
+Workbench and settings editor (browser):
+
+1. the viewer's own choice from the language switcher. It is kept in the
+   browser only (localStorage in the mockup, a cookie in P4). The workbench
+   is the observation layer and writes no file, so it cannot store a
+   preference on the host;
+2. `ui.locale` from the configuration, which the server reads anyway;
+3. the browser's languages (`navigator.languages`, or `Accept-Language` in P4);
+4. `en`.
+
+Unknown or unsupported locales:
+
+| Where | Behavior |
+| --- | --- |
+| `--locale` | Refused before any work: usage error, exit status 2, lists the supported tags |
+| `ui.locale` | `CONFIG_INVALID` at load, naming the key, like every other bad value |
+| OS environment, browser languages, a stored viewer choice | Skipped. Negotiation goes on to the next step and ends at `en`. Never an error. |
+| `Translator("fr")` in code | Degrades to `en` and records the reason in `load_errors` |
+| A non-English catalog that is missing or corrupt | That locale degrades to English key by key. The failure is recorded in `load_errors`, and `python -m cli_platform locale` reports it. Nothing crashes. |
+| The English catalog missing or corrupt | `CATALOG_INVALID`. English ships with the package and is tested, so this is a packaging defect. |
+
+Fallback chain: the chosen locale, then `en`, then the key itself. A key
+shown verbatim is a visible bug report, not a crash. Every miss is recorded
+in `Translator.missing` (and in `I18N_MISSING` in the mockup).
+
+### 18.3 Message catalogs
+
+- **Location.** `cli_platform/src/cli_platform/i18n/<locale>.json`, which is
+  the `cli_platform.i18n` package. The files ship as package data, so the
+  installed package finds them next to the code.
+- **Shape.** One flat JSON object per locale. Flat dotted keys rather than
+  nesting: a key is one grep away, a diff shows one line per message, and
+  the parity test compares key sets directly.
+- **Key naming.** `<area>.<component>[.<part>].<item>`, with lowercase
+  `snake_case` segments, for example `settings.variants.field.binary`. Keys
+  name the meaning, not the English wording. Code keys are `<kind>.<CODE>`
+  and keep the code's own spelling: `error.NO_ROUTE`, `event.lease_granted`,
+  `state.handed_off`. Every code kind has a `<kind>.unknown` entry.
+
+| Area | Holds |
+| --- | --- |
+| `meta` | `meta.language_name`, the language's name in its own language (the switcher shows it untranslated) |
+| `shell`, `view` | Workbench chrome: brand, badge, navigation, view titles, subtitles, panel headings, legends |
+| `settings` | Settings pages: field labels, panels, buttons, the save bar, dialogs, toasts |
+| `common`, `count` | Shared words (Edit, Save, the list separator) and counted nouns |
+| `error`, `reason`, `event`, `incident`, `state`, `stage`, `flag` | Text for stable codes (section 18.6) |
+| `time`, `format` | Relative time, and date and time patterns |
+| `cli` | Command-line output |
+
+- **Values.** A string, or a plural object (section 18.4). Plain text only:
+  a catalog never holds markup (tested), and renderers insert text with
+  `textContent` or escape it.
+- **Interpolation.** `{name}` is a placeholder and `{{` / `}}` are literal
+  braces. Integer and float arguments are formatted for the locale. A
+  missing argument leaves `{name}` in place and is recorded in `unfilled`.
+  Every translation must use the same placeholder set as English (tested),
+  except `format.*` patterns, which pick their own fields.
+- **No sentence assembly.** A message is a whole sentence with
+  placeholders. Lists are joined with `common.list_separator` (`, ` in
+  English, `、` in Japanese and Chinese). A configuration key in a label is
+  appended unchanged, as in `Global cap (global_max_parallel)`.
+
+### 18.4 Plurals
+
+The selector argument is always `count`. Categories follow CLDR cardinal
+rules:
+
+| Locale | Categories | Rule |
+| --- | --- | --- |
+| `en` | `one`, `other` | `one` for the integer 1 only; `0`, `2` and `1.0` are `other` |
+| `ja` | `other` | No grammatical number |
+| `zh-Hant` | `other` | No grammatical number |
+
+A plural entry must hold exactly its locale's categories (tested). When a
+Japanese lookup falls back to an English plural entry, English rules apply
+to that entry. A plural message may select by `count` without printing it,
+for example "stage" versus "stages".
+
+### 18.5 Numbers, dates and relative time
+
+No third-party library. The browser may use the platform's `Intl`; the
+Python side uses fixed tables:
+
+| Kind | `en` | `ja` | `zh-Hant` |
+| --- | --- | --- | --- |
+| Number | `1,234,567.5` | same | same |
+| Date (`format.date`) | `Nov 13, 2026` | `2026年11月13日` | `2026年11月13日` |
+| Date and time (`format.datetime`) | `Nov 13, 2026, 06:05` | `2026/11/13 06:05` | `2026/11/13 06:05` |
+| Time (`format.time`) | `06:05:09` | same | same |
+| Relative | `5 minutes ago`, `in 2 hours` | `5 分前`, `2 時間後` | `5 分鐘前`, `2 小時後` |
+
+- Numbers: all three locales group thousands with `,` and use `.` for
+  decimals. Fractions are trimmed to two digits, and `-0` prints as `0`.
+- Dates: the patterns live in the catalogs, so a translator owns them. All
+  three use a 24-hour clock. Records keep UTC ISO-8601 timestamps. The
+  command line shows the host's zone and the workbench shows the viewer's;
+  a view that mixes zones prints the offset. Compact technical durations
+  (`hb 12 s`, `TTL 60 s`) keep SI units in every locale.
+- Relative time: under 45 seconds is "just now", then minutes below 45
+  minutes, hours below 22 hours, and days beyond that.
+
+### 18.6 Stable codes versus human text
+
+| Code kind | Stored in | Example | Shown through |
+| --- | --- | --- | --- |
+| Refusal and error codes (`errors.py`, plus `RATE_LIMITED`, `AUTH_REQUIRED`, `ADAPTER_UNAVAILABLE`) | Refusals, `error` events | `NO_ROUTE` | `error.<CODE>` |
+| Router and variant reason codes | `route_resolved` steps, registry state | `ACCOUNT_BUSY` | `reason.<CODE>` |
+| Event types | `type` of every event | `lease_granted` | `event.<type>` |
+| Incident rules | Derived, never stored | `rate_limited` | `incident.<id>` |
+| Run states, stages, catalog flags | Events, `state.json`, config | `handed_off`, `code_review`, `version_drift` | `state.*`, `stage.*`, `flag.*` |
+
+Rules:
+
+1. Writers store codes and English diagnostic detail. `PlatformError`
+   keeps `code`, an English `message` (for logs and bug reports, stable
+   across locales) and `details`. Nothing localized is ever written to a
+   state file, an event, the journal or an audit entry.
+2. Renderers localize. The command line adds a `text` field to a refusal
+   in the negotiated locale. JSON keys and codes stay as they are, so
+   scripts that parse the output are unaffected.
+3. An unknown code renders as `<kind>.unknown` with the code shown ("Error
+   BRAND_NEW_CODE", "エラー BRAND_NEW_CODE"), then as the bare code. A newer
+   writer can add codes without breaking an older reader. A test requires
+   English text for every code in `errors.py`, every event type, run state,
+   stage and router reason.
+4. Event payloads are not translated. A `tool_result` summary or an
+   assistant message is shown as the CLI produced it.
+5. MCP tool results stay English codes plus English messages, because their
+   reader is a coordinator model. A host that shows them to a person
+   localizes them from the code.
+
+### 18.7 What stays untranslated
+
+- Session nicknames and references (`kedo#2`), run ids, task ids, lease and
+  ticket ids, tmux session names, paths and URLs.
+- Variant ids, account ids, adapter names, model ids, display names from
+  configuration, and effort levels (`low` ... `max`).
+- Configuration keys and values, including `cli-platform.toml` itself and
+  the TOML preview.
+- Everything a CLI produces: event payloads, assistant text, tool input and
+  output, diffs, raw logs.
+- Stable codes when they are shown as codes (as in the routing view's reason
+  column) and in JSON output.
+- Documentation, design documents, `SKILL.md`, references and commit
+  messages. The README translations at the repository root are maintained
+  by hand and are separate from this design.
+
+### 18.8 Scaffold and mockup
+
+| Piece | Where | What |
+| --- | --- | --- |
+| Module | `cli_platform/src/cli_platform/i18n/core.py` | `normalize`, `negotiate` (returns locale, source and skipped values), `fallback_chain`, `plural_category`, `load_catalog` and `validate_catalog`, `placeholders`, `format_number`, and `Translator` with `t`, `code`, `number`, `timestamp` and `relative`, and the `missing`, `unfilled` and `load_errors` records |
+| Catalogs | `.../i18n/en.json`, `ja.json`, `zh-Hant.json` | 328 keys each: workbench shell, observation view headings, settings pages, dialogs, every stable code, time and date formats |
+| Layer | Configuration (shared input) | Imports only `errors`. Read by every layer. `config.py` uses it to validate `ui.locale`. Listed in `tests/test_layering.py`. |
+| Configuration | `[ui] locale = "auto"` | `auto` or a supported tag. A regional tag is normalized at load (`ja-JP` to `ja`). |
+| Command line | `--locale <tag>`, and the `locale` command | `locale` prints the negotiation (locale, source, skipped values, chain) and the keys each catalog lacks compared to English. Refusals gain `text`. |
+| Mockup | `docs/design/workbench-mockup.html` | Language switcher (English / 日本語 / 繁體中文) in the top bar. It translates the navigation, view titles and subtitles, panel headings, the Configure note and save bar, every settings label, button, column heading, dialog and toast, and counted nouns. The choice is kept in localStorage and restored on reload, the default comes from the browser's languages, the switch keeps an unsaved draft, and the page works when storage throws. `<html lang>` follows the choice. |
+| Catalog copy | `cli_platform/scripts/i18n_embed.py embed` and `check` | The mockup embeds a verbatim copy of the three files. A test fails when the copy drifts. |
+
+Coverage gaps, kept on purpose for this round: in the mockup, field hints,
+validation messages, `aria-label` texts and the bodies of the observation
+views (tables, timelines, traces) are still English. The observation bodies
+are sample data, and the real views will render codes through the catalogs
+(section 18.6). Hints and validation messages are the next catalog batch
+(`settings.hint.*`, `settings.invalid.*`).
+
+## 19. Sessions tab data feasibility
+
+This section checks each element of the Sessions view in the mockup against
+the data the platform writes, or is specified to write. Every element the
+platform originates (identity, routing, leases, queue, links) is achievable
+from the platform's own files. Every element that originates in the CLI
+depends on an adapter mapping, and its exact payload shape stays unverified
+until the Phase 0 fixtures exist: no model call was made for this section.
+
+### 19.1 Evidence and verdicts
+
+Evidence labels:
+
+- **[code]**: written by the scaffold today (`events.py`, `supervisor.py`,
+  `limiter.py`, `snapshots.py`).
+- **[spec]**: specified for the supervisor (gateway proposal sections 5.2
+  and 6.3, section 11.2 here) but not built.
+- **[help]**: the flag or subcommand appears in local `--help` output on the
+  verification host (section 19.7).
+- **[doc]**: inferred from the vendor's published stream or ACP schema, not
+  observed on this host.
+
+| Verdict | Meaning |
+| --- | --- |
+| **achievable now** | The platform produces the data itself, with no CLI output involved ([code] or [spec]). |
+| **achievable with a defined adapter field** | The CLI's stream mode is [help]-verified, and the adapter or supervisor must map it to a field that the event schema does not have or does not fill yet. Platform-side additions are marked "platform field". |
+| **needs unverified CLI capability** | The data depends on CLI output that no local help text confirms ([doc] at best). |
+| **not available** | No source exists. The mockup must show the fallback named in the row. |
+
+Stream sources per adapter:
+
+| Adapter | Headless stream | Alternative |
+| --- | --- | --- |
+| claude 2.1.311 | `-p --output-format stream-json` [help]: `system/init`, `assistant` (text, thinking and `tool_use` blocks), `user` (`tool_result`), partial chunks with `--include-partial-messages` [help], and `result` with `usage`, `total_cost_usd`, `duration_ms` and `session_id` [doc] | No ACP mode in help |
+| cursor 2026.04.08 | `-p --output-format stream-json`, `--stream-partial-output` [help]: `system/init`, `assistant`, `tool_call` started and completed, `result` [doc] | `agent acp` [help]: "Start the Cursor Agent as an ACP (Agent Client Protocol) server". It is hidden from the command list. The gateway proposal (section 6.5) still says Cursor's streaming input is undocumented. |
+| kiro 2.34.0 | `chat --output-format stream-json`: "The run's ACP events as JSON Lines on stdout, one self-describing event per line" [help]. These are ACP `session/update` variants: `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`, `plan`, `available_commands_update`, `current_mode_update` [doc]. Which of them Kiro emits, and how a line wraps them, is unverified. | `kiro-cli acp` [help] |
+| codex | `exec --json`: `thread.started`, `item.*` (`agent_message`, `reasoning`, `command_execution`, `file_change`, `todo_list`), and `turn.completed` with usage [doc] | Not installed on the host: unverified |
+| agy | Nothing known | Not installed on the host: unverified |
+
+### 19.2 Session header and list
+
+| Element | Source | Required fields | Per-CLI notes | Verdict |
+| --- | --- | --- | --- | --- |
+| Nickname, reference `kedo#1` | `nickname_assigned` [code]; `nicknames/live/` [code] for live sessions | `nickname`, `ref` | None | achievable now |
+| Run id, task | Event envelope `run_id`, `task_id` [code] | None | None | achievable now |
+| Stage, route source, fallback | `route_resolved`, the resolution of section 9.3 [code] | `stage`, `source`, `fallback_used`, `steps` | None | achievable now |
+| Variant, model, effort | `route_resolved.selected` [code]: the requested values | `turn_started.observed_model` | No CLI echoes the effort, so it is shown as "requested". Observed model: claude and cursor `system/init.model` [doc]; kiro `@default` has no source in its help; codex and agy unverified. | Requested values: achievable now. Observed model: achievable with a defined adapter field (claude, cursor); needs unverified CLI capability (kiro, codex, agy). Fallback: "@default (actual model not reported)". |
+| State badge | `state_changed` events, `runs/<nickname>-<run_id>/state.json` [spec] | The `state.json` fields of section 19.6. No component writes `state.json` yet. | `lost` cannot be written by the supervisor that died (section 19.5) | achievable now ([spec]) |
+| `turn N` | `turn_id` in the envelope; `state.json.turn_count` [spec] | `turn_count` | Do not use claude `result.num_turns`, which counts model round trips | achievable now |
+| Heartbeat age `hb N s` | `heartbeat` events [spec]; the ticket's `last_seen_at` in `limits/state.json` while queued [code] | A heartbeat for queued runs is not specified; show the ticket poll instead, labeled "poll" | Supervisor-side, the same for every CLI | achievable now |
+| `bypass authorized` badge | Not in `turn_started` (gateway section 6.3) | `turn_started.permission_mode`, mirrored in `state.json` | The platform knows it from the launch. claude `system/init.permissionMode` [doc] can confirm it. | achievable with a defined adapter field (platform field) |
+| tmux session `gt-kedo` | `tmux_session_name()` [code] | None | None | achievable now |
+| Workbench URL `/s/kedo` | Route table [code] | None | None | achievable now |
+| Resume id | Pre-assigned, or from the first stream event | `turn_started.resume_id`, `state.json.resume_id` | **claude**: `--session-id <uuid>` [help], known before spawn. **cursor**: `agent create-chat` returns an id [help]. **kiro**: no pre-assignment in help; an ACP `sessionId` in the stream is [doc]. **codex**: `thread.started.thread_id` [doc]. **agy**: unknown. | claude, cursor: achievable now. kiro, codex, agy: needs unverified CLI capability. Fallback: "resume id pending; first stream event not seen". |
+| List summary `N live · M closed` | `nicknames/live/` [code]; closed runs from `runs/index.jsonl` [spec] | `index.jsonl` gains `nickname`, `ref`, `stage` | None | achievable now |
+
+### 19.3 Timeline categories
+
+| Kind | Source | Required fields | Per-CLI notes | Verdict |
+| --- | --- | --- | --- | --- |
+| Assistant message (`message`) | claude and cursor `assistant` text blocks; ACP `agent_message_chunk` combined by the adapter; codex `agent_message` | `message_id`, `role`, `text` (exist) | ACP chunks carry no message boundary. The adapter closes a message at the next non-message update or at the end of the turn, and assigns `message_id`. | claude, cursor, kiro: achievable with a defined adapter field. codex, agy: needs unverified CLI capability. |
+| Partial text (`message_delta`) | claude `--include-partial-messages` [help]; cursor `--stream-partial-output` [help]; ACP chunks | `message_id`, `text` (exist) | Dropped first when the log cap is hit (gateway section 6.4). The workbench replaces the partial rows when the message completes. | claude, cursor, kiro: achievable with a defined adapter field. codex, agy: needs unverified CLI capability. |
+| Thinking | claude thinking blocks [doc], forwarded for subagents by `--forward-subagent-text` [help]; ACP `agent_thought_chunk` [doc]; codex `reasoning` [doc] | New type `thought` (`message_id`, `text`, `redacted`), plus a logging policy (off, summary or full) | The content may be redacted or summarized by the model. No source is known for cursor. | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: one collapsed row per turn, "thinking not reported by this CLI". |
+| Tool call | claude `tool_use` (`id`, `name`, `input`); cursor `tool_call` started; ACP `tool_call` (`toolCallId`, `title`, `kind`, `status`, `rawInput`, `locations`); codex `item.started` | `call_id`, `tool`, `input_summary`, `paths` (exist), plus new `kind` and `title` | `kind` drives the filter (tool calls versus diffs). ACP supplies it. claude and cursor need a tool-name table in the adapter. | claude, cursor, kiro: achievable with a defined adapter field. codex, agy: needs unverified CLI capability. |
+| Tool result | claude `tool_result` with `is_error`; ACP `tool_call_update` with status `completed` or `failed`; cursor `tool_call` completed; codex `exit_code` | `call_id`, `ok`, `output_summary`, `bytes` (exist) | `bytes` can be unknown (ACP `rawOutput` is optional): show "size not reported". A call without a result yet is shown as running. | achievable with a defined adapter field (claude, cursor, kiro); codex, agy: needs unverified CLI capability |
+| File edit with diff | claude `Edit`/`Write` input (`old_string`, `new_string`) and a structured patch in the result [doc]; ACP `diff` content (`path`, `oldText`, `newText`) [doc]; cursor edit result [doc]; codex `file_change` has paths and kinds only [doc] | `tool_result.diff_stat` (exists, shape undefined) plus new `diff`: bounded unified text, `truncated`, `line_numbers` | Hunk line numbers (`@@ -212,8 +212,12 @@`) need a structured patch or the whole old file. A fragment diff has none. Full text stays in `raw.jsonl` under its 4 KiB cap. | claude: achievable with a defined adapter field. kiro: achievable with a defined adapter field if it sends `diff` content (unverified). cursor: needs unverified CLI capability. codex: not available per call. Fallback: path, kind and "diff not reported", plus an optional turn-level `git diff` taken by the supervisor. |
+| Error | Supervisor errors [code] [spec]; CLI errors mapped by the adapter | `code`, `message`, `retryable`, `phase` (exist), plus new `match` (what the adapter recognized) | `RATE_LIMITED` and `AUTH_REQUIRED` detection is unknown for every CLI (section 20, question 1) | Supervisor errors: achievable now. CLI error codes: needs unverified CLI capability. |
+| CLI exit | Supervisor `waitpid` [spec] | `exit_code`, `signal`, `expected` | None | achievable now |
+| Permission request | ACP `session/request_permission` [doc]; claude `--permission-prompts none`, where anything that would prompt is denied [help], with denials in `result.permission_denials` [doc]; cursor `-p` has access to all tools [help] | New type `permission_request` (`call_id`, `tool`, `outcome`: `denied_auto`, `allowed`, `rejected`, `unanswered`) | Not in the mockup today. Whether headless kiro puts the request in its JSON Lines, and what happens with no client to answer it, is unverified. | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: the turn times out and an error row says so. |
+| Plan update | ACP `plan` (`entries` with `content`, `priority`, `status`) [doc]; claude `TodoWrite` tool input [doc]; codex `todo_list` [doc] | New type `plan` (`entries`, `source`) | Not in the mockup today | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: no plan panel. |
+| Subagent fan-out nesting | claude `--forward-subagent-text` sets `parent_tool_use_id` [help] | `tool_call.parent_call_id` (exists) | The mockup does not indent. ACP has no parent field in its stable schema [doc]. Whether a headless CLI waits for its subagents is an open gateway question (gateway section 10, question 1). | claude: achievable with a defined adapter field. kiro, cursor: needs unverified CLI capability. codex, agy: unverified. Fallback: a flat list. |
+| Mode and command list updates | ACP `current_mode_update`, `available_commands_update` [doc] | Optional `mode` in `state.json` | Not displayed. Kiro has `--mode default\|spec` [help]. | Not needed: stored as `adapter_unknown` or ignored |
+| Unmapped adapter line | `adapter_unknown` [spec] | `kind` | The mockup has no filter for it | achievable now. Fallback: a collapsed "unmapped adapter line" row. |
+
+### 19.4 Progress, usage, queue and capacity
+
+| Element | Source | Required fields | Per-CLI notes | Verdict |
+| --- | --- | --- | --- | --- |
+| Current turn and time in turn | `turn_started.ts`, `state.json.since` | None | No CLI reports percent complete, and the mockup shows none, which is correct | achievable now |
+| Last adapter event age ("quiet", gateway section 7.3) | `heartbeat.last_adapter_seq` [spec] | New `last_adapter_ts` | Not in the mockup | achievable now |
+| Turn duration and stop reason | Duration: supervisor timestamps. Stop reason: claude `result.subtype`; ACP prompt `stopReason` [doc] | `stop_reason`, `duration_ms` (exist) | Whether Kiro's stream includes the prompt response is unverified | Duration: achievable now. Stop reason: claude achievable with a defined adapter field; the others need unverified CLI capability. |
+| Tokens and cost | claude `result.usage`, `total_cost_usd` [doc] (`--max-budget-usd` [help] implies cost tracking); codex `turn.completed.usage` [doc]; ACP has no usage in its stable schema [doc] | `turn_completed.usage`: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `reported_by`, each nullable | Not in the mockup today | claude: achievable with a defined adapter field. cursor, kiro, codex, agy: needs unverified CLI capability. Fallback: "usage not reported by this CLI". |
+| Lease `lease X · account` | `lease_granted` [code], `limits/state.json` [code] | None | None | achievable now |
+| Queue position, ticket, blocked on, timeout | `lease_queued` [code] (position at enqueue time); live position from `summarize_limits().queue` [code] | `lease_queued.timeout_seconds`, or read from configuration | The position in the event goes stale as the queue moves; use the snapshot | achievable now |
+| Scope counts `account 3/3 · stage 2/3 · global 4/6` | Not in `lease_granted` (`lease_id`, `account`, `stage`) or in the route steps | `lease_granted.scopes`, `steps[].scopes`: in use and effective cap per scope | Platform data only | achievable with a defined adapter field (platform field) |
+| Lease held time `held 6 m 14 s` | `acquired_at` in `limits/journal.jsonl`; `lease_released` carries `lease_id`, `reason` | `lease_released.held_seconds` | None | achievable with a defined adapter field (platform field) |
+| Cooldown and effective cap | `report_rate_limit` [code], recorded in the journal only today | `account`, `retry_after`, `cooldown_until`, `effective_cap` | The trigger needs CLI rate-limit detection (section 19.3, Error) | Cooldown data: achievable now. Trigger: needs unverified CLI capability. |
+
+### 19.5 Links and derived rows
+
+| Element | Source | Required fields | Verdict |
+| --- | --- | --- | --- |
+| Takeover, release, reconcile, leave-queue and retry commands | Run API commands, the resume id and the adapter's resume flag. **claude** `--resume`, `--fork-session`; **cursor** `--resume [chatId]`; **kiro** `chat --resume-id` (all [help]); **codex**, **agy** unverified. | A resume command rendered from the variant by the same rules as `build_launch`: the variant's `--settings` path, environment names and `--model`. Without them a `claude-gateway` takeover would resume on the `anthropic-sub` account. | claude, cursor, kiro: achievable now. codex, agy: needs unverified CLI capability. |
+| Run log path | Directory naming [code] | None | achievable now |
+| Raw log link | `runs/<nickname>-<run_id>/raw.jsonl` [spec] | None. The mockup lacks the link today. | achievable now (once the supervisor exists) |
+| Audit index link | `audits/` and task records carrying `nickname_ref` (section 6.3) | None. The mockup lacks the link today. | achievable now |
+| `nickname_assigned` "previous use gafa#1 released 2026-11-02" | Allocator `released/<name>.json` [code]; the payload has `nickname`, `ref`, `cooldown_waived` | `previous_ref`, `previous_released_at` | achievable with a defined adapter field (platform field) |
+| `nickname_released` "eligible again …" | `ts` plus `cooldown_days` | Optional `reuse_eligible_at` | achievable now (derived) |
+| Route trace table | `steps[]` [code] | `scopes` per step for the count text | achievable now; the count text needs the platform field above |
+| `lease_released`, `rate_limited` rows in `events.jsonl` | Supervisor [spec]; journal only in the scaffold | See section 19.4 | achievable now ([spec]) |
+| `lease_stale` row (`kani`) | No such event type. Stale means `expires_at < now` in the snapshot [code]. | None | achievable now as a **derived incident**, not as an event |
+| `state_changed running → lost` row (`kani`) | The only writer of the log is the supervisor that died, so nobody can append this row | A writer rule: `reconcile` appends it after confirming the supervisor is dead | achievable now as a derived state; persisted only by `reconcile` |
+| Inline incidents (queue wait, unexpected exit, rate limited) | Derived by the workbench (section 13) | None | achievable now; marked "derived", not "logged" |
+
+### 19.6 Fields to add, and what the mockup should show instead
+
+Additive event fields (allowed within v1):
+
+| Event | New fields |
+| --- | --- |
+| `turn_started` | `permission_mode`, `observed_model`, `resume_id`, and `variant`, `variant_fingerprint`, `effort`, `cli_version` (section 11.2 lists them; the gateway proposal's table does not) |
+| `tool_call` | `kind` (`read`, `edit`, `delete`, `move`, `search`, `execute`, `fetch`, `think`, `subagent`, `plan`, `other`), `title` |
+| `tool_result` | `diff_stat` (`added`, `removed`), `diff` (list of `path`, `unified`, `truncated`, `line_numbers`), `bytes` nullable |
+| `turn_completed` | `usage` (section 19.4), `usage_reported` |
+| `error` | `match`, `call_id` |
+| `heartbeat` | `last_adapter_ts` |
+| `lease_granted` | `scopes`, `holder` |
+| `lease_queued` | `timeout_seconds` |
+| `lease_released` | `held_seconds` |
+| `route_resolved` | `steps[].scopes` |
+| `nickname_assigned` | `previous_ref`, `previous_released_at` |
+| `nickname_released` | `reuse_eligible_at` |
+| New types | `thought`, `plan`, `permission_request` (section 19.3) |
+
+`runs/<nickname>-<run_id>/state.json`, written by the supervisor by atomic
+replace: `v`, `run_id`, `nickname`, `ref`, `task_id`, `stage`, `state`,
+`since`, `turn_id`, `turn_count`, `variant`, `model`, `observed_model`,
+`effort`, `permission_mode`, `resume_id`, `lease_id`, `ticket_id`,
+`last_seq`, `last_adapter_seq`, `last_adapter_ts`, `heartbeat_at`,
+`supervisor_pid`, `cli_pid`, `takeover_argv` (loggable form), `mode`. Also:
+`runs/index.jsonl` gains `nickname`, `ref` and `stage`. `variants.py` gains
+`build_resume(variant, resume_id, model, effort, fork)`, which keeps the
+settings path and environment.
+
+Mockup rules (to apply when the Sessions view moves off sample data):
+
+1. When the adapter knows that a kind of data cannot come from this CLI,
+   show one collapsed row per turn, for example "thinking: not reported by
+   kiro 2.34.0". Never show an empty filter as if nothing happened.
+2. Show effort and model as "requested". Show the observed model only when
+   an init event reported it; otherwise "@default (not reported)". `kani`'s
+   invented resume id becomes "pending / not reported".
+3. Render a diff without line numbers as `@@ <path> @@`. When no diff is
+   reported, show the path, the kind and "diff not reported".
+4. Label derived rows (incidents, the stale lease, `lost`) "derived". They
+   are not part of `events.jsonl`.
+5. Add Thinking, Plan and Permissions filters. Base the Diffs filter on
+   `tool_call.kind == "edit"`. Indent rows by `parent_call_id`.
+6. Add to the header: raw log, audit index, last adapter event age, usage
+   for the turn and the run, or "usage not reported".
+7. Render the takeover box from the variant, including `--settings
+   <settings:VARIANT>`, the environment names and `--model`. Kiro takeovers
+   use `kiro-cli chat --resume-id`.
+8. Show an open tool call (such as `nuvo`'s last `Bash` row) as "running",
+   and partial message rows as partial. The queued `tesu` row shows the
+   ticket's poll age, not a heartbeat.
+9. The scope counts in lease rows and route traces, and `gafa#2`'s
+   "previous use" text, depend on the platform fields above.
+
+### 19.7 Verification
+
+Run on 2026-11-13, macOS (Darwin 27.0.0). Help and version flags only; no
+model call.
+
+| Command | Result |
+| --- | --- |
+| `claude --version`, `claude --help` | 2.1.311. Present: `--output-format stream-json`, `--include-partial-messages`, `--forward-subagent-text` ("parent_tool_use_id set"), `--verbose`, `-r/--resume`, `--fork-session`, `--session-id <uuid>`, `--permission-prompts host\|none`, `--max-budget-usd`. No ACP subcommand. |
+| `agent --version`, `agent --help`, `agent acp --help` | 2026.04.08-a41fba1. Present: `--output-format stream-json`, `--stream-partial-output`, `--resume [chatId]`, `create-chat`. `agent acp` starts an ACP server and is not listed in the command list. |
+| `kiro-cli --version`, `kiro-cli chat --help`, `kiro-cli acp --help` | 2.34.0. `chat --output-format stream-json` gives "the run's ACP events as JSON Lines on stdout". Also present: `--resume-id <SESSION_ID>`, `--model`, `--effort`, `--mode`. `acp` starts an ACP agent. No usage flag. |
+| `command -v codex agy antigravity` | Not found: everything for codex and agy is unverified on this host |
+
+## 20. Open questions
 
 1. What does each CLI emit when rate-limited in headless mode? Section 10.4
    depends on the Phase 0 fixtures of the gateway proposal.

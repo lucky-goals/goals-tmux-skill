@@ -1,7 +1,8 @@
 """Command line for the scaffold: ``python -m cli_platform <command>``.
 
 Every command is read-only except ``plan --commit``, and none makes a model
-call. Output is JSON unless stated.
+call. Output is JSON unless stated. JSON keys and codes are never translated;
+``--locale`` only changes the human ``text`` added to refusals.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
+from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
 from .scanner import scan_all
 from .supervisor import Platform, SessionRequest
@@ -34,8 +36,11 @@ def _pin(text: str | None) -> Candidate | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cli_platform", description=__doc__)
     parser.add_argument("--config", type=Path, default=_DEFAULT_CONFIG)
+    parser.add_argument("--locale", help=f"display language, one of {', '.join(SUPPORTED)} "
+                                         "(default: ui.locale, then the OS locale, then en)")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check-config", help="load and validate the configuration")
+    commands.add_parser("locale", help="show the negotiated display language and catalog coverage")
     scan = commands.add_parser("scan", help="scan installed CLIs")
     scan.add_argument("--auth", action="store_true", help="also run each CLI's local auth status command")
     commands.add_parser("variants", help="variant availability and settings-file checks")
@@ -50,9 +55,14 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--commit", action="store_true",
                       help="use the configured state directory instead of a temporary one")
     args = parser.parse_args(argv)
+    if args.locale and normalize(args.locale) is None:
+        parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
 
+    config = None
     try:
         config = load_config(args.config)
+        if args.command == "locale":
+            return _locale(args, config)
         if args.command == "check-config":
             print(json.dumps({"ok": True, "path": str(config.path), "variants": sorted(config.variants),
                               "accounts": sorted(config.accounts), "models": len(config.models),
@@ -83,8 +93,24 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(resolution.explain()))
         return 0
     except PlatformError as exc:
-        print(json.dumps(exc.to_dict(), indent=2), file=sys.stderr)
+        refusal = exc.to_dict()
+        refusal["text"] = Translator(negotiate(args.locale, config.ui.locale if config else None).locale) \
+            .code("error", exc.code)
+        print(json.dumps(refusal, indent=2, ensure_ascii=False), file=sys.stderr)
         return 2
+
+
+def _locale(args: argparse.Namespace, config) -> int:
+    chosen = negotiate(args.locale, config.ui.locale)
+    english = load_catalog("en")
+    coverage = {locale: sorted(set(english) - set(load_catalog(locale))) for locale in SUPPORTED}
+    print(json.dumps({
+        "locale": chosen.locale, "source": chosen.source, "skipped": list(chosen.skipped),
+        "chain": list(chosen.chain), "configured": config.ui.locale, "supported": list(SUPPORTED),
+        "text": Translator(chosen.locale).t("cli.locale.summary", locale=chosen.locale, source=chosen.source),
+        "missing_keys": coverage,
+    }, indent=2, ensure_ascii=False))
+    return 0
 
 
 def _plan(platform: Platform, args: argparse.Namespace) -> int:
