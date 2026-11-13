@@ -28,7 +28,7 @@ PACKAGE = ROOT / "src" / "cli_platform"
 LAYER = {
     "config": "configuration", "errors": "configuration", "fsutil": "configuration",
     "i18n.core": "configuration", "redact": "configuration",
-    "events": "event", "snapshots": "event", "sse": "event",
+    "events": "event", "snapshots": "event", "sse": "event", "incidents": "event",
     "scanner": "execution", "variants": "execution", "catalog": "execution",
     "nicknames": "execution", "router": "execution", "limiter": "execution",
     "supervisor": "execution", "__main__": "execution", "worktree": "execution", "adapters.mcp": "execution",

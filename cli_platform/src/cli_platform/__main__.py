@@ -29,6 +29,7 @@ from pathlib import Path
 from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
+from .incidents import derive_incidents
 from .router import RouteRequest
 from .scanner import ADAPTER_PROBES, publish_environment_snapshots, scan_adapter, scan_all
 from .sse import open_sse_stream
@@ -132,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
     run_turn.add_argument("--poll-seconds", type=float, default=2.0)
     mcp_serve = commands.add_parser("mcp-serve", help="run the stdio JSON-RPC 2.0 MCP server")
     mcp_serve.add_argument("--task-scope", help="restrict mutating run operations to runs owned by TASK_ID")
+    doctor = commands.add_parser("doctor", help="report derived incidents from state_dir without mutating state")
+    doctor.add_argument("--json", action="store_true", help="output JSON report")
     args = parser.parse_args(argv)
     if args.locale and normalize(args.locale) is None:
         parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
@@ -182,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "mcp-serve":
             from .adapters.mcp import serve_stdio
             return serve_stdio(config, state_dir=state_dir, task_scope=args.task_scope)
+        if args.command == "doctor":
+            return _doctor(args, config, state_dir)
         scans = scan_all()
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
@@ -228,6 +233,27 @@ def _locale(args: argparse.Namespace, config) -> int:
         "text": Translator(chosen.locale).t("cli.locale.summary", locale=chosen.locale, source=chosen.source),
         "missing_keys": coverage,
     }, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _doctor(args: argparse.Namespace, config, state_dir: Path | None) -> int:
+    target_state_dir = state_dir if state_dir is not None else config.state_dir
+    incidents = derive_incidents(target_state_dir, config=config)
+    if args.json:
+        print(json.dumps({
+            "ok": not incidents,
+            "state_dir": str(target_state_dir),
+            "count": len(incidents),
+            "incidents": incidents,
+        }, indent=2, ensure_ascii=False))
+        return 0
+    translator = Translator(negotiate(args.locale, config.ui.locale).locale)
+    if not incidents:
+        print(f"ok ({target_state_dir}): 0 incidents")
+        return 0
+    for item in incidents:
+        label = translator.code("incident", str(item["id"]))
+        print(f"[{item['severity']}] {item['id']} ({label}) subject={item['subject']} ref={item['evidence_ref']}")
     return 0
 
 
