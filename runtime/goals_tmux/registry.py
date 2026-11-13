@@ -124,6 +124,19 @@ def _identity(record: Mapping[str, Any]) -> dict[str, Any]:
     return dict(value)
 
 
+def _validate_utc_timestamp(value: Any, field: str) -> None:
+    """Validate that a timestamp field is a UTC ISO-8601 string."""
+
+    if not isinstance(value, str):
+        _fail("REGISTRY_INVALID", f"{field} must be an ISO-8601 timestamp")
+    try:
+        timestamp = _datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise DomainError("REGISTRY_INVALID", f"{field} must be an ISO-8601 timestamp") from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() != _datetime.timedelta(0):
+        _fail("REGISTRY_INVALID", f"{field} must include a UTC offset")
+
+
 def _validate_record(value: Any, expected_id: str | None = None) -> dict[str, Any]:
     if not isinstance(value, dict):
         _fail("REGISTRY_INVALID", "registry record must be an object")
@@ -151,7 +164,7 @@ def _validate_record(value: Any, expected_id: str | None = None) -> dict[str, An
         "created_at",
         "updated_at",
     }
-    optional = _MUTABLE_FIELDS | {"owned_container", "topology", "created_by", "window_id"}
+    optional = _MUTABLE_FIELDS | {"owned_container", "topology", "created_by", "window_id", "reaped_at"}
     if set(value) - (required | optional) or not required <= set(value):
         _fail("REGISTRY_INVALID", "registry record has unknown or missing fields")
     record = dict(value)
@@ -184,14 +197,9 @@ def _validate_record(value: Any, expected_id: str | None = None) -> dict[str, An
     if record["origin"] != "created" and record["cleanup_policy"] == "auto_owned":
         _fail("AUTO_OWNERSHIP_DENIED", "adopted, borrowed, or unknown panes cannot be auto-owned")
     for field in ("created_at", "updated_at"):
-        if not isinstance(record[field], str):
-            _fail("REGISTRY_INVALID", f"{field} must be an ISO-8601 timestamp")
-        try:
-            timestamp = _datetime.datetime.fromisoformat(record[field].replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise DomainError("REGISTRY_INVALID", f"{field} must be an ISO-8601 timestamp") from exc
-        if timestamp.tzinfo is None or timestamp.utcoffset() != _datetime.timedelta(0):
-            _fail("REGISTRY_INVALID", f"{field} must include a UTC offset")
+        _validate_utc_timestamp(record[field], field)
+    if "reaped_at" in record and record["reaped_at"] is not None:
+        _validate_utc_timestamp(record["reaped_at"], "reaped_at")
     process_instance_id = record["process_instance_id"]
     if process_instance_id is not None and not isinstance(process_instance_id, (str, dict)):
         _fail("REGISTRY_INVALID", "process_instance_id must be a string, object, or null")
@@ -370,7 +378,12 @@ class Registry:
 
     @classmethod
     def _guard_records(
-        cls, records: list[dict[str, Any]], context: dict, *, allow_finalizing: bool = False
+        cls,
+        records: list[dict[str, Any]],
+        context: dict,
+        *,
+        allow_finalizing: bool = False,
+        allow_post_settlement_reap: bool = False,
     ) -> None:
         if not isinstance(records, list):
             _fail("REGISTRY_INVALID", "records must be an array")
@@ -397,7 +410,7 @@ class Registry:
                 _fail("TASK_CONTEXT_STALE", f"pane {checked['identity']['pane_id']} generation is stale")
             if checked["revision"] != revision:
                 _fail("TASK_CONTEXT_STALE", f"pane {checked['identity']['pane_id']} revision is stale")
-            if checked["coordinator_phase"] == "settled":
+            if checked["coordinator_phase"] == "settled" and not allow_post_settlement_reap:
                 _fail("COORDINATOR_SETTLED", f"pane {checked['identity']['pane_id']} is already settled")
             if checked["coordinator_phase"] == "finalizing" and not allow_finalizing:
                 _fail("COORDINATOR_FINALIZING", f"pane {checked['identity']['pane_id']} is finalizing")
@@ -424,19 +437,43 @@ class Registry:
             checked.append(live)
         self._guard_records(checked, context, allow_finalizing=allow_finalizing)
 
-    def update(self, record_id: str, context: dict, patch: dict) -> dict[str, Any]:
+    def update(
+        self,
+        record_id: str,
+        context: dict,
+        patch: dict,
+        *,
+        allow_post_settlement_reap: bool = False,
+    ) -> dict[str, Any]:
         _nonempty(record_id, "record_id")
         if not isinstance(patch, Mapping):
             _fail("REGISTRY_INVALID", "patch must be an object")
-        unknown = set(patch) - _MUTABLE_FIELDS
-        if unknown:
-            _fail("REGISTRY_FIELD_IMMUTABLE", "patch includes immutable or unknown field(s): " + ", ".join(sorted(unknown)))
+        if allow_post_settlement_reap:
+            if not patch or set(patch) - {"cleanup_status", "reaped_at"} or patch.get("cleanup_status") != "closed":
+                _fail(
+                    "COORDINATOR_SETTLED",
+                    "post-settlement reap only permits cleanup_status='closed' and reaped_at",
+                )
+            if "reaped_at" in patch:
+                _validate_utc_timestamp(patch["reaped_at"], "reaped_at")
+        else:
+            unknown = set(patch) - _MUTABLE_FIELDS
+            if unknown:
+                _fail("REGISTRY_FIELD_IMMUTABLE", "patch includes immutable or unknown field(s): " + ", ".join(sorted(unknown)))
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
             record = state["records"].get(record_id)
             if record is None:
                 _fail("REGISTRY_NOT_FOUND", "unknown pane registry record")
-            self._guard_records([record], context, allow_finalizing=True)
+            self._guard_records(
+                [record],
+                context,
+                allow_finalizing=True,
+                allow_post_settlement_reap=allow_post_settlement_reap,
+            )
+            if allow_post_settlement_reap:
+                if record.get("origin") != "created" or record.get("cleanup_policy") != "auto_owned":
+                    _fail("RESOURCE_RETAINED", "post-settlement reap is restricted to auto_owned created resources")
             if "cleanup_policy" in patch:
                 requested_policy = patch["cleanup_policy"]
                 if requested_policy not in CLEANUP_POLICIES:
@@ -450,12 +487,14 @@ class Registry:
             if record["cleanup_status"] == "closing" and "cleanup_status" in patch:
                 if patch["cleanup_status"] not in {"closing", "unknown", "blocked", "closed"}:
                     _fail("CLEANUP_IN_PROGRESS", "cannot reset an in-progress cleanup to a pending or retained state")
-            if record["cleanup_status"] == "unknown" and "cleanup_status" in patch:
+            if record["cleanup_status"] == "unknown" and "cleanup_status" in patch and not allow_post_settlement_reap:
                 next_status = patch["cleanup_status"]
                 if next_status not in {"unknown", "blocked"} and not patch.get("cleanup_evidence") and not patch.get("evidence"):
                     _fail("UNKNOWN_EFFECT_REQUIRES_EVIDENCE", "unknown cleanup requires reconciliation evidence")
             updated = dict(record)
             updated.update(copy.deepcopy(dict(patch)))
+            if allow_post_settlement_reap and updated.get("reaped_at") is None:
+                updated["reaped_at"] = _now()
             updated["revision"] = record["revision"] + 1
             updated["updated_at"] = _now()
             updated = _validate_record(updated, record_id)

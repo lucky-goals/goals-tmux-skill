@@ -355,6 +355,55 @@ class Service:
             grouped.setdefault(key, (path, receipt))
         return list(grouped.values())
 
+    def _cleanup_viewer_receipt(self, receipt):
+        """Evaluate and persist GUI cleanup for a single viewer receipt."""
+        previous = receipt.get("gui_cleanup", {})
+        if previous.get("status") in {"closed", "not_open", "exited"}:
+            return previous
+        viewer = receipt["viewer"]
+        try:
+            if receipt["socket_path"] != self.socket_path or self.endpoint_namespace:
+                raise DomainError("VIEWER_ENDPOINT_MISMATCH", "retry settlement on the viewer's local endpoint")
+            if viewer.get("keep_open") is True:
+                result = {"status": "retained", "reason": "keep_open", "keep_open": True}
+            else:
+                scope = self.policy.scope(self.socket_path) or {}
+                if scope.get("read_only", True) or not scope.get("allow_close") or not scope.get("allow_view"):
+                    raise DomainError("VIEWER_CLOSE_NOT_ALLOWED", "viewer cleanup requires writable allow_close and allow_view grants")
+                snap = self._snapshot()
+                server = snap.get("server")
+                if server and not server.get("instance_id"):
+                    raise DomainError("SERVER_IDENTITY_UNKNOWN", "cannot verify viewer server identity")
+                if server and server["instance_id"] == receipt["server_instance_id"]:
+                    if any(s["session_id"] == receipt["session_id"] for s in snap["sessions"]):
+                        result = {"status": "retained", "reason": "tmux_session_still_present"}
+                    else:
+                        result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
+                else:
+                    # An inaccessible socket alone is not evidence that the
+                    # original server stopped. Confirm its PID is absent before
+                    # closing its (possibly native) launcher. A differing ps
+                    # start-time string may only reflect locale/timezone changes.
+                    table = process_table()
+                    original = next((p for p in table["records"] if p["pid"] == viewer.get("server_pid")), None)
+                    if not table["complete"] or not viewer.get("server_pid") or original:
+                        raise DomainError("VIEWER_SERVER_UNRESOLVED", "original viewer server exit is not confirmed")
+                    result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
+        except DomainError as exc:
+            result = {"status": "unknown", "reason": exc.code, "message": str(exc)}
+        except (OSError, ValueError) as exc:
+            result = {"status": "unknown", "reason": "VIEWER_CLEANUP_FAILED", "message": str(exc)}
+        # Update every receipt for this exact viewer; multiple tasks may
+        # share it, and a repeated show_tui must not duplicate cleanup.
+        for candidate in (self.state_dir / "viewer-receipts").glob("*.json"):
+            item = read_json(candidate)
+            if (isinstance(item, dict) and item.get("socket_path") == receipt["socket_path"]
+                    and item.get("server_instance_id") == receipt["server_instance_id"]
+                    and item.get("viewer", {}).get("viewer_token") == viewer["viewer_token"]):
+                item["gui_cleanup"] = result
+                atomic_json(candidate, item)
+        return result
+
     def cleanup_task_viewers(self, task_id):
         """Close owned launcher sessions only after their tmux session is gone.
 
@@ -365,56 +414,279 @@ class Service:
         task = self.tasks.get(task_id)
         if not task or task.get("phase") not in {"finalizing", "aborted", "settled"}:
             raise DomainError("FINALIZATION_REQUIRED", "accept or abort work before viewer cleanup")
-        outcomes = []
-        for path, receipt in self._task_viewer_receipts(task_id):
-            previous = receipt.get("gui_cleanup", {})
-            if previous.get("status") in {"closed", "not_open", "exited"}:
-                outcomes.append(previous)
+        return [self._cleanup_viewer_receipt(receipt) for _path, receipt in self._task_viewer_receipts(task_id)]
+
+    @staticmethod
+    def _is_terminal_task(task_obj, record_obj=None):
+        if task_obj is not None:
+            return (
+                task_obj.get("phase") in {"settled", "aborted"}
+                or bool(task_obj.get("settled"))
+                or bool(task_obj.get("aborted"))
+            )
+        return record_obj is not None and record_obj.get("coordinator_phase") in {"settled", "aborted"}
+
+    def _orphan_reconcile_plan(self, task_id=None):
+        tasks_by_id = {task_id: self.tasks.get(task_id)} if task_id is not None else {
+            t["task_id"]: t for t in self.tasks.list()
+        }
+        snap = self._snapshot()
+        server = snap.get("server") or {}
+        server_id = server.get("instance_id")
+        server_pid = server.get("pid")
+        live_panes = {p["pane_id"]: p for p in snap.get("panes", [])}
+        live_sessions = {s["session_id"]: s for s in snap.get("sessions", [])}
+        links = snap.get("links", [])
+        endpoint_records = [
+            r for r in self.registry.list()
+            if r.get("socket_path") == self.socket_path and r.get("endpoint_id") == self.endpoint_id
+        ]
+        orphan_records = [
+            r for r in endpoint_records
+            if (task_id is None or r.get("task_id") == task_id)
+            and r.get("origin") == "created"
+            and r.get("cleanup_policy") == "auto_owned"
+            and r.get("cleanup_status") not in {"closed", "retained"}
+            and self._is_terminal_task(tasks_by_id.get(r.get("task_id")), r)
+        ]
+        orphan_ids = {r["record_id"] for r in orphan_records}
+        records_by_pane = {
+            r["pane_id"]: r for r in endpoint_records if server_id and r.get("server_instance_id") == server_id
+        }
+
+        def pane_exclusively_orphan(pane_id):
+            reg = records_by_pane.get(pane_id)
+            return reg is not None and reg["record_id"] in orphan_ids
+
+        planned_records = []
+        kill_commands = []
+        seen_kills = set()
+        killed_sessions = set()
+        def choose_kill_action(record, owned, live_pane, session_live):
+            pane_id = record["pane_id"]
+            if live_pane is None and not session_live:
+                return "mark_closed_absent", None
+            if session_live:
+                target_sid = owned["session_id"]
+                session_windows = {l["window_id"] for l in links if l["session_id"] == target_sid}
+                shared_window = any(
+                    len({l["session_id"] for l in links if l["window_id"] == w}) > 1 for w in session_windows
+                )
+                session_panes = [p["pane_id"] for p in snap.get("panes", []) if p["window_id"] in session_windows]
+                if not shared_window and session_panes and all(pane_exclusively_orphan(pid) for pid in session_panes):
+                    killed_sessions.add(target_sid)
+                    return "kill_session", ("kill-session", target_sid)
+            target_wid = owned.get("window_id")
+            if target_wid:
+                linked_sessions = {l["session_id"] for l in links if l["window_id"] == target_wid}
+                window_panes = [p["pane_id"] for p in snap.get("panes", []) if p["window_id"] == target_wid]
+                if len(linked_sessions) <= 1 and window_panes and all(pane_exclusively_orphan(pid) for pid in window_panes):
+                    return "kill_window", ("kill-window", target_wid)
+            if live_pane and (live_pane.get("process_instance_id") == record.get("process_instance_id") or live_pane.get("dead")):
+                return "kill_pane", ("kill-pane", pane_id)
+            return None, None
+
+        for record in orphan_records:
+            if not server_id or record.get("server_instance_id") != server_id:
                 continue
-            viewer = receipt["viewer"]
-            try:
-                if receipt["socket_path"] != self.socket_path or self.endpoint_namespace:
-                    raise DomainError("VIEWER_ENDPOINT_MISMATCH", "retry settlement on the viewer's local endpoint")
-                if viewer.get("keep_open") is True:
-                    result = {"status": "retained", "reason": "keep_open", "keep_open": True}
+            owned = record.get("owned_container") or {}
+            pane_id = record["pane_id"]
+            live_pane = live_panes.get(pane_id)
+            session_id = owned.get("session_id")
+            if not session_id and live_pane:
+                session_id = next(
+                    (l["session_id"] for l in links if l["window_id"] == live_pane.get("window_id")),
+                    None,
+                )
+            window_id = owned.get("window_id") or (live_pane.get("window_id") if live_pane else None)
+            session_live = bool(owned.get("session_id") and owned["session_id"] in live_sessions)
+            action, kill_cmd = choose_kill_action(record, owned, live_pane, session_live)
+            if action is None:
+                continue
+            if kill_cmd and kill_cmd not in seen_kills:
+                seen_kills.add(kill_cmd)
+                kill_commands.append(kill_cmd)
+            planned_records.append({
+                "record": record,
+                "session_id": session_id,
+                "window_id": window_id,
+                "action": action,
+                "kill_cmd": kill_cmd,
+            })
+
+        planned_viewers = []
+        for path, receipt in self._task_viewer_receipts(task_id):
+            if receipt.get("socket_path") != self.socket_path or self.endpoint_namespace:
+                continue
+            receipt_tasks = receipt.get("task_ids", [])
+            if not receipt_tasks or not all(self._is_terminal_task(tasks_by_id.get(tid)) for tid in receipt_tasks):
+                continue
+            viewer = receipt.get("viewer", {})
+            if viewer.get("keep_open") is True:
+                continue
+            prev = receipt.get("gui_cleanup", {})
+            prev_status = prev.get("status")
+            if prev_status in {"closed", "not_open", "exited"}:
+                continue
+            session_protected = bool(
+                server_id
+                and server_id == receipt.get("server_instance_id")
+                and receipt.get("session_id") in live_sessions
+                and receipt.get("session_id") not in killed_sessions
+            )
+            if session_protected:
+                continue
+            if prev_status == "retained" and prev.get("reason") != "tmux_session_still_present":
+                continue
+            planned_viewers.append((path, receipt))
+
+        return {
+            "snap": snap,
+            "server_id": server_id,
+            "server_pid": server_pid,
+            "kill_commands": kill_commands,
+            "planned_records": planned_records,
+            "planned_viewers": planned_viewers,
+        }
+
+    def reconcile_orphans(self, task_id=None, *, dry_run=False):
+        """Reap orphaned auto-owned tmux sessions and open viewer receipts for settled/aborted tasks."""
+        if dry_run:
+            plan = self._orphan_reconcile_plan(task_id)
+            sessions_report = [
+                {
+                    "session_id": item["session_id"],
+                    "window_id": item["window_id"],
+                    "pane_id": item["record"]["pane_id"],
+                    "record_id": item["record"]["record_id"],
+                    "task_id": item["record"]["task_id"],
+                    "action": item["action"],
+                    "status": "dry_run",
+                }
+                for item in plan["planned_records"]
+            ]
+            records_report = [
+                {
+                    "record_id": item["record"]["record_id"],
+                    "task_id": item["record"]["task_id"],
+                    "pane_id": item["record"]["pane_id"],
+                    "session_id": item["session_id"],
+                    "cleanup_status": item["record"].get("cleanup_status"),
+                    "action": item["action"],
+                    "status": "dry_run",
+                }
+                for item in plan["planned_records"]
+            ]
+            viewers_report = [
+                {
+                    "viewer_record_id": path.stem,
+                    "session_id": receipt.get("session_id"),
+                    "task_ids": receipt.get("task_ids", []),
+                    "status": "dry_run",
+                }
+                for path, receipt in plan["planned_viewers"]
+            ]
+            return {
+                "task_id": task_id,
+                "dry_run": True,
+                "socket_path": self.socket_path,
+                "endpoint_id": self.endpoint_id,
+                "server_instance_id": plan["server_id"],
+                "sessions": sessions_report,
+                "records": records_report,
+                "viewers": viewers_report,
+                "counts": {
+                    "sessions": len(sessions_report),
+                    "records": len(records_report),
+                    "viewers": len(viewers_report),
+                },
+            }
+
+        with self.store.operation_lock():
+            plan = self._orphan_reconcile_plan(task_id)
+            snap = plan["snap"]
+            server_id = plan["server_id"]
+            server_pid = plan["server_pid"]
+            kill_commands = plan["kill_commands"]
+            if kill_commands:
+                pane_ids = [item["record"]["pane_id"] for item in plan["planned_records"] if item["kill_cmd"]]
+                self.policy.authorize("close_pane", self.socket_path, pane_ids, owned_panes=self._owned(snap))
+                for cmd, target_id in kill_commands:
+                    self._mutate(cmd, "-t", target_id)
+            after = self._snapshot() if kill_commands else snap
+            after_server = after.get("server") or {}
+            after_server_id = after_server.get("instance_id")
+            if kill_commands and not after.get("server") and server_pid:
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    table = process_table()
+                    if not table["complete"] or not any(p["pid"] == server_pid for p in table["records"]):
+                        break
+                    time.sleep(0.05)
+            server_exited = bool(kill_commands and not after.get("server") and server_id)
+            remaining_panes = (
+                set() if server_exited
+                else ({p["pane_id"] for p in after.get("panes", [])} if after_server_id == server_id else None)
+            )
+            sessions_report = []
+            records_report = []
+            for item in plan["planned_records"]:
+                record = item["record"]
+                gone = remaining_panes is not None and record["pane_id"] not in remaining_panes
+                if gone:
+                    reaped_at = _now()
+                    updated = self.registry.update(
+                        record["record_id"],
+                        _context(record),
+                        {"cleanup_status": "closed", "reaped_at": reaped_at},
+                        allow_post_settlement_reap=True,
+                    )
+                    outcome_status = "reaped"
                 else:
-                    scope = self.policy.scope(self.socket_path) or {}
-                    if scope.get("read_only", True) or not scope.get("allow_close") or not scope.get("allow_view"):
-                        raise DomainError("VIEWER_CLOSE_NOT_ALLOWED", "viewer cleanup requires writable allow_close and allow_view grants")
-                    snap = self._snapshot()
-                    server = snap.get("server")
-                    if server and not server.get("instance_id"):
-                        raise DomainError("SERVER_IDENTITY_UNKNOWN", "cannot verify viewer server identity")
-                    if server and server["instance_id"] == receipt["server_instance_id"]:
-                        if any(s["session_id"] == receipt["session_id"] for s in snap["sessions"]):
-                            result = {"status": "retained", "reason": "tmux_session_still_present"}
-                        else:
-                            result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
-                    else:
-                        # An inaccessible socket alone is not evidence that the
-                        # original server stopped. Confirm its PID is absent before
-                        # closing its (possibly native) launcher. A differing ps
-                        # start-time string may only reflect locale/timezone changes.
-                        table = process_table()
-                        original = next((p for p in table["records"] if p["pid"] == viewer.get("server_pid")), None)
-                        if not table["complete"] or not viewer.get("server_pid") or original:
-                            raise DomainError("VIEWER_SERVER_UNRESOLVED", "original viewer server exit is not confirmed")
-                        result = self.viewer.close(viewer, tmux_binary=self.tmux.binary)
-            except DomainError as exc:
-                result = {"status": "unknown", "reason": exc.code, "message": str(exc)}
-            except (OSError, ValueError) as exc:
-                result = {"status": "unknown", "reason": "VIEWER_CLEANUP_FAILED", "message": str(exc)}
-            # Update every receipt for this exact viewer; multiple tasks may
-            # share it, and a repeated show_tui must not duplicate cleanup.
-            for candidate in (self.state_dir / "viewer-receipts").glob("*.json"):
-                item = read_json(candidate)
-                if (isinstance(item, dict) and item.get("socket_path") == receipt["socket_path"]
-                        and item.get("server_instance_id") == receipt["server_instance_id"]
-                        and item.get("viewer", {}).get("viewer_token") == viewer["viewer_token"]):
-                    item["gui_cleanup"] = result
-                    atomic_json(candidate, item)
-            outcomes.append(result)
-        return outcomes
+                    updated = record
+                    outcome_status = "unresolved"
+                sessions_report.append({
+                    "session_id": item["session_id"],
+                    "window_id": item["window_id"],
+                    "pane_id": record["pane_id"],
+                    "record_id": record["record_id"],
+                    "task_id": record["task_id"],
+                    "action": item["action"],
+                    "status": outcome_status,
+                })
+                records_report.append({
+                    "record_id": updated["record_id"],
+                    "task_id": updated["task_id"],
+                    "pane_id": updated["pane_id"],
+                    "session_id": item["session_id"],
+                    "cleanup_status": updated.get("cleanup_status"),
+                    "reaped_at": updated.get("reaped_at"),
+                    "status": outcome_status,
+                })
+            viewers_report = []
+            for path, receipt in plan["planned_viewers"]:
+                outcome = self._cleanup_viewer_receipt(receipt)
+                viewers_report.append({
+                    "viewer_record_id": path.stem,
+                    "session_id": receipt.get("session_id"),
+                    "task_ids": receipt.get("task_ids", []),
+                    **outcome,
+                })
+            return {
+                "task_id": task_id,
+                "dry_run": False,
+                "socket_path": self.socket_path,
+                "endpoint_id": self.endpoint_id,
+                "server_instance_id": server_id,
+                "sessions": sessions_report,
+                "records": records_report,
+                "viewers": viewers_report,
+                "counts": {
+                    "sessions": len(sessions_report),
+                    "records": len(records_report),
+                    "viewers": len(viewers_report),
+                },
+            }
 
     def _read(self, request, snap, affected):
         op, args = request["operation"], request["arguments"]

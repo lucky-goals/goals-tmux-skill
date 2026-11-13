@@ -565,6 +565,35 @@ class ViewerCleanupIntegrationTests(unittest.TestCase):
         self.assertIn(settled_task.get("accepted"), (False, None))
         self.assertEqual([], self.service.resource_report(self.task_id)["unsettled"])
 
+    def test_reconcile_orphans_closes_open_viewer_receipt_on_settled_task(self) -> None:
+        created = self.create_session(name="orphan-viewer-settled")
+        receipt = self.add_viewer_receipt(created, keep_open=False)
+        self.service.tasks.accept(self.task_id, evidence=["Accepted before orphan viewer cleanup."])
+        record = self.service.registry.get(created["record"]["record_id"])
+        self.service.registry.update(
+            record["record_id"],
+            self.context(record),
+            {
+                "execution_status": "completed",
+                "coordinator_phase": "settled",
+                "monitor_status": "stopped",
+            },
+        )
+        self.service.tasks.settle(self.task_id, resource_report={"count": 1, "unsettled": []})
+
+        with patch.object(Viewer, "close", return_value={"status": "closed"}) as close:
+            report = self.service.reconcile_orphans(self.task_id)
+
+        self.assertIsInstance(report, dict)
+        close.assert_called_once()
+        sessions = [s["session_id"] for s in self.service._snapshot()["sessions"]]
+        self.assertNotIn(created["session_id"], sessions)
+        self.assertEqual("closed", json.loads(receipt.read_text())["gui_cleanup"]["status"])
+        self.assertEqual([], self.service.resource_report(self.task_id)["pending_viewers"])
+        updated = self.service.registry.get(record["record_id"])
+        self.assertEqual("closed", updated["cleanup_status"])
+        self.assertTrue(updated.get("reaped_at"))
+
 
 if __name__ == "__main__":
     unittest.main()

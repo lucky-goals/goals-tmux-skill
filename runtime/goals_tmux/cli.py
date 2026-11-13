@@ -107,6 +107,9 @@ def parser():
     handoff.add_argument("--reason", required=True)
     reconcile = qs.add_parser("reconcile")
     reconcile.add_argument("--task-id", required=True)
+    reconcile_orphans = qs.add_parser("reconcile-orphans")
+    reconcile_orphans.add_argument("--task-id")
+    reconcile_orphans.add_argument("--dry-run", action="store_true")
     for action in ("retain", "rebind"):
         cmd = qs.add_parser(action)
         cmd.add_argument("--record-id", required=True)
@@ -276,6 +279,9 @@ def run(args):
             if args.require_settled and not settled:
                 return contract.result(None, "refused", "RESOURCES_UNSETTLED", data)
             return contract.result(None, data=data)
+        if args.action == "reconcile-orphans":
+            data = service.reconcile_orphans(args.task_id, dry_run=args.dry_run)
+            return contract.result(None, data=data, side_effects="none" if args.dry_run else "confirmed")
         with service.store.operation_lock():
             if args.action == "adopt":
                 task = service.tasks.get(args.task_id)
