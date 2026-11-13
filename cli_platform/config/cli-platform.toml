@@ -1,0 +1,245 @@
+# CLI platform configuration (example).
+#
+# Rules enforced by the loader:
+#   - unknown keys are rejected
+#   - no credentials: env names or values that look like secrets are refused
+#     with SECRET_IN_CONFIG. Credentials stay in the CLI's own login or in a
+#     variant's settings file, which is referenced by path and never read.
+#   - relative paths resolve against this file's directory
+#
+# Model ids and efforts below are the curated layer of the catalog. Entries
+# for CLIs that are not installed on the verification host (codex, agy) are
+# carried from references/cli-adapters.md and stay "unconfirmed" until a host
+# with those binaries records an observation.
+
+schema_version = 1
+
+[platform]
+state_dir = "~/.local/state/goals-tmux-skill"
+
+[nicknames]
+library = "../data/nicknames.txt"
+cooldown_days = 7        # a released nickname rests this long before reuse
+tmux_prefix = "gt"       # tmux session name: gt-<nickname>
+
+[concurrency]
+global_max_parallel = 6
+lease_ttl_seconds = 60
+heartbeat_seconds = 15
+queue_max_depth = 32
+queue_timeout_seconds = 1800
+
+[concurrency.rate_limit]
+cooldown_base_seconds = 60     # doubles per consecutive rate limit
+cooldown_max_seconds = 900
+recover_after_turns = 5        # clean turns before the cap grows back by one
+
+[catalog]
+stale_after_days = 14
+allow_unreviewed = false       # observed-only models are not routable
+
+# ---------------------------------------------------------------------------
+# Accounts: the unit a vendor rate-limits. Variants that bill the same
+# subscription share one account and therefore one cap.
+# ---------------------------------------------------------------------------
+
+[accounts.anthropic-sub]
+vendor = "anthropic"
+max_parallel = 3
+
+[accounts.anthropic-gateway]
+vendor = "anthropic-compatible gateway"
+max_parallel = 2
+
+[accounts.cursor-pro]
+vendor = "cursor"
+max_parallel = 2
+
+[accounts.kiro-idc]
+vendor = "kiro"
+max_parallel = 2
+
+[accounts.openai-codex]
+vendor = "openai"
+max_parallel = 2
+
+[accounts.google-agy]
+vendor = "google"
+max_parallel = 1
+
+# ---------------------------------------------------------------------------
+# Variants: a stable id for binary + settings file + environment + account.
+# The id is permanent; it appears in run records and audit entries.
+# ---------------------------------------------------------------------------
+
+[variants.claude]
+adapter = "claude"
+binary = "claude"
+account = "anthropic-sub"
+
+# Same binary, different API endpoint. The base URL and its credential live in
+# the settings file; this file only points at it.
+[variants.claude-gateway]
+adapter = "claude"
+binary = "claude"
+account = "anthropic-gateway"
+settings_file = "../../gateway.json"
+env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+env_unset = ["ANTHROPIC_API_KEY"]
+note = "Launches as: claude --settings <path>. The file must be owner-only (0600)."
+
+[variants.cursor]
+adapter = "cursor"
+binary = "agent"
+account = "cursor-pro"
+
+[variants.kiro]
+adapter = "kiro"
+binary = "kiro-cli"
+account = "kiro-idc"
+
+[variants.codex]
+adapter = "codex"
+binary = "codex"
+account = "openai-codex"
+
+[variants.agy]
+adapter = "agy"
+binary = "agy"
+account = "google-agy"
+
+# ---------------------------------------------------------------------------
+# Models (curated overlay). fast: "yes" | "no" | "unverified".
+# "unverified" is treated as unsupported whenever fast mode is requested.
+# ---------------------------------------------------------------------------
+
+[[models]]
+variant = "claude"
+id = "opus"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "high"
+fast = "unverified"
+verified_at = "2026-11-13"
+note = "Alias and effort levels from `claude --help` 2.1.311. No fast-mode flag in help."
+
+[[models]]
+variant = "claude"
+id = "sonnet"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "medium"
+fast = "unverified"
+verified_at = "2026-11-13"
+
+[[models]]
+variant = "claude"
+id = "fable"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "high"
+fast = "unverified"
+verified_at = "2026-11-13"
+
+[[models]]
+variant = "claude-gateway"
+id = "opus"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "high"
+fast = "unverified"
+note = "The settings file decides which upstream model the alias maps to."
+
+[[models]]
+variant = "claude-gateway"
+id = "sonnet"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "medium"
+fast = "unverified"
+
+[[models]]
+variant = "cursor"
+id = "grok-4.7-xhigh"
+fast = "no"
+note = "Cursor has no effort flag; the effort is part of the model id."
+
+[[models]]
+variant = "kiro"
+id = "@default"
+efforts = ["low", "medium", "high", "xhigh", "max"]
+default_effort = "high"
+fast = "no"
+verified_at = "2026-11-13"
+note = "No --model is passed. Effort levels from `kiro-cli chat --help` 2.34.0."
+
+[[models]]
+variant = "codex"
+id = "gpt-6.1-sol"
+efforts = ["low", "medium", "high", "xhigh"]
+default_effort = "high"
+fast = "yes"
+fast_via = '-c service_tier="priority"'
+note = "From references/cli-adapters.md; codex is not installed on the verification host."
+
+[[models]]
+variant = "agy"
+id = "gemini-4-argon-high"
+efforts = ["high"]
+default_effort = "high"
+fast = "no"
+note = "From references/cli-adapters.md; agy is not installed on the verification host."
+
+# ---------------------------------------------------------------------------
+# Stages: ordered candidates (first usable wins), a stage cap and fallback
+# policy. on_busy = "queue" waits for the preferred account; "next" tries the
+# following candidate when only that account is busy.
+# ---------------------------------------------------------------------------
+
+[stages.design]
+max_parallel = 2
+on_busy = "queue"
+candidates = [
+  { variant = "claude", model = "opus", effort = "max" },
+  { variant = "claude-gateway", model = "opus", effort = "high" },
+  { variant = "codex", model = "gpt-6.1-sol", effort = "xhigh" },
+]
+
+[stages.development]
+max_parallel = 3
+on_busy = "queue"
+candidates = [
+  { variant = "claude", model = "opus", effort = "high" },
+  { variant = "codex", model = "gpt-6.1-sol", effort = "high", fast = true },
+  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "kiro", model = "@default", effort = "high" },
+]
+
+[stages.testing]
+max_parallel = 2
+on_busy = "next"
+candidates = [
+  { variant = "claude", model = "sonnet", effort = "medium" },
+  { variant = "kiro", model = "@default", effort = "medium" },
+  { variant = "cursor", model = "grok-4.7-xhigh" },
+]
+
+# Review prefers a different vendor from the one that wrote the code.
+[stages.code_review]
+max_parallel = 2
+on_busy = "next"
+candidates = [
+  { variant = "codex", model = "gpt-6.1-sol", effort = "xhigh" },
+  { variant = "cursor", model = "grok-4.7-xhigh" },
+  { variant = "claude-gateway", model = "opus", effort = "high" },
+]
+
+[stages.ui_design]
+max_parallel = 1
+on_busy = "queue"
+candidates = [
+  { variant = "agy", model = "gemini-4-argon-high", effort = "high" },
+  { variant = "claude", model = "opus", effort = "high" },
+  { variant = "cursor", model = "grok-4.7-xhigh" },
+]
+
+[routing]
+# Last resort for any stage whose own list has no usable candidate.
+default_candidates = [
+  { variant = "claude", model = "sonnet", effort = "medium" },
+]

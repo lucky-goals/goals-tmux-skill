@@ -1,0 +1,18 @@
+[project]
+name = "cli-platform"
+version = "0.1.0"
+description = "Session nicknames, CLI inventory, variants, model catalog, stage routing and concurrency limits for the headless CLI runner"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+cli-platform = "cli_platform.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cli_platform*"]

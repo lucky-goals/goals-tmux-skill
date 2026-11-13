@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLI platform workbench (mockup)</title>
+<style>
+:root {
+  --bg: #0c0f14; --panel: #131820; --panel-2: #181e28; --panel-3: #1e2531;
+  --line: #252d3a; --line-2: #313b4b;
+  --text: #d9dfe8; --muted: #8b95a5; --faint: #5f6978;
+  --accent: #6ea8fe; --accent-dim: #1c2c47;
+  --green: #3fb950; --amber: #d6a02a; --red: #f0605a; --orange: #e0823d;
+  --purple: #a78bfa; --cyan: #4cc2d8; --gray: #6b7585;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 13px/1.45 var(--sans); font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+/* ---- shell ---- */
+.app { display: grid; grid-template: "top top" 44px "nav main" 1fr / 208px 1fr; height: 100vh; }
+.top {
+  grid-area: top; display: flex; align-items: center; gap: 14px; padding: 0 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.ro-badge {
+  border: 1px solid #5a4a1c; background: #2a2310; color: #e7c35f;
+  padding: 2px 10px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
+}
+.top .spacer { flex: 1; }
+.top .clock { color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.nav {
+  grid-area: nav; background: var(--panel); border-right: 1px solid var(--line);
+  padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto;
+}
+.nav button {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: none; border: 0; border-radius: 6px; padding: 7px 10px;
+  text-align: left; cursor: pointer; color: var(--muted); white-space: nowrap;
+}
+.nav button:hover { background: var(--panel-2); color: var(--text); }
+.nav button[aria-selected="true"] { background: var(--accent-dim); color: #cfe0ff; }
+.nav .count {
+  font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--panel-3); color: var(--muted);
+}
+.nav .count.alert { background: #47201f; color: #ffaaa5; }
+.nav .foot { margin-top: auto; padding: 10px; font-size: 11.5px; color: var(--faint); line-height: 1.5; white-space: normal; }
+.main { grid-area: main; overflow: auto; min-width: 0; }
+.view { display: none; padding: 16px 20px 28px; }
+.view.active { display: block; }
+.view > h1 { font-size: 16px; margin: 0 0 2px; font-weight: 650; }
+.view > .sub { color: var(--muted); margin: 0 0 14px; max-width: 900px; }
+
+/* ---- shared pieces ---- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.panel > h2 {
+  margin: 0; padding: 9px 14px; font-size: 12px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.panel > h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); }
+.panel + .panel { margin-top: 14px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; background: var(--panel); }
+tr:last-child td { border-bottom: 0; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+td .mono, td.mono { font-size: 12px; }
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  border: 1px solid transparent; white-space: nowrap; line-height: 1.5;
+}
+.badge::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; }
+.badge.plain::before { display: none; }
+.s-running, .s-ok, .s-ready, .s-enabled, .s-selected { color: var(--green); background: #12261a; border-color: #1e4a2b; }
+.s-starting { color: var(--cyan); background: #0f2730; border-color: #1b4755; }
+.s-queued, .s-warning, .s-unconfirmed, .s-unverified, .s-cooldown, .s-stale, .s-adjusted { color: var(--amber); background: #2a2210; border-color: #57461a; }
+.s-idle, .s-created, .s-info { color: #9fb2cc; background: #18212e; border-color: #2c3b50; }
+.s-handed_off, .s-human { color: var(--purple); background: #221c38; border-color: #40346e; }
+.s-failed, .s-critical, .s-skipped { color: var(--red); background: #2d1616; border-color: #5c2624; }
+.s-lost { color: var(--orange); background: #2e1c10; border-color: #5e3719; }
+.s-closed, .s-cancelled, .s-cancelling, .s-unavailable, .s-disabled, .s-resolved, .s-no, .s-notrun { color: var(--gray); background: #181c23; border-color: #2a303b; }
+.s-bypass { color: #ffb86b; background: #33210d; border-color: #6b4317; }
+.s-yes { color: var(--cyan); background: #0f2730; border-color: #1b4755; }
+.chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; padding: 0 6px; border-radius: 4px; background: var(--panel-3); border: 1px solid var(--line-2); color: #c3ccd9; margin: 1px 3px 1px 0; white-space: nowrap; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; }
+.kv dt { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.copy {
+  display: flex; align-items: stretch; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; background: #0a0d12;
+}
+.copy code { flex: 1; padding: 7px 10px; font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: pre; color: #c9d4e3; }
+.copy button { border: 0; border-left: 1px solid var(--line-2); background: var(--panel-3); padding: 0 12px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.copy button:hover { color: var(--text); }
+.note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+/* ---- sessions ---- */
+.sessions { display: grid; grid-template-columns: minmax(300px, 390px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.slist { display: flex; flex-direction: column; }
+.slist button {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left; cursor: pointer;
+  background: none; border: 0; border-bottom: 1px solid var(--line); padding: 9px 14px; border-left: 3px solid transparent;
+}
+.slist button:last-child { border-bottom: 0; }
+.slist button:hover { background: var(--panel-2); }
+.slist button[aria-current="true"] { background: var(--panel-2); border-left-color: var(--accent); }
+.slist .nick { font-family: var(--mono); font-size: 16px; font-weight: 650; letter-spacing: .02em; }
+.slist .right { text-align: right; }
+.slist .l2, .slist .l3 { grid-column: 1 / -1; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slist .l3 { font-family: var(--mono); font-size: 11.5px; color: #a9b4c4; }
+.slist .l4 { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--faint); }
+.dhead { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.dhead .title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.dhead .title .nick { font-family: var(--mono); font-size: 22px; font-weight: 700; }
+.dhead .title .ref { font-family: var(--mono); color: var(--muted); }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; margin-bottom: 12px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); align-items: center; }
+.filters span { color: var(--faint); font-size: 12px; margin-right: 4px; }
+.filters button { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 11px; cursor: pointer; color: var(--muted); font-size: 12px; }
+.filters button[aria-pressed="true"] { background: var(--accent-dim); border-color: #2f4f85; color: #cfe0ff; }
+.timeline { padding: 6px 0; }
+.ev { display: grid; grid-template-columns: 70px 132px minmax(0, 1fr); gap: 0 10px; padding: 6px 16px; border-left: 3px solid transparent; }
+.ev:hover { background: #151b24; }
+.ev .ts { font-family: var(--mono); font-size: 11.5px; color: var(--faint); padding-top: 1px; }
+.ev .type { font-family: var(--mono); font-size: 11.5px; padding-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev .body { min-width: 0; overflow-wrap: anywhere; }
+.ev.g-platform .type { color: var(--accent); }
+.ev.g-message .type { color: #c3ccd9; }
+.ev.g-tool .type, .ev.g-diff .type { color: var(--cyan); }
+.ev.g-error { border-left-color: var(--red); background: #1c1213; }
+.ev.g-error .type { color: var(--red); }
+.ev.g-state .type { color: var(--purple); }
+.ev .quote { color: #d3dae5; }
+.ev .res { margin-top: 3px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.ev .res.ok::before { content: "ok  "; color: var(--green); }
+.ev .res.fail::before { content: "fail  "; color: var(--red); }
+.ev details { margin-top: 4px; }
+.ev summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.diff { margin: 6px 0 2px; border: 1px solid var(--line); border-radius: 6px; background: #0a0d12; font-family: var(--mono); font-size: 11.5px; overflow-x: auto; }
+.diff div { padding: 0 10px; white-space: pre; }
+.diff .add { background: #10261a; color: #7ee19a; }
+.diff .del { background: #2a1516; color: #ff9a94; }
+.diff .hunk { color: var(--accent); background: #101a2b; }
+.trace { margin-top: 5px; border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+.trace table td, .trace table th { padding: 4px 10px; font-size: 12px; }
+.trace td:first-child { color: var(--faint); width: 28px; }
+.empty { padding: 22px 16px; color: var(--faint); }
+
+/* ---- routing ---- */
+.matrix td { min-width: 150px; }
+.cand { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+.cand .n { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--panel-3); border: 1px solid var(--line-2); font-size: 11px; text-align: center; line-height: 16px; color: var(--muted); }
+.cand .c { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.cand.off .c { color: var(--faint); text-decoration: line-through; text-decoration-color: #4a5260; }
+.cand .why { font-size: 10.5px; color: var(--amber); display: block; text-decoration: none; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.two > .panel { margin-top: 0; }
+.pad { padding: 12px 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px; }
+
+/* ---- concurrency ---- */
+.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.meters > .panel { margin-top: 0; }
+.meter { padding: 9px 14px; border-bottom: 1px solid var(--line); }
+.meter:last-child { border-bottom: 0; }
+.meter .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.meter .name { font-family: var(--mono); font-size: 12.5px; }
+.meter .num { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.meter .num b { color: var(--text); }
+.bar { display: flex; gap: 3px; margin: 6px 0 4px; }
+.bar i { flex: 1; height: 9px; border-radius: 2px; background: var(--panel-3); border: 1px solid var(--line-2); }
+.bar i.used { background: var(--green); border-color: var(--green); }
+.bar i.human { background: var(--purple); border-color: var(--purple); }
+.bar i.stale { background: var(--orange); border-color: var(--orange); }
+.bar i.cut { background: repeating-linear-gradient(135deg, #3b2f12 0 4px, #1e1a10 4px 8px); border-color: #57461a; }
+.meter .hint { font-size: 11.5px; color: var(--muted); }
+.meter .hint.warn { color: var(--amber); }
+.keyrow { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+.keyrow i { display: inline-block; width: 12px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line-2); background: var(--panel-3); }
+.keyrow i.used { background: var(--green); } .keyrow i.human { background: var(--purple); }
+.keyrow i.stale { background: var(--orange); }
+.keyrow i.cut { background: repeating-linear-gradient(135deg, #3b2f12 0 4px, #1e1a10 4px 8px); }
+
+/* ---- incidents ---- */
+.inc { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 4px 14px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.inc:last-child { border-bottom: 0; }
+.inc h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.inc p { margin: 2px 0 0; color: var(--muted); }
+.inc .rule { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+.inc .when { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: nowrap; text-align: right; }
+
+@media (max-width: 1200px) {
+  .app { grid-template: "top" 44px "nav" auto "main" 1fr / 1fr; }
+  .nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 12px; overflow-x: auto; }
+  .nav .foot { display: none; }
+  .view { padding: 14px 14px 24px; }
+  .sessions { grid-template-columns: 300px minmax(0, 1fr); }
+  .facts { grid-template-columns: 1fr; }
+  .ev { grid-template-columns: 62px 112px minmax(0, 1fr); padding: 6px 12px; }
+  .meters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .top .clock { display: none; }
+}
+@media (max-width: 860px) {
+  .sessions, .two, .meters { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .badge.s-running::before, .badge.s-starting::before { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">CLI platform workbench<span>goals-tmux-skill</span></div>
+    <div class="ro-badge" title="The workbench has no mutating route. Closing it changes nothing in any run.">Read-only · sample data · mockup</div>
+    <div class="spacer"></div>
+    <div class="clock">2026-11-13 14:52:10 +08:00 · state dir ~/.local/state/goals-tmux-skill</div>
+  </header>
+
+  <nav class="nav" id="nav" role="tablist" aria-label="Workbench views">
+    <button role="tab" data-view="sessions">Sessions <span class="count" id="n-sessions"></span></button>
+    <button role="tab" data-view="registry">CLI registry <span class="count" id="n-registry"></span></button>
+    <button role="tab" data-view="catalog">Model catalog <span class="count" id="n-catalog"></span></button>
+    <button role="tab" data-view="routing">Stage routing <span class="count">5</span></button>
+    <button role="tab" data-view="concurrency">Concurrency <span class="count" id="n-conc"></span></button>
+    <button role="tab" data-view="incidents">Incidents <span class="count alert" id="n-incidents"></span></button>
+    <div class="foot">Zero-gate: this page only reads files that runs already write. No run can observe whether it is open.</div>
+  </nav>
+
+  <main class="main">
+    <section class="view" id="view-sessions" role="tabpanel">
+      <h1>Sessions</h1>
+      <p class="sub">Every session carries a nickname that is unique among live sessions. The nickname appears in the tmux session name, the run log path, the workbench URL and audit entries.</p>
+      <div class="sessions">
+        <div class="panel"><h2>Sessions <small id="slist-sub"></small></h2><div class="slist" id="slist"></div></div>
+        <div class="panel" id="detail"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-registry" role="tabpanel">
+      <h1>CLI registry</h1>
+      <p class="sub">Installed binaries found by the local scan (path lookup, version flag and help text only; no model call), and the variants built on them. A variant is the same binary with a settings file and environment overrides; settings files are referenced by path and never read into the workbench.</p>
+      <div class="panel"><h2>Installed-binary scan <small>last scan 2026-11-13 14:20:07</small></h2><div class="scroll"><table id="t-scan"></table></div></div>
+      <div class="panel"><h2>Variants <small>stable ids · no secrets in configuration</small></h2><div class="scroll"><table id="t-variants"></table></div></div>
+    </section>
+
+    <section class="view" id="view-catalog" role="tabpanel">
+      <h1>Model catalog</h1>
+      <p class="sub">Two layers: observations recorded by probes with their provenance, and a curated overlay from configuration. A model marked unconfirmed is curated but has never been observed on this host; unverified fast mode is treated as unsupported by the router.</p>
+      <div class="panel"><h2>Models by variant <small id="catalog-sub"></small></h2><div class="scroll"><table id="t-catalog"></table></div></div>
+    </section>
+
+    <section class="view" id="view-routing" role="tabpanel">
+      <h1>Stage routing</h1>
+      <p class="sub">Each stage lists its allowed candidates in priority order. The router walks the list, skips candidates that cannot serve right now, and records why. Struck-through candidates are unavailable at the moment.</p>
+      <div class="panel"><h2>Routing matrix <small>variant / model / effort</small></h2><div class="scroll"><table class="matrix" id="t-matrix"></table></div></div>
+      <div class="two" id="explains"></div>
+      <div class="panel" style="margin-top:14px"><h2>Reason codes</h2><div class="legend" id="codes"></div></div>
+    </section>
+
+    <section class="view" id="view-concurrency" role="tabpanel">
+      <h1>Concurrency</h1>
+      <p class="sub">A turn needs one slot in each scope: global, its account and its stage. Slots are leases renewed by the run supervisor; a lease whose holder cannot be confirmed stays counted until it is reconciled.</p>
+      <div class="keyrow">
+        <span><i class="used"></i>lease held by a supervisor</span><span><i class="human"></i>held by a human (handed off)</span>
+        <span><i class="stale"></i>stale lease</span><span><i class="cut"></i>slot removed by rate-limit cooldown</span><span><i></i>free</span>
+      </div>
+      <div class="meters">
+        <div class="panel"><h2>Global</h2><div id="m-global"></div></div>
+        <div class="panel"><h2>Accounts <small>per CLI account</small></h2><div id="m-accounts"></div></div>
+        <div class="panel"><h2>Stages</h2><div id="m-stages"></div></div>
+      </div>
+      <div class="panel" style="margin-top:14px"><h2>Queue <small>depth 1 of 32 · timeout 30:00</small></h2><div class="scroll"><table id="t-queue"></table></div></div>
+      <div class="panel"><h2>Active leases <small>TTL 60 s · renewed every 15 s</small></h2><div class="scroll"><table id="t-leases"></table></div></div>
+    </section>
+
+    <section class="view" id="view-incidents" role="tabpanel">
+      <h1>Incidents</h1>
+      <p class="sub">Derived from run events, run state and limiter state. The same rules are available to coordinators on the command line; nothing here blocks execution.</p>
+      <div class="panel"><h2>Open <small id="inc-open-sub"></small></h2><div id="inc-open"></div></div>
+      <div class="panel"><h2>Checks passed and resolved</h2><div id="inc-done"></div></div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* All content is sample data. Every string is rendered with textContent. */
+
+function el(tag, cls, text, kids) {
+  var node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  (kids || []).forEach(function (kid) { if (kid) node.appendChild(kid); });
+  return node;
+}
+function badge(state, label, plain) {
+  return el("span", "badge s-" + state + (plain ? " plain" : ""), label || state);
+}
+function chips(values) {
+  var wrap = el("span");
+  values.forEach(function (value) { wrap.appendChild(el("span", "chip", value)); });
+  return wrap;
+}
+function table(target, heads, rows) {
+  var root = document.getElementById(target);
+  var head = el("tr");
+  heads.forEach(function (name) { head.appendChild(el("th", null, name)); });
+  root.appendChild(el("thead", null, null, [head]));
+  var body = el("tbody");
+  rows.forEach(function (cells) {
+    var row = el("tr");
+    cells.forEach(function (cell) {
+      var td = el("td");
+      if (cell instanceof Node) td.appendChild(cell);
+      else if (cell && cell.mono) { td.className = "mono" + (cell.nowrap ? " nowrap" : ""); td.textContent = cell.mono; }
+      else td.textContent = cell === null || cell === undefined ? "" : cell;
+      row.appendChild(td);
+    });
+    body.appendChild(row);
+  });
+  root.appendChild(body);
+}
+function stack(lines) {
+  var wrap = el("div");
+  lines.forEach(function (line) { wrap.appendChild(line instanceof Node ? line : el("div", null, line)); });
+  return wrap;
+}
+function copyBox(command) {
+  var button = el("button", null, "Copy");
+  button.type = "button";
+  button.addEventListener("click", function () {
+    var done = function () { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1400); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(command).then(done, fallback);
+    } else { fallback(); }
+    function fallback() {
+      var area = el("textarea"); area.value = command; document.body.appendChild(area); area.select();
+      try { document.execCommand("copy"); done(); } catch (error) { button.textContent = "Select and copy"; }
+      document.body.removeChild(area);
+    }
+  });
+  return el("div", "copy", null, [el("code", null, command), button]);
+}
+
+/* ---------------- sample data ---------------- */
+
+var T = function (n, cand, outcome, code, detail) { return { n: n, cand: cand, outcome: outcome, code: code, detail: detail }; };
+
+var SESSIONS = [
+  { nick: "kedo", inc: 1, state: "running", task: "cli-platform-impl", stage: "development",
+    variant: "claude", model: "opus", effort: "high", turn: 3, hb: "4 s", bypass: true,
+    run: "run-01JCQ8M4T7", resume: "7b0e4c1a-93f2-4d6e-8a55-2f1c9e0b6d14",
+    lease: "lease lease-c0e252 · anthropic-sub", source: "stage priority, candidate 1",
+    takeover: "tmuxctl run takeover --run-id run-01JCQ8M4T7 --holder human && claude --resume 7b0e4c1a-93f2-4d6e-8a55-2f1c9e0b6d14",
+    takeoverNote: "Takeover is legal only from idle. This turn is running: wait for it to finish or cancel it first.",
+    events: [
+      ["14:31:02", "platform", "nickname_assigned", "kedo#1 bound to run-01JCQ8M4T7 (first use of this name; no cooldown waived)"],
+      ["14:31:02", "platform", "route_resolved", "stage development · source: stage priority · selected claude / opus / high", { trace: [
+        T(1, "claude / opus / high", "selected", "SELECTED", "account anthropic-sub 1/3 · stage 0/3 · global 2/6"),
+        T(2, "codex / gpt-6.1-sol / high + fast", "notrun", "—", "not evaluated"),
+        T(3, "cursor / grok-4.7-xhigh", "notrun", "—", "not evaluated"),
+        T(4, "kiro / @default / high", "notrun", "—", "not evaluated")] }],
+      ["14:31:02", "platform", "lease_granted", "lease-c0e241 · account anthropic-sub 2/3 · stage development 1/3 · global 3/6"],
+      ["14:31:03", "state", "state_changed", "created → starting (run_send, turn t0001)"],
+      ["14:48:20", "platform", "lease_granted", "lease-c0e252 · account anthropic-sub 3/3 · stage development 2/3 · global 4/6"],
+      ["14:48:22", "state", "turn_started", "turn t0003 · dispatch cli-platform-impl-g1-5d1e77a0-C03-91ab02fe · permission mode bypass (authorized for this task)"],
+      ["14:48:25", "message", "message", "Reading the limiter module and its tests before changing the reap rule.", { quote: true }],
+      ["14:48:31", "tool", "tool_call", "Read  cli_platform/src/cli_platform/limiter.py", { res: ["ok", "9.4 KiB"] }],
+      ["14:48:44", "tool", "tool_call", "Bash  python3 -m unittest tests.test_limiter", { res: ["fail", "Ran 11 tests · FAILED (failures=1) · test_dead_holder_is_reaped"] }],
+      ["14:49:02", "diff", "tool_call", "Edit  cli_platform/src/cli_platform/limiter.py  +6 −2", { res: ["ok", "applied"], diff: [
+        "@@ -212,8 +212,12 @@ def _reap(self, state, now):",
+        "     for lease in list(state[\"leases\"].values()):",
+        "         if lease[\"expires_at\"] > now:",
+        "             continue",
+        "-        if not self._pid_alive(lease[\"holder_pid\"]):",
+        "-            del state[\"leases\"][lease[\"lease_id\"]]",
+        "+        # A reused pid is a different process: compare the start time too.",
+        "+        alive = self._holder_alive(lease[\"holder_pid\"], lease[\"holder_started_at\"])",
+        "+        if not alive:",
+        "+            del state[\"leases\"][lease[\"lease_id\"]]",
+        "+        else:",
+        "+            lease[\"stale\"] = True"] }],
+      ["14:49:21", "tool", "tool_call", "Bash  python3 -m unittest tests.test_limiter", { res: ["ok", "Ran 11 tests in 0.84s · OK"] }],
+      ["14:49:30", "message", "message", "The stale-holder check compared the pid only, so a recycled pid kept a dead lease alive. It now compares pid and process start time. All 11 limiter tests pass.", { quote: true }],
+      ["14:51:48", "tool", "tool_call", "Read  cli_platform/README.md", { res: ["ok", "3.1 KiB"] }],
+      ["14:52:06", "message", "message_delta", "Updating the README section on crash recovery to describe the new rule…", { quote: true }]
+    ] },
+  { nick: "pega", inc: 1, state: "running", task: "gateway-phase0-probe", stage: "design",
+    variant: "claude", model: "opus", effort: "max", turn: 1, hb: "9 s",
+    run: "run-01JCQ8K2D9", resume: "c41d7e02-5b8a-4f39-a1c6-0e7d3b92f4a8",
+    lease: "lease lease-c0e249 · anthropic-sub", source: "stage priority, candidate 1",
+    takeover: "tmuxctl run takeover --run-id run-01JCQ8K2D9 --holder human && claude --resume c41d7e02-5b8a-4f39-a1c6-0e7d3b92f4a8",
+    takeoverNote: "Takeover is legal only from idle. This turn is running.",
+    events: [
+      ["14:39:40", "platform", "nickname_assigned", "pega#1 bound to run-01JCQ8K2D9"],
+      ["14:39:40", "platform", "route_resolved", "stage design · source: stage priority · selected claude / opus / max", { trace: [
+        T(1, "claude / opus / max", "selected", "SELECTED", "account anthropic-sub 2/3 · stage 0/2 · global 3/6")] }],
+      ["14:39:40", "platform", "lease_granted", "lease-c0e249 · account anthropic-sub 3/3 · stage design 1/2 · global 4/6"],
+      ["14:39:42", "state", "turn_started", "turn t0001 · dispatch gateway-phase0-probe-g1-2a90c4d1-C01-77e0b1c3"],
+      ["14:40:05", "message", "message", "Drafting the probe plan: one trivial prompt per installed CLI, raw stream saved as a fixture.", { quote: true }],
+      ["14:44:18", "tool", "tool_call", "Write  docs/research/phase0-probe-plan.md", { res: ["ok", "5.8 KiB"] }],
+      ["14:52:01", "message", "message_delta", "Listing the open questions each fixture must answer…", { quote: true }]
+    ] },
+  { nick: "nuvo", inc: 1, state: "running", task: "cli-platform-impl", stage: "development",
+    variant: "cursor", model: "grok-4.7-xhigh", effort: null, turn: 2, hb: "2 s",
+    run: "run-01JCQ8N7R3", resume: "chat-5e2f90b1c7",
+    lease: "lease lease-c0e251 · cursor-pro", source: "task override",
+    takeover: "tmuxctl run takeover --run-id run-01JCQ8N7R3 --holder human && agent --resume chat-5e2f90b1c7",
+    takeoverNote: "Takeover is legal only from idle. This turn is running.",
+    events: [
+      ["14:36:11", "platform", "nickname_assigned", "nuvo#1 bound to run-01JCQ8N7R3"],
+      ["14:36:11", "platform", "route_resolved", "stage development · source: task override · selected cursor / grok-4.7-xhigh", { trace: [
+        T(1, "cursor / grok-4.7-xhigh", "selected", "SELECTED", "task override list; allowed for stage development (candidate 3)")] }],
+      ["14:46:30", "platform", "lease_granted", "lease-c0e251 · account cursor-pro 1/2 · stage development 1/3 · global 3/6"],
+      ["14:46:32", "state", "turn_started", "turn t0002 · dispatch cli-platform-impl-g1-5d1e77a0-C02-3c88e5d0"],
+      ["14:47:03", "tool", "tool_call", "Read  cli_platform/src/cli_platform/scanner.py", { res: ["ok", "6.2 KiB"] }],
+      ["14:49:55", "diff", "tool_call", "Edit  cli_platform/tests/test_scanner.py  +4 −0", { res: ["ok", "applied"], diff: [
+        "@@ -41,3 +41,7 @@ class ScannerTests(unittest.TestCase):",
+        "         self.assertEqual(found[\"cursor\"].binary_name, \"agent\")",
+        "+",
+        "+    def test_missing_binary_is_reported_not_raised(self):",
+        "+        found = scan(which=lambda name: None)",
+        "+        self.assertFalse(found[\"codex\"].installed)"] }],
+      ["14:52:08", "tool", "tool_call", "Bash  python3 -m unittest tests.test_scanner", {}]
+    ] },
+  { nick: "tesu", inc: 1, state: "queued", task: "workbench-ia", stage: "design",
+    variant: "claude", model: "opus", effort: "max", turn: 1, hb: "3 s",
+    run: "run-01JCQ8P9W6", resume: null,
+    lease: "queued · position 1 · ticket tkt-c3e2", source: "stage priority, candidate 1",
+    takeover: "tmuxctl run cancel --run-id run-01JCQ8P9W6 --reason 'leave the queue'",
+    takeoverNote: "No conversation exists yet, so there is nothing to take over. The command above leaves the queue.",
+    takeoverLabel: "Leave-queue command",
+    events: [
+      ["14:45:28", "platform", "nickname_assigned", "tesu#1 bound to run-01JCQ8P9W6"],
+      ["14:45:29", "platform", "route_resolved", "stage design · source: stage priority · queued on claude / opus / max", { trace: [
+        T(1, "claude / opus / max", "queued", "QUEUED", "ACCOUNT_BUSY anthropic-sub 3/3 · stage policy on_busy = queue"),
+        T(2, "claude-gateway / opus / high", "notrun", "—", "not evaluated (queue policy waits on the first serviceable candidate)"),
+        T(3, "codex / gpt-6.1-sol / xhigh", "notrun", "—", "not evaluated")] }],
+      ["14:45:29", "platform", "lease_queued", "ticket tkt-c3e2 · position 1 · blocked_on account:anthropic-sub 3/3 · timeout 30:00"],
+      ["14:45:29", "state", "state_changed", "created → queued (run_send, turn t0001)"],
+      ["14:50:29", "error", "incident", "Queue wait above threshold: waited 05:00 (threshold 05:00). Still queued; nothing was cancelled."]
+    ] },
+  { nick: "lesi", inc: 1, state: "handed_off", task: "workbench-ui-pass", stage: "ui_design",
+    variant: "claude", model: "opus", effort: "high", turn: 5, hb: "—",
+    run: "run-01JCQ8E8C4", resume: "e9a3f6d4-1c20-4b7e-9f18-6a4d2c0b8e31",
+    lease: "lease lease-c0e247 · anthropic-sub · human", source: "stage priority, candidate 2 (fallback)",
+    takeover: "tmuxctl run release --run-id run-01JCQ8E8C4",
+    takeoverNote: "A human holds the lease in tmux session gt-lesi. run_send is refused with RUN_HANDED_OFF until the release command above is run.",
+    takeoverLabel: "Release command",
+    events: [
+      ["13:58:14", "platform", "nickname_assigned", "lesi#1 bound to run-01JCQ8E8C4"],
+      ["13:58:14", "platform", "route_resolved", "stage ui_design · source: stage priority · fallback to claude / opus / high", { trace: [
+        T(1, "agy / gemini-4-argon-high / high", "skipped", "BINARY_NOT_FOUND", "agy is not installed on this host"),
+        T(2, "claude / opus / high", "selected", "SELECTED", "account anthropic-sub 0/3 · stage 0/1 · global 1/6"),
+        T(3, "cursor / grok-4.7-xhigh", "notrun", "—", "not evaluated")] }],
+      ["14:28:40", "message", "message", "The routing matrix now collapses to one column per stage below 1200 px. Spacing tokens are in place.", { quote: true }],
+      ["14:28:41", "state", "turn_completed", "turn t0005 · stop_reason end_turn · 6 m 12 s"],
+      ["14:28:41", "platform", "lease_released", "lease-c0e246 · held 6 m 14 s"],
+      ["14:33:05", "platform", "lease_granted", "lease-c0e247 · holder human · account anthropic-sub 2/3 · stage ui_design 1/1 · global 2/6"],
+      ["14:33:05", "state", "state_changed", "idle → handed_off (run_takeover, holder human, tmux session gt-lesi)"]
+    ] },
+  { nick: "sili", inc: 1, state: "idle", task: "viewer-fix-review", stage: "code_review",
+    variant: "cursor", model: "grok-4.7-xhigh", effort: null, turn: 4, hb: "—",
+    run: "run-01JCQ8F5A1", resume: "chat-0d77a3e4b9",
+    lease: "no lease (idle)", source: "stage priority, candidate 2 (fallback)",
+    takeover: "tmuxctl run takeover --run-id run-01JCQ8F5A1 --holder human && agent --resume chat-0d77a3e4b9",
+    takeoverNote: "The run is idle: takeover is legal. The lease keeps the runner from starting a turn while a human drives the conversation.",
+    events: [
+      ["14:02:50", "platform", "nickname_assigned", "sili#1 bound to run-01JCQ8F5A1"],
+      ["14:02:50", "platform", "route_resolved", "stage code_review · source: stage priority · fallback to cursor / grok-4.7-xhigh", { trace: [
+        T(1, "codex / gpt-6.1-sol / xhigh", "skipped", "BINARY_NOT_FOUND", "codex is not installed on this host"),
+        T(2, "cursor / grok-4.7-xhigh", "selected", "SELECTED", "account cursor-pro 0/2 · stage 0/2 · global 1/6"),
+        T(3, "claude-gateway / opus / high", "notrun", "—", "not evaluated")] }],
+      ["14:34:02", "state", "turn_started", "turn t0004 · dispatch viewer-fix-review-g1-8b31f0aa-C04-4e2d90c1"],
+      ["14:36:47", "tool", "tool_call", "Bash  git diff e1613de..HEAD -- runtime/goals_tmux/collector.py", { res: ["ok", "2.7 KiB"] }],
+      ["14:39:55", "message", "message", "Review complete. One blocking finding: the collector still inherits the caller's process group on the error path. Two notes on test naming.", { quote: true }],
+      ["14:39:56", "state", "turn_completed", "turn t0004 · stop_reason end_turn · 5 m 54 s"],
+      ["14:39:56", "platform", "lease_released", "lease-c0e248 · held 5 m 55 s"],
+      ["14:39:56", "state", "state_changed", "running → idle"]
+    ] },
+  { nick: "mifo", inc: 1, state: "failed", task: "workbench-ia", stage: "design",
+    variant: "claude-gateway", model: "opus", effort: "high", turn: 2, hb: "—",
+    run: "run-01JCQ8H3B8", resume: "2f6c81d9-7a45-4e03-b6d2-9c1e5a70f3b6",
+    lease: "no lease (released on failure)", source: "task override",
+    takeover: "tmuxctl run send --run-id run-01JCQ8H3B8 --dispatch-id workbench-ia-g1-c07e19b4-C02-a15f3d28",
+    takeoverNote: "Retry uses the same resume id. It will be refused or queued while account anthropic-gateway is cooling down.",
+    takeoverLabel: "Retry command (coordinator)",
+    events: [
+      ["14:20:33", "platform", "nickname_assigned", "mifo#1 bound to run-01JCQ8H3B8"],
+      ["14:20:33", "platform", "route_resolved", "stage design · source: task override · selected claude-gateway / opus / high", { trace: [
+        T(1, "claude-gateway / opus / high", "selected", "SELECTED", "task override list; allowed for stage design (candidate 2)")] }],
+      ["14:44:50", "platform", "lease_granted", "lease-c0e250 · account anthropic-gateway 1/2 · stage design 2/2 · global 5/6"],
+      ["14:44:52", "state", "turn_started", "turn t0002 · settings file referenced by variant id (path and contents not logged)"],
+      ["14:45:40", "message", "message", "Comparing the two navigation layouts against the information architecture notes.", { quote: true }],
+      ["14:46:22", "error", "error", "RATE_LIMITED · retryable · retry_after 300 s · phase turn · adapter matched HTTP 429 in the stream"],
+      ["14:46:22", "error", "exit", "exit_code 1 · expected false"],
+      ["14:46:22", "platform", "rate_limited", "account anthropic-gateway · cooldown 300 s (until 14:51:22, extended to 14:56:22 by backoff) · effective cap 2 → 1"],
+      ["14:46:22", "platform", "lease_released", "lease-c0e250 · held 1 m 32 s"],
+      ["14:46:22", "state", "state_changed", "running → failed (resume id kept)"]
+    ] },
+  { nick: "kani", inc: 1, state: "lost", task: "limiter-tests", stage: "testing",
+    variant: "kiro", model: "@default", effort: "medium", turn: 2, hb: "4 m",
+    run: "run-01JCQ8G6X2", resume: "ks-20261113-6b1f4e",
+    lease: "lease lease-c0e245 · kiro-idc · stale", source: "stage priority, candidate 2 (fallback)",
+    takeover: "tmuxctl run reconcile --run-id run-01JCQ8G6X2",
+    takeoverNote: "Lost is never resolved by guessing. Reconcile checks the recorded pid and process start time; the lease stays counted until then.",
+    takeoverLabel: "Reconcile command (coordinator)",
+    events: [
+      ["14:30:09", "platform", "nickname_assigned", "kani#1 bound to run-01JCQ8G6X2"],
+      ["14:30:09", "platform", "route_resolved", "stage testing · source: stage priority · fallback to kiro / @default / medium", { trace: [
+        T(1, "claude / sonnet / medium", "skipped", "ACCOUNT_BUSY", "anthropic-sub 3/3 · stage policy on_busy = next"),
+        T(2, "kiro / @default / medium", "selected", "SELECTED", "account kiro-idc 0/2 · stage 1/2 · global 4/6"),
+        T(3, "cursor / grok-4.7-xhigh", "notrun", "—", "not evaluated")] }],
+      ["14:41:15", "platform", "lease_granted", "lease-c0e245 · account kiro-idc 1/2 · stage testing 1/2 · global 3/6"],
+      ["14:41:17", "state", "turn_started", "turn t0002 · dispatch limiter-tests-g1-f3a2c6e8-C02-0b9d47aa"],
+      ["14:43:30", "tool", "tool_call", "Bash  python3 -m unittest tests.test_limiter -k cross_process", {}],
+      ["14:48:02", "state", "heartbeat", "last heartbeat · supervisor pid 47755"],
+      ["14:48:58", "error", "state_changed", "running → lost · heartbeat older than three intervals · supervisor pid 47755 identity not confirmed"],
+      ["14:48:58", "platform", "lease_stale", "lease-c0e245 expired without renewal · holder not confirmed dead · slot stays counted"]
+    ] },
+  { nick: "gafa", inc: 2, state: "closed", task: "limiter-tests", stage: "testing",
+    variant: "claude", model: "sonnet", effort: "medium", turn: 3, hb: "—",
+    run: "run-01JCQ7Z1Q5", resume: "a08b5c77-3e19-4d42-8f60-b7c2d91e4a05",
+    lease: "no lease (closed)", source: "stage priority, candidate 1",
+    takeover: "claude --resume a08b5c77-3e19-4d42-8f60-b7c2d91e4a05 --fork-session",
+    takeoverNote: "The run is closed. A fork lets a human read the conversation without touching the record.",
+    takeoverLabel: "Fork command (look without taking over)",
+    events: [
+      ["13:12:44", "platform", "nickname_assigned", "gafa#2 bound to run-01JCQ7Z1Q5 (previous use gafa#1 released 2026-11-02; cooldown elapsed)"],
+      ["13:31:10", "error", "exit", "turn t0002 · exit_code 0 without a terminal event · expected false"],
+      ["13:31:10", "state", "state_changed", "running → failed (unexpected exit; resume id kept)"],
+      ["13:33:02", "state", "turn_started", "turn t0003 · retry with the same resume id"],
+      ["13:58:47", "message", "message", "All limiter cap tests pass, including the cross-process case.", { quote: true }],
+      ["13:58:48", "state", "turn_completed", "turn t0003 · stop_reason end_turn · 25 m 46 s"],
+      ["14:02:16", "state", "state_changed", "idle → closed (run_close)"],
+      ["14:02:16", "platform", "nickname_released", "gafa#2 released · reuse cooldown 7 days · eligible again 2026-11-20 14:02"]
+    ] }
+];
+
+var SCAN = [
+  ["claude", "claude", "/opt/homebrew/bin/claude", "2.1.311", "claude auth status --json", "installed"],
+  ["cursor", "agent (also cursor-agent)", "/Users/lucky/.local/bin/agent", "2026.04.08-a41fba1", "agent status", "installed"],
+  ["kiro", "kiro-cli", "/Users/lucky/.local/bin/kiro-cli", "2.34.0", "kiro-cli whoami", "installed"],
+  ["codex", "codex", "not found on PATH", "—", "—", "unavailable"],
+  ["agy", "agy (alias antigravity)", "not found on PATH", "—", "—", "unavailable"]
+];
+
+var VARIANTS = [
+  { id: "claude", adapter: "claude", binary: "claude", settings: ["none"], env: ["none"], account: "anthropic-sub", state: "ready", label: "ready" },
+  { id: "claude-gateway", adapter: "claude", binary: "claude (same binary)",
+    settings: ["--settings <repo>/gateway.json", "mode 0600 ok · owner ok · not a symlink", "contents never read or shown"],
+    env: ["set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "unset ANTHROPIC_API_KEY"],
+    account: "anthropic-gateway", state: "cooldown", label: "cooling down 04:12" },
+  { id: "cursor", adapter: "cursor", binary: "agent", settings: ["none"], env: ["none"], account: "cursor-pro", state: "ready", label: "ready" },
+  { id: "kiro", adapter: "kiro", binary: "kiro-cli", settings: ["none"], env: ["none"], account: "kiro-idc", state: "ready", label: "ready" },
+  { id: "codex", adapter: "codex", binary: "codex (missing)", settings: ["none"], env: ["none"], account: "openai-codex", state: "unavailable", label: "unavailable" },
+  { id: "agy", adapter: "agy", binary: "agy (missing)", settings: ["none"], env: ["none"], account: "google-agy", state: "unavailable", label: "unavailable" }
+];
+
+var FULL = ["low", "medium", "high", "xhigh", "max"];
+var MODELS = [
+  { v: "claude", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude", id: "fable", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["help_text · claude --help", "CLI 2.1.311 · 2026-11-13 14:20", "alias listed in help"], curated: true },
+  { v: "claude-gateway", id: "opus", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "claude-gateway", id: "sonnet", efforts: FULL, fast: ["unverified", "no flag in --help"], status: "enabled", prov: ["manual · curated overlay", "no observation recorded yet", "settings file is never read; it maps the alias"], curated: true },
+  { v: "cursor", id: "grok-4.7-xhigh", efforts: [], effortNote: "embedded in model id · no --effort flag", fast: ["no", ""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "agent --list-models exists; not yet probed"], curated: true },
+  { v: "kiro", id: "@default", idNote: "no --model passed", efforts: FULL, fast: ["no", ""], status: "enabled", prov: ["help_text · kiro-cli chat --help", "CLI 2.34.0 · 2026-11-13 14:20", "effort levels listed in help"], curated: true },
+  { v: "codex", id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh"], fast: ["yes", "-c service_tier=\"priority\""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true },
+  { v: "agy", id: "gemini-4-argon-high", efforts: ["high"], fast: ["no", ""], status: "unconfirmed", prov: ["curated · repo reference", "never observed", "binary not installed"], curated: true }
+];
+
+var STAGES = [
+  { name: "design", cap: 2, busy: "queue", cands: [["claude / opus / max"], ["claude-gateway / opus / high", "ACCOUNT_COOLDOWN"], ["codex / gpt-6.1-sol / xhigh", "BINARY_NOT_FOUND"]] },
+  { name: "development", cap: 3, busy: "queue", cands: [["claude / opus / high"], ["codex / gpt-6.1-sol / high + fast", "BINARY_NOT_FOUND"], ["cursor / grok-4.7-xhigh"], ["kiro / @default / high"]] },
+  { name: "testing", cap: 2, busy: "next", cands: [["claude / sonnet / medium"], ["kiro / @default / medium"], ["cursor / grok-4.7-xhigh"]] },
+  { name: "code_review", cap: 2, busy: "next", cands: [["codex / gpt-6.1-sol / xhigh", "BINARY_NOT_FOUND"], ["cursor / grok-4.7-xhigh"], ["claude-gateway / opus / high", "ACCOUNT_COOLDOWN"]] },
+  { name: "ui_design", cap: 1, busy: "queue", cands: [["agy / gemini-4-argon-high / high", "BINARY_NOT_FOUND"], ["claude / opus / high"], ["cursor / grok-4.7-xhigh"]] }
+];
+
+var EXPLAINS = [
+  { title: "Fallback: code_review for sili", facts: "source: stage priority · on_busy = next · result: SELECTED candidate 2 · fallback disclosed to the coordinator",
+    trace: [T(1, "codex / gpt-6.1-sol / xhigh", "skipped", "BINARY_NOT_FOUND", "codex is not installed on this host"),
+            T(2, "cursor / grok-4.7-xhigh", "selected", "SELECTED", "account cursor-pro 0/2 · stage 0/2 · global 1/6"),
+            T(3, "claude-gateway / opus / high", "notrun", "—", "not evaluated")] },
+  { title: "Queue: design for tesu", facts: "source: stage priority · on_busy = queue · result: QUEUED on candidate 1 · ticket tkt-c3e2",
+    trace: [T(1, "claude / opus / max", "queued", "QUEUED", "ACCOUNT_BUSY anthropic-sub 3/3"),
+            T(2, "claude-gateway / opus / high", "notrun", "—", "not evaluated; would be ACCOUNT_COOLDOWN until 14:56:22"),
+            T(3, "codex / gpt-6.1-sol / xhigh", "notrun", "—", "not evaluated; would be BINARY_NOT_FOUND")] },
+  { title: "Adjustment: development with fast requested (example)", facts: "source: dispatch pin with allow_fallback · fast_fallback = drop · result: SELECTED with one adjustment",
+    trace: [T(1, "claude / opus / high + fast", "adjusted", "FAST_DROPPED", "fast is unverified for claude / opus; fast_fallback = drop"),
+            T(1, "claude / opus / high", "selected", "SELECTED", "account anthropic-sub 2/3 · stage 1/3 · global 3/6")] },
+  { title: "Busy, next candidate: testing for kani", facts: "source: stage priority · on_busy = next · result: SELECTED candidate 2",
+    trace: [T(1, "claude / sonnet / medium", "skipped", "ACCOUNT_BUSY", "anthropic-sub 3/3 · on_busy = next"),
+            T(2, "kiro / @default / medium", "selected", "SELECTED", "account kiro-idc 0/2 · stage 1/2 · global 4/6"),
+            T(3, "cursor / grok-4.7-xhigh", "notrun", "—", "not evaluated")] }
+];
+
+var CODES = ["VARIANT_DISABLED", "BINARY_NOT_FOUND", "SETTINGS_FILE_MISSING", "MODEL_UNREVIEWED", "MODEL_NOT_IN_CATALOG", "MODEL_DISABLED", "EFFORT_UNSUPPORTED",
+  "FAST_UNSUPPORTED", "ACCOUNT_COOLDOWN", "ACCOUNT_BUSY", "STAGE_BUSY", "GLOBAL_BUSY", "EFFORT_LOWERED", "FAST_DROPPED", "SELECTED", "QUEUED"];
+
+/* slots: u = supervisor lease, h = human lease, s = stale lease, c = cut by cooldown, f = free */
+var GLOBAL = [{ name: "global", slots: "uuuhsf", used: 5, cap: 6, hint: "4 active (kedo, nuvo, pega, lesi) + 1 stale (kani)" }];
+var ACCOUNTS = [
+  { name: "anthropic-sub", slots: "uuh", used: 3, cap: 3, hint: "kedo, pega, lesi (human) · 1 queued (tesu)", warn: true },
+  { name: "anthropic-gateway", slots: "fc", used: 0, cap: 2, eff: 1, hint: "RATE_LIMITED · cooling down 04:12 · effective cap 1 · no grants until 14:56:22", warn: true },
+  { name: "cursor-pro", slots: "uf", used: 1, cap: 2, hint: "nuvo" },
+  { name: "kiro-idc", slots: "sf", used: 1, cap: 2, hint: "kani (stale lease, run lost)", warn: true },
+  { name: "openai-codex", slots: "ff", used: 0, cap: 2, hint: "variant unavailable: binary not installed" },
+  { name: "google-agy", slots: "f", used: 0, cap: 1, hint: "variant unavailable: binary not installed" }
+];
+var STAGE_METERS = [
+  { name: "design", slots: "uf", used: 1, cap: 2, hint: "pega · 1 queued (tesu)" },
+  { name: "development", slots: "uuf", used: 2, cap: 3, hint: "kedo, nuvo" },
+  { name: "testing", slots: "sf", used: 1, cap: 2, hint: "kani (stale)", warn: true },
+  { name: "code_review", slots: "ff", used: 0, cap: 2, hint: "none" },
+  { name: "ui_design", slots: "h", used: 1, cap: 1, hint: "lesi (human)" }
+];
+var QUEUE = [["tkt-c3e2", "tesu", "design", "anthropic-sub", "1", "account:anthropic-sub 3/3", "06:41"]];
+var LEASES = [
+  ["lease-c0e252", "kedo", "anthropic-sub", "development", "48211", "46 s", "running"],
+  ["lease-c0e251", "nuvo", "cursor-pro", "development", "48390", "52 s", "running"],
+  ["lease-c0e249", "pega", "anthropic-sub", "design", "48102", "41 s", "running"],
+  ["lease-c0e247", "lesi", "anthropic-sub", "ui_design", "human", "held until run_release", "human"],
+  ["lease-c0e245", "kani", "kiro-idc", "testing", "47755", "expired 3 m 12 s ago", "stale"]
+];
+
+var INCIDENTS = [
+  { sev: "critical", title: "Run lost: kani", text: "Supervisor heartbeat is 4 minutes old while the run was running. The CLI process state is unknown; the run stays lost until reconcile.", rule: "state lost, or heartbeat older than three intervals while running", when: "14:48:58", open: true },
+  { sev: "critical", title: "Rate limited: account anthropic-gateway (mifo)", text: "RATE_LIMITED with retry_after 300 s. Account is cooling down, 04:12 remaining; effective cap reduced from 2 to 1. Routing skips its candidates with ACCOUNT_COOLDOWN.", rule: "error RATE_LIMITED, or account cooldown active", when: "14:46:22", open: true },
+  { sev: "warning", title: "Lease stale: lease-c0e245 on kiro-idc (kani)", text: "The lease expired without renewal and its holder cannot be confirmed dead. The slot stays counted (kiro-idc 1/2, global 5/6) so the vendor cap is never exceeded by a guess.", rule: "lease past TTL and holder identity not confirmed dead", when: "14:48:58", open: true },
+  { sev: "warning", title: "Queue wait above threshold: tesu", text: "Ticket tkt-c3e2 has waited 06:41 for account anthropic-sub (3/3). Threshold 05:00; queue timeout 30:00.", rule: "queued longer than the configured threshold", when: "14:50:29", open: true },
+  { sev: "warning", title: "Catalog stale or unconfirmed: cursor, codex, agy", text: "Three curated models have never been observed on this host: grok-4.7-xhigh (list command not yet probed), gpt-6.1-sol and gemini-4-argon-high (binaries not installed).", rule: "curated model with no observation, or observation older than the CLI version", when: "14:20:07", open: true },
+  { sev: "ok", title: "Settings file permissions: claude-gateway", text: "<repo>/gateway.json passed the check: mode 0600, owned by the current user, regular file, not a symlink. Contents were not read.", rule: "settings file missing, group or world accessible, symlink, or wrong owner", when: "14:20:07", open: false },
+  { sev: "resolved", title: "Unexpected exit: gafa turn t0002", text: "The CLI exited with code 0 without a terminal event. The run went to failed, was retried with the same resume id, completed, and is now closed.", rule: "exit without a preceding terminal event, including exit code 0", when: "13:31:10", open: false }
+];
+
+/* ---------------- rendering ---------------- */
+
+function traceTable(rows) {
+  var body = el("tbody");
+  rows.forEach(function (row) {
+    body.appendChild(el("tr", null, null, [
+      el("td", null, String(row.n)), el("td", "mono", row.cand),
+      el("td", "nowrap", null, [row.code === "—" ? el("span", "faint", "—") : badge(row.outcome, row.code, true)]),
+      el("td", "muted", row.detail)]));
+  });
+  var head = el("thead", null, null, [el("tr", null, null, [el("th", null, "#"), el("th", null, "Candidate"), el("th", null, "Outcome"), el("th", null, "Reason")])]);
+  return el("div", "trace", null, [el("table", null, null, [head, body])]);
+}
+
+function routeLabel(s) { return s.variant + " / " + s.model + (s.effort ? " / " + s.effort : ""); }
+
+var selected = "kedo";
+var filter = "all";
+var FILTERS = [["all", "All"], ["message", "Messages"], ["tool", "Tool calls"], ["diff", "Diffs"], ["error", "Errors"], ["platform", "Platform"], ["state", "Lifecycle"]];
+
+function renderList() {
+  var list = document.getElementById("slist");
+  list.textContent = "";
+  SESSIONS.forEach(function (s) {
+    var button = el("button", null, null, [
+      el("span", "nick", s.nick),
+      el("span", "right", null, [badge(s.state)]),
+      el("span", "l2", s.task + " · " + s.stage),
+      el("span", "l3", routeLabel(s)),
+      el("span", "l4", null, [el("span", null, s.lease), el("span", null, "turn " + s.turn + " · hb " + s.hb)])
+    ]);
+    button.type = "button";
+    button.setAttribute("aria-current", String(s.nick === selected));
+    button.addEventListener("click", function () { selected = s.nick; renderList(); renderDetail(); });
+    list.appendChild(button);
+  });
+  var live = SESSIONS.filter(function (s) { return s.state !== "closed"; }).length;
+  document.getElementById("slist-sub").textContent = live + " live · " + (SESSIONS.length - live) + " closed";
+  document.getElementById("n-sessions").textContent = String(live);
+}
+
+function fact(list, key, value) { list.appendChild(el("dt", null, key)); list.appendChild(el("dd", null, value)); }
+
+function renderEvent(ev) {
+  var extra = ev[4] || {};
+  var body = el("div", "body");
+  body.appendChild(el("div", extra.quote ? "quote" : null, extra.quote ? "“" + ev[3] + "”" : ev[3]));
+  if (extra.res) body.appendChild(el("div", "res " + extra.res[0], extra.res[1]));
+  if (extra.trace) body.appendChild(traceTable(extra.trace));
+  if (extra.diff) {
+    var diff = el("div", "diff");
+    extra.diff.forEach(function (line) {
+      var cls = line.charAt(0) === "+" ? "add" : line.charAt(0) === "-" ? "del" : line.slice(0, 2) === "@@" ? "hunk" : null;
+      diff.appendChild(el("div", cls, line));
+    });
+    body.appendChild(el("details", null, null, [el("summary", null, "Show diff (" + extra.diff.length + " lines)"), diff]));
+  }
+  return el("div", "ev g-" + ev[1], null, [el("div", "ts", ev[0]), el("div", "type", ev[2]), body]);
+}
+
+function renderDetail() {
+  var s = SESSIONS.filter(function (item) { return item.nick === selected; })[0];
+  var root = document.getElementById("detail");
+  root.textContent = "";
+
+  var title = el("div", "title", null, [
+    el("span", "nick", s.nick), el("span", "ref", s.nick + "#" + s.inc), badge(s.state),
+    s.bypass ? badge("bypass", "bypass authorized", true) : null,
+    el("span", "muted", s.task + " · " + s.stage + " · turn " + s.turn)]);
+  var left = el("dl", "kv"), right = el("dl", "kv");
+  fact(left, "run id", s.run);
+  fact(left, "tmux session", "gt-" + s.nick + (s.state === "handed_off" ? "  (attached by human)" : "  (reserved; created on takeover)"));
+  fact(left, "run log", "runs/" + s.nick + "-" + s.run + "/events.jsonl");
+  fact(left, "workbench URL", "/s/" + s.nick + "   permalink /runs/" + s.run);
+  fact(right, "route", routeLabel(s));
+  fact(right, "route source", s.source);
+  fact(right, "lease", s.lease);
+  fact(right, "resume id", s.resume || "none yet");
+  var head = el("div", "dhead", null, [title, el("div", "facts", null, [left, right]),
+    el("div", "faint", s.takeoverLabel || "Takeover command"), copyBox(s.takeover), el("p", "note", s.takeoverNote)]);
+  head.children[2].style.cssText = "font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px";
+  root.appendChild(head);
+
+  var bar = el("div", "filters", null, [el("span", null, "Timeline")]);
+  FILTERS.forEach(function (item) {
+    var count = item[0] === "all" ? s.events.length : s.events.filter(function (ev) { return ev[1] === item[0]; }).length;
+    var button = el("button", null, item[1] + " " + count);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(filter === item[0]));
+    button.addEventListener("click", function () { filter = item[0]; renderDetail(); });
+    bar.appendChild(button);
+  });
+  root.appendChild(bar);
+
+  var timeline = el("div", "timeline");
+  var shown = s.events.filter(function (ev) { return filter === "all" || ev[1] === filter; });
+  shown.forEach(function (ev) { timeline.appendChild(renderEvent(ev)); });
+  if (!shown.length) timeline.appendChild(el("div", "empty", "No events of this type in the sample for " + s.nick + "."));
+  root.appendChild(timeline);
+}
+
+function renderRegistry() {
+  table("t-scan", ["Adapter", "Binary", "Path", "Version", "Auth hint (not a model call)", "State"], SCAN.map(function (row) {
+    return [{ mono: row[0] }, { mono: row[1] }, { mono: row[2] }, { mono: row[3], nowrap: true }, { mono: row[4] },
+      badge(row[5] === "installed" ? "ok" : "unavailable", row[5] === "installed" ? "installed" : "not installed")];
+  }));
+  table("t-variants", ["Variant id", "Adapter", "Binary", "Settings file", "Environment overrides", "Account", "State"], VARIANTS.map(function (v) {
+    return [{ mono: v.id, nowrap: true }, { mono: v.adapter }, { mono: v.binary },
+      stack(v.settings.map(function (line, i) { return el("div", i ? "muted" : "mono", line); })),
+      stack(v.env.map(function (line) { return el("div", line === "none" ? "faint" : "mono", line); })),
+      { mono: v.account, nowrap: true }, badge(v.state, v.label)];
+  }));
+  document.getElementById("n-registry").textContent = String(VARIANTS.length);
+}
+
+function renderCatalog() {
+  table("t-catalog", ["Variant", "Model id", "Efforts", "Fast", "Status", "Provenance", "Overlay"], MODELS.map(function (m) {
+    return [{ mono: m.v, nowrap: true },
+      stack([el("div", "mono", m.id), m.idNote ? el("div", "faint", m.idNote) : null].filter(Boolean)),
+      m.efforts.length ? chips(m.efforts) : el("span", "muted", m.effortNote),
+      stack([badge(m.fast[0], m.fast[0], true), m.fast[1] ? el("div", "faint mono", m.fast[1]) : null].filter(Boolean)),
+      badge(m.status),
+      stack([el("div", "mono", m.prov[0]), el("div", "muted", m.prov[1]), el("div", "faint", m.prov[2])]),
+      m.curated ? badge("info", "curated", true) : el("span", "faint", "—")];
+  }));
+  var unconfirmed = MODELS.filter(function (m) { return m.status === "unconfirmed"; }).length;
+  document.getElementById("catalog-sub").textContent = MODELS.length + " models · " + unconfirmed + " unconfirmed";
+  document.getElementById("n-catalog").textContent = String(MODELS.length);
+}
+
+function renderRouting() {
+  table("t-matrix", ["Stage", "Priority order", "Policy"], STAGES.map(function (stage) {
+    var cands = el("div");
+    stage.cands.forEach(function (cand, index) {
+      var label = el("span", "c", cand[0]);
+      var row = el("div", "cand" + (cand[1] ? " off" : ""), null, [el("span", "n", String(index + 1)), label]);
+      if (cand[1]) row.appendChild(el("span", "why mono", cand[1]));
+      cands.appendChild(row);
+    });
+    var policy = el("dl", "kv");
+    fact(policy, "on_busy", stage.busy); fact(policy, "effort_fallback", "lower");
+    fact(policy, "fast_fallback", "drop"); fact(policy, "stage cap", String(stage.cap));
+    return [{ mono: stage.name, nowrap: true }, cands, policy];
+  }));
+  var wrap = document.getElementById("explains");
+  EXPLAINS.forEach(function (item) {
+    wrap.appendChild(el("div", "panel", null, [el("h2", null, "Resolution explain"),
+      el("div", "pad", null, [el("div", null, item.title), el("div", "muted", item.facts), traceTable(item.trace)])]));
+  });
+  var codes = document.getElementById("codes");
+  CODES.forEach(function (code) {
+    var kind = code === "SELECTED" ? "selected" : code === "QUEUED" ? "queued" : (code === "EFFORT_LOWERED" || code === "FAST_DROPPED") ? "adjusted" : "skipped";
+    codes.appendChild(badge(kind, code, true));
+  });
+}
+
+function meters(target, items) {
+  var root = document.getElementById(target);
+  items.forEach(function (item) {
+    var bar = el("div", "bar");
+    item.slots.split("").forEach(function (slot) {
+      bar.appendChild(el("i", { u: "used", h: "human", s: "stale", c: "cut", f: "" }[slot]));
+    });
+    var num = el("span", "num", null, [el("b", null, String(item.used)), document.createTextNode(" / " + item.cap + (item.eff ? "  (effective " + item.eff + ")" : ""))]);
+    root.appendChild(el("div", "meter", null, [el("div", "row", null, [el("span", "name", item.name), num]), bar,
+      el("div", "hint" + (item.warn ? " warn" : ""), item.hint)]));
+  });
+}
+
+function renderConcurrency() {
+  meters("m-global", GLOBAL); meters("m-accounts", ACCOUNTS); meters("m-stages", STAGE_METERS);
+  table("t-queue", ["Ticket", "Nickname", "Stage", "Wanted account", "Position", "Blocked on", "Waited"], QUEUE.map(function (row) {
+    return row.map(function (cell) { return { mono: cell, nowrap: true }; });
+  }));
+  table("t-leases", ["Lease", "Nickname", "Account", "Stage", "Holder pid", "Expires in", "Holder"], LEASES.map(function (row) {
+    var cells = row.slice(0, 6).map(function (cell) { return { mono: cell, nowrap: true }; });
+    cells.push(badge(row[6] === "human" ? "human" : row[6], row[6] === "running" ? "supervisor" : row[6]));
+    return cells;
+  }));
+  document.getElementById("n-conc").textContent = "5/6";
+}
+
+function renderIncidents() {
+  var open = 0;
+  INCIDENTS.forEach(function (item) {
+    if (item.open) open += 1;
+    document.getElementById(item.open ? "inc-open" : "inc-done").appendChild(el("div", "inc", null, [
+      el("div", null, null, [badge(item.sev)]),
+      el("div", null, null, [el("h3", null, item.title), el("p", null, item.text), el("div", "rule", "rule: " + item.rule)]),
+      el("div", "when", item.when)]));
+  });
+  document.getElementById("inc-open-sub").textContent = open + " open";
+  document.getElementById("n-incidents").textContent = String(open);
+}
+
+/* ---------------- navigation ---------------- */
+
+var VIEWS = ["sessions", "registry", "catalog", "routing", "concurrency", "incidents"];
+function show(view) {
+  if (VIEWS.indexOf(view) === -1) view = "sessions";
+  VIEWS.forEach(function (name) {
+    document.getElementById("view-" + name).classList.toggle("active", name === view);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function (button) {
+    button.setAttribute("aria-selected", String(button.dataset.view === view));
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function (button) {
+  button.type = "button";
+  button.addEventListener("click", function () {
+    show(button.dataset.view);
+    try { history.replaceState(null, "", "#" + button.dataset.view); } catch (error) { /* file URLs may refuse */ }
+  });
+});
+
+renderList(); renderDetail(); renderRegistry(); renderCatalog(); renderRouting(); renderConcurrency(); renderIncidents();
+show(location.hash.replace("#", ""));
+</script>
+</body>
+</html>
