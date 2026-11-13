@@ -59,6 +59,7 @@ from .events import EventLog, StreamLog, last_record, read_events, read_stream
 from .fsutil import private_dir
 from .limiter import LeaseRequest, Limiter, Outcome
 from .nicknames import NicknameAllocator, NicknameLease, load_library, tmux_session_name
+from .normalize import parse_retry_after
 from .redact import scrub_raw_line
 from .router import Resolution, Router, RouteRequest
 from .scanner import CliScan
@@ -994,6 +995,8 @@ class RunService:
             run.append("error", {"code": exc.code, "message": exc.message, "phase": "binding",
                                  "retryable": exc.code != errors.PERMISSION_PROFILE_UNSUPPORTED,
                                  "details": _jsonable(exc.details)}, turn_id=turn_id)
+            if exc.code == errors.RATE_LIMITED:
+                self._record_rate_limit(run, turn_id, account, exc.details.get("retry_after"))
             self._release(run, turn_id, lease, "binding_failed")
             run.transition("failed", exc.code, turn_id=turn_id)
             return self._summary(run, turn_id, request_id, error=exc.code, disclosure=disclosure)
@@ -1047,8 +1050,14 @@ class RunService:
             agent.submit(bound.session, instruction)
         except TransportFault as fault:
             outcome.fail(fault.code)
-            run.append("error", {"code": fault.code, "message": fault.message, "phase": fault.phase,
-                                 "retryable": True}, turn_id=turn_id)
+            retry_after = fault.detail.get("retry_after") if isinstance(fault.detail, dict) else None
+            if retry_after is not None:
+                outcome.retry_after = retry_after
+            err_payload: dict[str, object] = {
+                "code": fault.code, "message": fault.message, "phase": fault.phase, "retryable": True}
+            if retry_after is not None:
+                err_payload["retry_after"] = retry_after
+            run.append("error", err_payload, turn_id=turn_id)
             return
         for pre in agent.updates():
             now = self._clock()
@@ -1095,6 +1104,8 @@ class RunService:
                 continue
             if pre.type == "fault":
                 outcome.fail(pre.payload.get("code", errors.ADAPTER_ERROR))
+                if pre.payload.get("retry_after") is not None:
+                    outcome.retry_after = pre.payload["retry_after"]
                 run.append("error", {**pre.payload, "retryable": True}, turn_id=turn_id,
                            raw_seq=pre.raw_seq)
                 return
@@ -1109,6 +1120,8 @@ class RunService:
                 outcome.resume_id = payload.get("resume_id") or bound.session.id
                 if payload["result"] == "error":
                     outcome.fail(payload.get("error_code") or errors.ADAPTER_ERROR)
+                    if payload.get("retry_after") is not None:
+                        outcome.retry_after = payload["retry_after"]
                 elif outcome.error is None and not outcome.cancelled:
                     outcome.completed = True
                 run.append("turn_completed", payload, turn_id=turn_id, source="adapter",
@@ -1117,6 +1130,8 @@ class RunService:
             self._append_adapter(run, turn_id, bound, pre, deltas)
             if pre.type == "error" and pre.payload.get("code"):
                 outcome.stream_error = pre.payload["code"]
+                if pre.payload.get("retry_after") is not None:
+                    outcome.retry_after = pre.payload["retry_after"]
 
     def _append_adapter(self, run: _Run, turn_id: str, bound: Bound, pre: PreEvent,
                         deltas: dict[str, list[int]]) -> None:
@@ -1174,15 +1189,21 @@ class RunService:
         agent.cancel(reason)
         return self._clock() + self.platform.config.execution.cancel_grace_seconds
 
+    def _record_rate_limit(self, run: _Run, turn_id: str, account: str,
+                           raw_retry_after: object) -> None:
+        retry_after = (parse_retry_after({"retry_after": raw_retry_after})
+                       if raw_retry_after is not None else None)
+        until = self.platform.limiter.report_rate_limit(account, retry_after)
+        run.append("rate_limited", {"account": account, "retry_after": retry_after,
+                                    "cooldown_until": until}, turn_id=turn_id)
+
     def _after_turn(self, run: _Run, turn_id: str, bound: Bound, ctx: TurnContext, account: str,
                     lease: Outcome, outcome: "_TurnOutcome") -> None:
         platform = self.platform
         norm = getattr(bound.transport, "normalizer", None)
         failure = outcome.error or outcome.stream_error
         if failure == errors.RATE_LIMITED:
-            until = platform.limiter.report_rate_limit(account, None)
-            run.append("rate_limited", {"account": account, "retry_after": None,
-                                        "cooldown_until": until}, turn_id=turn_id)
+            self._record_rate_limit(run, turn_id, account, outcome.retry_after)
         elif outcome.completed:
             platform.limiter.report_success(account)
         if bound.launch.transport == "acp":
@@ -1545,6 +1566,7 @@ class _TurnOutcome:
     error: str | None = None
     stream_error: str | None = None
     resume_id: str | None = None
+    retry_after: float | None = None
 
     def fail(self, code: str) -> None:
         if self.error is None:

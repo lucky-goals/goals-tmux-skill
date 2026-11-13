@@ -1,7 +1,10 @@
 import json
+import math
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,7 +13,7 @@ from support import ROOT, make_config, raw_config, stage
 
 from cli_platform.errors import PlatformError
 from cli_platform.events import read_stream
-from cli_platform.limiter import LeaseRequest, Limiter
+from cli_platform.limiter import LeaseRequest, Limiter, fold_limits
 from cli_platform.supervisor import Platform, SessionRequest
 from cli_platform.variants import VariantRegistry
 
@@ -420,6 +423,183 @@ class LimiterTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 limiter.release(first.lease_id)
         self.assertEqual(state_path.read_bytes(), before_bytes)
+
+    def test_multi_scope_8_thread_contention_respects_caps_and_fifo(self):
+        raw = raw_config()
+        raw["concurrency"].update(
+            global_max_parallel=4,
+            queue_max_depth=16,
+            queue_timeout_seconds=100,
+            lease_ttl_seconds=30,
+            heartbeat_seconds=10,
+        )
+        raw["accounts"]["acct-a"]["max_parallel"] = 2
+        raw["accounts"]["acct-b"]["max_parallel"] = 2
+        stage(raw, "design")["max_parallel"] = 2
+        stage(raw, "development")["max_parallel"] = 2
+        limiter = self.limiter(raw)
+
+        # 1. 8 concurrent threads contending across global=4, account=2, stage=2.
+        barrier = threading.Barrier(8)
+        track_lock = threading.Lock()
+        active = {"global": 0, "acct-a": 0, "acct-b": 0, "design": 0, "development": 0}
+        max_seen = dict(active)
+        thread_errors: list[BaseException] = []
+
+        def worker(idx: int) -> None:
+            account = "acct-a" if idx < 4 else "acct-b"
+            stg = "design" if idx < 4 else "development"
+            variant = "alpha" if idx < 4 else "beta"
+            try:
+                barrier.wait(timeout=5.0)
+                for iteration in range(2):
+                    req = LeaseRequest(
+                        session_id=f"run-t{idx}-{iteration}",
+                        nickname=f"nick-{idx}-{iteration}",
+                        account=account,
+                        stage=stg,
+                        pid=1,
+                        variant=variant,
+                    )
+                    outcome = limiter.acquire(req, queue=True)
+                    while not outcome.granted:
+                        time.sleep(0.005)
+                        outcome = limiter.poll(outcome.ticket_id)
+                    with track_lock:
+                        active["global"] += 1
+                        active[account] += 1
+                        active[stg] += 1
+                        for key, val in active.items():
+                            max_seen[key] = max(max_seen[key], val)
+                        self.assertLessEqual(active["global"], 4)
+                        self.assertLessEqual(active[account], 2)
+                        self.assertLessEqual(active[stg], 2)
+                    snap = limiter.snapshot()
+                    self.assertLessEqual(snap["global"]["in_use"], 4)
+                    self.assertLessEqual(snap["accounts"][account]["in_use"], 2)
+                    self.assertLessEqual(snap["stages"][stg]["in_use"], 2)
+                    time.sleep(0.01)
+                    with track_lock:
+                        active["global"] -= 1
+                        active[account] -= 1
+                        active[stg] -= 1
+                    limiter.release(outcome.lease_id)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                thread_errors.append(exc)
+
+        workers = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for thread in workers:
+            thread.start()
+        for thread in workers:
+            thread.join(timeout=15.0)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(thread_errors, [])
+        self.assertGreaterEqual(max_seen["global"], 2)
+
+        # 2. Deterministic FIFO ticket wake order under multi-thread polling.
+        held = [
+            limiter.acquire(self.request(account="acct-a", stage="design")),
+            limiter.acquire(self.request(account="acct-a", stage="design")),
+        ]
+        queued = [
+            limiter.acquire(self.request(account="acct-a", stage="design")),
+            limiter.acquire(self.request(account="acct-a", stage="design")),
+            limiter.acquire(self.request(account="acct-a", stage="design")),
+        ]
+        self.assertEqual([item.position for item in queued], [1, 2, 3])
+        granted_order: list[str] = []
+        granted_signals = {item.ticket_id: threading.Event() for item in queued}
+        release_gates = {item.ticket_id: threading.Event() for item in queued}
+        poll_barrier = threading.Barrier(len(queued) + 1)
+
+        def poller(ticket_id: str) -> None:
+            try:
+                poll_barrier.wait(timeout=5.0)
+                outcome = limiter.poll(ticket_id)
+                while not outcome.granted:
+                    time.sleep(0.005)
+                    outcome = limiter.poll(ticket_id)
+                with track_lock:
+                    granted_order.append(ticket_id)
+                granted_signals[ticket_id].set()
+                release_gates[ticket_id].wait(timeout=5.0)
+                limiter.release(outcome.lease_id)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                thread_errors.append(exc)
+
+        pollers = [threading.Thread(target=poller, args=(item.ticket_id,)) for item in queued]
+        for thread in pollers:
+            thread.start()
+        poll_barrier.wait(timeout=5.0)
+
+        limiter.release(held[0].lease_id)
+        self.assertTrue(granted_signals[queued[0].ticket_id].wait(timeout=5.0))
+        limiter.release(held[1].lease_id)
+        self.assertTrue(granted_signals[queued[1].ticket_id].wait(timeout=5.0))
+        release_gates[queued[0].ticket_id].set()
+        self.assertTrue(granted_signals[queued[2].ticket_id].wait(timeout=5.0))
+        release_gates[queued[1].ticket_id].set()
+        release_gates[queued[2].ticket_id].set()
+        for thread in pollers:
+            thread.join(timeout=10.0)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(thread_errors, [])
+        self.assertEqual(granted_order, [item.ticket_id for item in queued])
+
+        # 3. Expired TTL lease from a dead holder is reaped and fold_limits matches state.json.
+        self.alive[77] = "start-77"
+        dead_lease = limiter.acquire(self.request(account="acct-a", stage="design", pid=77))
+        self.assertTrue(dead_lease.granted)
+        del self.alive[77]
+        self.clock.now += 31.0
+        fresh = limiter.acquire(self.request(account="acct-a", stage="design", pid=1))
+        self.assertTrue(fresh.granted)
+        limiter.release(fresh.lease_id)
+
+        limits_root = Path(self._tmp.name) / "state" / "limits"
+        events = read_stream(limits_root / "journal.jsonl").events
+        self.assertIn("lease_reaped", [event["type"] for event in events])
+        self.assertEqual(fold_limits(events), json.loads((limits_root / "state.json").read_text()))
+        self.assertEqual(limiter.snapshot()["global"]["in_use"], 0)
+
+    def test_negative_nan_or_unparseable_retry_after_falls_back_to_default_backoff(self):
+        from cli_platform.normalize import parse_retry_after
+
+        fixtures_dir = ROOT / "tests" / "fixtures" / "rate_limits"
+        acp_fixture = json.loads((fixtures_dir / "acp_429_retry_after.json").read_text())
+        hl_fixture = json.loads((fixtures_dir / "headless_429_retry_ms.json").read_text())
+
+        self.assertEqual(parse_retry_after(acp_fixture, ""), 1200.0)
+        self.assertEqual(parse_retry_after(hl_fixture["frames"][1]["data"], ""), 42.0)
+        self.assertEqual(parse_retry_after(None, hl_fixture["frames"][3]["data"]), 42.0)
+
+        invalid_inputs = [
+            ({"error": {"data": {"retryAfter": -10}}}, ""),
+            ({"error": {"data": {"retryAfter": 0}}}, ""),
+            ({"error": {"data": {"retryAfter": float("nan")}}}, ""),
+            ({"error": {"data": {"retryAfter": float("inf")}}}, ""),
+            ({"error": {"data": {"retryAfter": float("-inf")}}}, ""),
+            ({"error": {"data": {"retryAfter": True}}}, ""),
+            ({"error": {"data": {"retryAfter": "not-a-number"}}}, ""),
+            ({"rate_limit_info": {"retry_after_ms": -500}}, ""),
+            ({"rate_limit_info": {"retry_after_ms": 0}}, ""),
+            ({"rate_limit_info": {"retry_after_ms": "NaN"}}, ""),
+            (None, "HTTP 429 retry-after: invalid"),
+            (None, ""),
+        ]
+        for payload, stderr_text in invalid_inputs:
+            with self.subTest(payload=payload, stderr_text=stderr_text):
+                parsed = parse_retry_after(payload, stderr_text)
+                self.assertIsNone(parsed)
+
+        limiter = self.limiter()
+        start = self.clock.now
+        parsed_neg = parse_retry_after({"error": {"data": {"retryAfter": -5}}}, "")
+        parsed_nan = parse_retry_after({"error": {"data": {"retryAfter": math.nan}}}, "")
+        self.assertIsNone(parsed_neg)
+        self.assertIsNone(parsed_nan)
+        self.assertEqual(limiter.report_rate_limit("acct-a", parsed_neg) - start, 60.0)
+        self.assertEqual(limiter.report_rate_limit("acct-a", parsed_nan) - start, 120.0)
 
 
 _CHILD = """

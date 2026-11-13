@@ -51,6 +51,20 @@ class SampleConfigTest(unittest.TestCase):
         for marker in ("sk-", "Bearer ", "AUTH_TOKEN =", "API_KEY ="):
             self.assertNotIn(marker, text)
 
+    def test_sample_account_caps_match_calibration(self):
+        expected = {
+            "anthropic-sub": 2,
+            "cursor-pro": 1,
+            "anthropic-gateway": 2,
+            "kiro-idc": 2,
+            "openai-codex": 2,
+            "google-agy": 1,
+        }
+        actual = {name: account.max_parallel for name, account in self.config.accounts.items()}
+        self.assertEqual(set(actual), set(expected))
+        for account_id, cap in expected.items():
+            self.assertEqual(actual[account_id], cap, account_id)
+
 
 class ValidationTest(unittest.TestCase):
     def setUp(self) -> None:

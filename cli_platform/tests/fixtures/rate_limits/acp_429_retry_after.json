@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "error": {
+    "code": 429,
+    "message": "HTTP 429 Too Many Requests: rate limit exceeded",
+    "data": {
+      "status": 429,
+      "type": "rate_limit_error",
+      "retryAfter": 1200
+    }
+  }
+}

@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 
 from . import errors
 from .adapters.base import PreEvent
@@ -52,6 +54,193 @@ _CLAUDE_QUIET_STREAM = frozenset({"message_start", "content_block_start", "conte
                                   "message_delta", "message_stop", "ping"})
 _CLAUDE_SUBAGENT_TOOLS = frozenset({"Task", "Agent"})
 _CLAUDE_ERRORS = {"authentication_failed": errors.AUTH_REQUIRED, "rate_limit": errors.RATE_LIMITED}
+
+_RETRY_AFTER_KEYS_S = frozenset({"retry_after", "retryafter"})
+_RETRY_AFTER_KEYS_MS = frozenset({"retry_after_ms", "retryafterms"})
+_RETRY_AFTER_RE = re.compile(
+    r"""(?i)\b(?P<key>retry[-_ ]?after(?:[-_ ]?ms)?|retryAfter(?:Ms)?)\b["']?\s*[:=]\s*["']?(?P<val>[^,\s;}"']+)"""
+)
+_RATE_LIMIT_TYPES = frozenset({"rate_limit_error", "rate_limited", "rate_limit", "too_many_requests"})
+_RATE_LIMIT_TEXT_RE = re.compile(
+    r"(?i)(?:\bhttp\s*429\b|\bstatus(?:\s*code)?\s*[:=]?\s*429\b|\b429\s+too\s+many\s+requests\b"
+    r"|\btoo\s+many\s+requests\b|\brate[_\s-]?limit(?:ed|_error|\s+exceeded)\b)"
+)
+
+
+def _positive_finite_float(value: object) -> float | None:
+    """Return a positive finite float, rejecting bools, NaN, inf, <= 0, and unparseable values."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            num = float(text)
+        except ValueError:
+            return None
+    else:
+        return None
+    if not math.isfinite(num) or num <= 0.0:
+        return None
+    return num
+
+
+def _iter_embedded_json(text: str):
+    decoder = json.JSONDecoder()
+    idx = 0
+    while True:
+        idx = text.find("{", idx)
+        if idx == -1:
+            break
+        try:
+            decoded, end = decoder.raw_decode(text, idx)
+        except ValueError:
+            idx += 1
+            continue
+        yield decoded
+        idx = end
+
+
+def _extract_retry_after_structured(obj: object, seen: set[int]) -> float | None:
+    if isinstance(obj, (dict, list, tuple)):
+        obj_id = id(obj)
+        if obj_id in seen:
+            return None
+        seen.add(obj_id)
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if not isinstance(key, str):
+                continue
+            norm_key = key.lower().replace("-", "_")
+            if norm_key in _RETRY_AFTER_KEYS_S:
+                parsed = _positive_finite_float(value)
+                if parsed is not None:
+                    return parsed
+            elif norm_key in _RETRY_AFTER_KEYS_MS:
+                parsed = _positive_finite_float(value)
+                if parsed is not None:
+                    return parsed / 1000.0
+        for value in obj.values():
+            found = _extract_retry_after_structured(value, seen)
+            if found is not None:
+                return found
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            found = _extract_retry_after_structured(item, seen)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_retry_after_from_text(text: str) -> float | None:
+    if not text:
+        return None
+    for decoded in _iter_embedded_json(text):
+        found = _extract_retry_after_structured(decoded, set())
+        if found is not None:
+            return found
+    for match in _RETRY_AFTER_RE.finditer(text):
+        parsed = _positive_finite_float(match.group("val"))
+        if parsed is None:
+            continue
+        if match.group("key").lower().endswith("ms"):
+            return parsed / 1000.0
+        return parsed
+    return None
+
+
+def _collect_strings(obj: object, seen: set[int]) -> list[str]:
+    out: list[str] = []
+    if isinstance(obj, str):
+        out.append(obj)
+        return out
+    if isinstance(obj, (dict, list, tuple)):
+        obj_id = id(obj)
+        if obj_id in seen:
+            return out
+        seen.add(obj_id)
+        values = obj.values() if isinstance(obj, dict) else obj
+        for item in values:
+            out.extend(_collect_strings(item, seen))
+    return out
+
+
+def parse_retry_after(payload: object = None, stderr_text: str = "") -> float | None:
+    """Extract a positive finite ``retry_after`` duration in seconds from wire payloads or stderr."""
+    if payload is not None:
+        found = _extract_retry_after_structured(payload, set())
+        if found is not None:
+            return found
+        for text in _collect_strings(payload, set()):
+            found = _extract_retry_after_from_text(text)
+            if found is not None:
+                return found
+    if isinstance(stderr_text, str) and stderr_text:
+        return _extract_retry_after_from_text(stderr_text)
+    return None
+
+
+def _is_429_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value == 429
+    if isinstance(value, str):
+        return value.strip() == "429"
+    return False
+
+
+def _is_rate_limit_structured(obj: object, seen: set[int]) -> bool:
+    if isinstance(obj, (dict, list, tuple)):
+        obj_id = id(obj)
+        if obj_id in seen:
+            return False
+        seen.add(obj_id)
+    if isinstance(obj, dict):
+        for key in ("code", "status", "status_code", "http_status"):
+            if _is_429_value(obj.get(key)):
+                return True
+        for key in ("type", "code", "error_code", "wire_error"):
+            val = obj.get(key)
+            if isinstance(val, str) and val.strip().lower() in _RATE_LIMIT_TYPES:
+                return True
+        if obj.get("type") == "rate_limit_event":
+            info = obj.get("rate_limit_info")
+            if isinstance(info, dict) and info.get("status") not in (None, "allowed", "allowed_warning"):
+                return True
+        for value in obj.values():
+            if _is_rate_limit_structured(value, seen):
+                return True
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            if _is_rate_limit_structured(item, seen):
+                return True
+    return False
+
+
+def _is_rate_limit_text(text: str) -> bool:
+    if not text:
+        return False
+    for decoded in _iter_embedded_json(text):
+        if _is_rate_limit_structured(decoded, set()):
+            return True
+    return bool(_RATE_LIMIT_TEXT_RE.search(text))
+
+
+def is_rate_limit_error(payload: object = None, stderr_text: str = "") -> bool:
+    """Return True when a structured error payload or stderr text reports HTTP 429 / rate limit."""
+    if payload is not None:
+        if _is_rate_limit_structured(payload, set()):
+            return True
+        for text in _collect_strings(payload, set()):
+            if _is_rate_limit_text(text):
+                return True
+    if isinstance(stderr_text, str) and _is_rate_limit_text(stderr_text):
+        return True
+    return False
 
 
 def turn_result(stop_reason: str | None) -> str:
@@ -103,6 +292,7 @@ class Normalizer:
         self.terminal: dict | None = None        # headless: the last terminal record
         self.rate_limit: dict | None = None      # headless: a non-allowed rate-limit frame
         self.failure: str | None = None          # headless: an error code the stream reported
+        self.retry_after: float | None = None    # headless: parsed retry_after seconds
 
     # -- ACP --------------------------------------------------------------------
 
@@ -239,9 +429,17 @@ class Normalizer:
                     # An API failure is reported on the assistant line, then in
                     # an is_error result (p0c_claude_headless.json).
                     self.failure = _CLAUDE_ERRORS.get(line["error"], errors.ADAPTER_ERROR)
-                    out += self._close() + [PreEvent("error", {
+                    if self.failure != errors.RATE_LIMITED and is_rate_limit_error(line):
+                        self.failure = errors.RATE_LIMITED
+                    retry_after = parse_retry_after(line) if self.failure == errors.RATE_LIMITED else None
+                    if retry_after is not None:
+                        self.retry_after = retry_after
+                    err_payload: dict[str, object] = {
                         "code": self.failure, "retryable": self.failure == errors.RATE_LIMITED,
-                        "phase": "turn", "wire_error": line["error"]}, raw_seq, kind=f"{kind}:error")]
+                        "phase": "turn", "wire_error": line["error"]}
+                    if retry_after is not None:
+                        err_payload["retry_after"] = retry_after
+                    out += self._close() + [PreEvent("error", err_payload, raw_seq, kind=f"{kind}:error")]
                 for block in message.get("content") or []:
                     if not isinstance(block, dict):
                         continue
@@ -277,17 +475,27 @@ class Normalizer:
                 if info.get("status") in (None, "allowed", "allowed_warning"):
                     return []
                 # Not provoked by the probe (F05, F09): mapped by field names only.
+                retry_after = parse_retry_after(line)
+                if retry_after is not None:
+                    self.retry_after = retry_after
                 self.rate_limit = {"status": info.get("status"), "resets_at": info.get("resetsAt")}
+                if retry_after is not None:
+                    self.rate_limit["retry_after"] = retry_after
                 self.failure = errors.RATE_LIMITED
-                return self._flush_delta() + [PreEvent("error", {
+                err_payload: dict[str, object] = {
                     "code": errors.RATE_LIMITED, "retryable": True, "phase": "turn",
-                    "status": info.get("status"), "resets_at": info.get("resetsAt")},
-                    raw_seq, kind=kind)]
+                    "status": info.get("status"), "resets_at": info.get("resetsAt")}
+                if retry_after is not None:
+                    err_payload["retry_after"] = retry_after
+                return self._flush_delta() + [PreEvent("error", err_payload, raw_seq, kind=kind)]
             case "result":
                 self.counters["results"] += 1
+                is_error = bool(line.get("is_error")) or line.get("subtype") not in (None, "success")
+                if is_error:
+                    self._record_rate_limit(line)
                 self.terminal = {
                     "stop_reason": line.get("stop_reason"),
-                    "is_error": bool(line.get("is_error")) or line.get("subtype") not in (None, "success"),
+                    "is_error": is_error,
                     "resume_id": line.get("session_id"), "text": line.get("result"),
                     "usage": _claude_usage(line)}
                 return self._close()
@@ -336,6 +544,8 @@ class Normalizer:
             case "result":
                 self.counters["results"] += 1
                 error = bool(line.get("is_error")) or line.get("subtype") != "success"
+                if error:
+                    self._record_rate_limit(line)
                 self.terminal = {"stop_reason": "end_turn" if not error else line.get("subtype"),
                                  "is_error": error, "resume_id": line.get("session_id"),
                                  "text": line.get("result"), "usage": line.get("usage")}
@@ -369,6 +579,8 @@ class Normalizer:
                 self.counters["results"] += 1
                 result = line.get("result") or {}
                 ok = result.get("status") == "SUCCESS"
+                if not ok:
+                    self._record_rate_limit(line)
                 self.terminal = {"stop_reason": "end_turn" if ok else str(result.get("status")).lower(),
                                  "is_error": not ok, "resume_id": result.get("conversation_id"),
                                  "text": result.get("response"), "usage": result.get("usage")}
@@ -394,6 +606,8 @@ class Normalizer:
             case "runFinished":
                 self.counters["results"] += 1
                 ok = data.get("status") == "success"
+                if not ok:
+                    self._record_rate_limit(line)
                 self.terminal = {"stop_reason": data.get("stopReason") if ok else data.get("status"),
                                  "is_error": not ok, "resume_id": data.get("sessionId"),
                                  "text": data.get("finalText"), "usage": None}
@@ -415,19 +629,32 @@ class Normalizer:
             self._usage = None
         return out
 
+    def _record_rate_limit(self, line: dict) -> None:
+        if is_rate_limit_error(line):
+            self.failure = errors.RATE_LIMITED
+            retry_after = parse_retry_after(line)
+            if retry_after is not None:
+                self.retry_after = retry_after
+
     def headless_turn_end(self, exit_code: int | None) -> PreEvent:
         """The ``turn_end`` of a headless turn, from the last terminal record."""
         terminal = self.terminal
         if terminal is None:
             result = "unknown" if exit_code == 0 else "error"
-            return PreEvent("turn_end", {"stop_reason": None, "result": result,
-                                         "resume_id": self.observed.get("session_id"),
-                                         "usage": None, "results": 0})
-        result = "error" if terminal["is_error"] else turn_result(terminal["stop_reason"])
-        return PreEvent("turn_end", {
-            "stop_reason": terminal["stop_reason"], "result": result,
-            "resume_id": terminal.get("resume_id") or self.observed.get("session_id"),
-            "usage": terminal.get("usage"), "results": self.counters["results"]})
+            payload: dict[str, object] = {"stop_reason": None, "result": result,
+                                          "resume_id": self.observed.get("session_id"),
+                                          "usage": None, "results": 0}
+        else:
+            result = "error" if terminal["is_error"] else turn_result(terminal["stop_reason"])
+            payload = {
+                "stop_reason": terminal["stop_reason"], "result": result,
+                "resume_id": terminal.get("resume_id") or self.observed.get("session_id"),
+                "usage": terminal.get("usage"), "results": self.counters["results"]}
+        if self.failure is not None and result == "error":
+            payload["error_code"] = self.failure
+        if self.retry_after is not None and self.failure == errors.RATE_LIMITED:
+            payload["retry_after"] = self.retry_after
+        return PreEvent("turn_end", payload)
 
     # -- internals ------------------------------------------------------------------
 

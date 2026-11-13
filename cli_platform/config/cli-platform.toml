@@ -76,7 +76,7 @@ breaker_retry_seconds = 1800     # then one trial turn after 30 minutes
 
 [accounts.anthropic-sub]
 vendor = "anthropic"
-max_parallel = 3
+max_parallel = 2
 
 [accounts.anthropic-gateway]
 vendor = "anthropic-compatible gateway"
@@ -84,7 +84,7 @@ max_parallel = 2
 
 [accounts.cursor-pro]
 vendor = "cursor"
-max_parallel = 2
+max_parallel = 1
 
 [accounts.kiro-idc]
 vendor = "kiro"

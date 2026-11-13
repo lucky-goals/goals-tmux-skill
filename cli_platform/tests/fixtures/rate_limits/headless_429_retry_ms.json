@@ -1,0 +1,49 @@
+{
+  "probe": "synthetic-headless-429-retry-ms",
+  "transport": "headless",
+  "adapter": "claude",
+  "exit_code": 1,
+  "frames": [
+    {
+      "t_rel_s": 0.1,
+      "dir": "rx",
+      "data": {
+        "type": "system",
+        "subtype": "init",
+        "session_id": "sess-hl-429",
+        "model": "claude-haiku-4-5"
+      }
+    },
+    {
+      "t_rel_s": 0.2,
+      "dir": "rx",
+      "data": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "rejected",
+          "retry_after_ms": 42000
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.25,
+      "dir": "rx",
+      "data": {
+        "type": "result",
+        "subtype": "error_during_execution",
+        "is_error": true,
+        "session_id": "sess-hl-429",
+        "error": {
+          "status": 429,
+          "type": "rate_limit_error",
+          "retry_after_ms": 42000
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.3,
+      "dir": "stderr",
+      "data": "HTTP 429 Too Many Requests: {\"error\": {\"type\": \"rate_limit_error\", \"retry_after_ms\": 42000}}"
+    }
+  ]
+}

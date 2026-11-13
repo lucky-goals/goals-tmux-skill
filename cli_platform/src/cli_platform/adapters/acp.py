@@ -35,7 +35,7 @@ from typing import Callable, Iterator
 
 from .. import errors
 from ..config import DEFAULT_MODEL_ID, Candidate
-from ..normalize import Normalizer, turn_result
+from ..normalize import Normalizer, is_rate_limit_error, parse_retry_after, turn_result
 from .base import (AgentTransport, Capabilities, ExitInfo, PreEvent, RawSink, SessionRef,
                    TransportFault, TurnLaunch, no_raw_sink, terminate_group)
 
@@ -112,8 +112,11 @@ class AcpTransport(AgentTransport):
                                                "clientInfo": CLIENT_INFO},
                                 limit, "handshake", errors.ACP_HANDSHAKE_TIMEOUT)
         except RpcError as exc:
-            raise TransportFault(errors.AUTH_REQUIRED if exc.code == -32000 else errors.ACP_HANDSHAKE_INVALID,
-                                 "handshake", str(exc), rpc_code=exc.code) from exc
+            code, retry_after = self._classify_rpc_error(exc.error, errors.ACP_HANDSHAKE_INVALID)
+            detail: dict[str, object] = {"rpc_code": exc.code}
+            if retry_after is not None:
+                detail["retry_after"] = retry_after
+            raise TransportFault(code, "handshake", str(exc), **detail) from exc
         if not isinstance(result, dict) or not isinstance(result.get("protocolVersion"), int):
             raise TransportFault(errors.ACP_HANDSHAKE_INVALID, "handshake", "initialize reply has no version")
         version = result["protocolVersion"]
@@ -192,8 +195,20 @@ class AcpTransport(AgentTransport):
             last_input = self._clock()
             if item[0] == "eof":
                 yield from self.normalizer.finish()
-                yield PreEvent("fault", {"code": errors.ACP_STREAM_ENDED, "phase": "turn",
-                                         "stderr_tail": list(self._stderr)[-5:]})
+                stderr_text = "\n".join(self._stderr)
+                if is_rate_limit_error(None, stderr_text):
+                    fault_payload: dict[str, object] = {
+                        "code": errors.RATE_LIMITED,
+                        "phase": "turn",
+                        "stderr_tail": list(self._stderr)[-5:],
+                    }
+                    retry_after = parse_retry_after(None, stderr_text)
+                    if retry_after is not None:
+                        fault_payload["retry_after"] = retry_after
+                    yield PreEvent("fault", fault_payload)
+                else:
+                    yield PreEvent("fault", {"code": errors.ACP_STREAM_ENDED, "phase": "turn",
+                                             "stderr_tail": list(self._stderr)[-5:]})
                 return
             done = False
             for event in self._dispatch(item):
@@ -269,6 +284,14 @@ class AcpTransport(AgentTransport):
             except queue.Empty:
                 continue
             if item[0] == "eof":
+                stderr_text = "\n".join(self._stderr)
+                if is_rate_limit_error(None, stderr_text):
+                    retry_after = parse_retry_after(None, stderr_text)
+                    detail: dict[str, object] = {"stderr_tail": list(self._stderr)[-5:]}
+                    if retry_after is not None:
+                        detail["retry_after"] = retry_after
+                    raise TransportFault(errors.RATE_LIMITED, phase,
+                                         f"agent exited before answering {method}", **detail)
                 code = errors.AUTH_REQUIRED if self._auth_hint() else errors.ACP_EXITED_EARLY
                 raise TransportFault(code, phase, f"agent exited before answering {method}",
                                      stderr_tail=list(self._stderr)[-5:])
@@ -287,16 +310,17 @@ class AcpTransport(AgentTransport):
         try:
             return self._call(method, params, deadline, "session", errors.ACP_SETUP_TIMEOUT)
         except RpcError as exc:
-            if exc.code == -32000:
-                raise TransportFault(errors.AUTH_REQUIRED, "session", str(exc)) from exc
             if not_found and (exc.code == -32002 or (exc.code == -32602 and exc.mentions_not_found())):
                 raise TransportFault(errors.ACP_SESSION_NOT_FOUND, "session", str(exc),
                                      rpc_code=exc.code) from exc
             if exc.code == -32601:
                 raise TransportFault(f"{errors.ACP_CAPABILITY_MISSING}:{method}", "session",
                                      str(exc)) from exc
-            raise TransportFault(errors.ACP_HANDSHAKE_INVALID, "session", str(exc),
-                                 rpc_code=exc.code) from exc
+            code, retry_after = self._classify_rpc_error(exc.error, errors.ACP_HANDSHAKE_INVALID)
+            detail: dict[str, object] = {"rpc_code": exc.code}
+            if retry_after is not None:
+                detail["retry_after"] = retry_after
+            raise TransportFault(code, "session", str(exc), **detail) from exc
 
     def _select(self, selection: Candidate, options: object, deadline: float) -> None:
         """Apply the resolved model and effort with ``session/set_config_option``
@@ -362,9 +386,16 @@ class AcpTransport(AgentTransport):
                 yield from norm.finish()
                 if isinstance(message.get("error"), dict):
                     error = message["error"]
-                    code = errors.AUTH_REQUIRED if error.get("code") == -32000 else errors.ADAPTER_ERROR
-                    yield PreEvent("fault", {"code": code, "phase": "turn", "rpc_code": error.get("code"),
-                                             "message": str(error.get("message", ""))[:500]}, raw_seq)
+                    code, retry_after = self._classify_rpc_error(error, errors.ADAPTER_ERROR)
+                    fault_payload: dict[str, object] = {
+                        "code": code,
+                        "phase": "turn",
+                        "rpc_code": error.get("code"),
+                        "message": str(error.get("message", ""))[:500],
+                    }
+                    if retry_after is not None:
+                        fault_payload["retry_after"] = retry_after
+                    yield PreEvent("fault", fault_payload, raw_seq)
                     return
                 result = message.get("result") if isinstance(message.get("result"), dict) else {}
                 stop = result.get("stopReason")
@@ -404,6 +435,14 @@ class AcpTransport(AgentTransport):
             line = raw.decode("utf-8", "replace").rstrip("\r\n")[:2000]
             self._stderr.append(line)
             self._raw("stderr", line)
+
+    def _classify_rpc_error(self, error: dict, default_code: str) -> tuple[str, float | None]:
+        stderr_text = "\n".join(self._stderr)
+        if error.get("code") == -32000:
+            return errors.AUTH_REQUIRED, None
+        if is_rate_limit_error(error, stderr_text):
+            return errors.RATE_LIMITED, parse_retry_after(error, stderr_text)
+        return default_code, None
 
     def _auth_hint(self) -> bool:
         text = "\n".join(self._stderr).lower()

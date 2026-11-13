@@ -31,7 +31,7 @@ from typing import Callable, Iterator
 
 from .. import errors
 from ..config import Candidate
-from ..normalize import Normalizer
+from ..normalize import Normalizer, is_rate_limit_error, parse_retry_after
 from .base import (AgentTransport, Capabilities, ExitInfo, PreEvent, RawSink, SessionRef,
                    TransportFault, TurnLaunch, no_raw_sink, terminate_group)
 
@@ -144,11 +144,25 @@ class HeadlessTransport(AgentTransport):
         yield from norm.finish()
         end = norm.headless_turn_end(exit_code)
         end.payload["exit_code"] = exit_code
-        failure = norm.failure or (errors.AUTH_REQUIRED if self._auth_hint() else None)
+        stderr_text = "\n".join(self._stderr)
+        failure = norm.failure
+        if failure in (None, errors.ADAPTER_ERROR):
+            if is_rate_limit_error(None, stderr_text):
+                failure = errors.RATE_LIMITED
+            elif failure is None and self._auth_hint():
+                failure = errors.AUTH_REQUIRED
         if exit_code not in (0, None) and end.payload["result"] in ("ok", "unknown"):
+            end.payload["result"] = "error"
+        elif failure == errors.RATE_LIMITED and end.payload["result"] == "unknown":
             end.payload["result"] = "error"
         if end.payload["result"] == "error":
             end.payload["error_code"] = failure or errors.ADAPTER_ERROR
+            if end.payload["error_code"] == errors.RATE_LIMITED:
+                retry_after = norm.retry_after
+                if retry_after is None:
+                    retry_after = parse_retry_after(None, stderr_text)
+                if retry_after is not None:
+                    end.payload["retry_after"] = retry_after
             end.payload["stderr_tail"] = list(self._stderr)[-5:]
         yield end
 
