@@ -32,7 +32,7 @@ from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
 from .scanner import publish_environment_snapshots, scan_all
 from .supervisor import (Platform, RunService, SessionRequest, publish_config_applied,
-                         publish_config_rejected)
+                         publish_config_rejected, write_worker_ready)
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cli-platform.toml"
 
@@ -83,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     send.add_argument("instruction", nargs="?")
     send.add_argument("--file", type=Path, help="read the instruction from a file ('-' for stdin)")
     send.add_argument("--request-id", help="idempotency key; a committed request is not run again")
+    send.add_argument("--detach", action="store_true",
+                      help="run the turn in a detached setsid worker and return once started")
     cancel = runs.add_parser("cancel", help="cancel the running or queued turn")
     cancel.add_argument("run")
     cancel.add_argument("--reason", default="requested")
@@ -91,26 +93,43 @@ def main(argv: list[str] | None = None) -> int:
     events = runs.add_parser("events", help="events after a cursor")
     events.add_argument("run")
     events.add_argument("--after-seq", type=int, default=0)
+    wait = runs.add_parser("wait", help="wait until a run reaches a settled state")
+    wait.add_argument("run")
+    wait.add_argument("--timeout", type=float, default=300.0,
+                      help="maximum seconds to wait (default: 300)")
     reconcile = runs.add_parser("reconcile", help="report or resolve a run whose supervisor is gone")
     reconcile.add_argument("run")
     reconcile.add_argument("--resolve", choices=("idle", "failed"))
     runs.add_parser("list")
+    run_turn = commands.add_parser("_run-turn")
+    run_turn.add_argument("run_id")
+    run_turn.add_argument("--config", dest="worker_config", type=Path)
+    run_turn.add_argument("--state-dir", dest="worker_state_dir", type=Path)
+    run_turn.add_argument("--instruction-file", type=Path, required=True)
+    run_turn.add_argument("--request-id")
+    run_turn.add_argument("--ready-fd", type=int)
+    run_turn.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args(argv)
     if args.locale and normalize(args.locale) is None:
         parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
 
+    config_path = getattr(args, "worker_config", None) or args.config
+    state_dir = getattr(args, "worker_state_dir", None)
+    if state_dir is None:
+        state_dir = args.state_dir
+
     config = None
     try:
         try:
-            config = load_config(args.config)
+            config = load_config(config_path)
         except PlatformError as exc:
-            if args.state_dir is not None:
-                publish_config_rejected(args.state_dir, args.config, exc)
+            if state_dir is not None:
+                publish_config_rejected(state_dir, config_path, exc)
             raise
         publish_dir = (
-            args.state_dir
-            if args.state_dir is not None
-            else (config.state_dir if args.command in ("run", "scan")
+            state_dir
+            if state_dir is not None
+            else (config.state_dir if args.command in ("run", "scan", "_run-turn")
                   or (args.command == "plan" and args.commit) else None)
         )
         if publish_dir is not None:
@@ -125,21 +144,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "scan":
             scans = scan_all(probe_auth=args.auth)
-            if args.state_dir is not None:
+            if state_dir is not None:
                 publish_environment_snapshots(
-                    Platform(config, scans, state_dir=args.state_dir),
-                    args.state_dir,
+                    Platform(config, scans, state_dir=state_dir),
+                    state_dir,
                     scans,
                 )
             print(json.dumps([item.to_dict() for item in scans], indent=2))
             return 0
         if args.command == "run":
             return _run(args, config)
+        if args.command == "_run-turn":
+            return _run_turn(args, config, state_dir)
         scans = scan_all()
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
                 return _plan(Platform(config, scans, state_dir=Path(scratch)), args)
-        platform = Platform(config, scans, state_dir=args.state_dir)
+        platform = Platform(config, scans, state_dir=state_dir)
         if args.command == "plan":
             return _plan(platform, args)
         if args.command == "variants":
@@ -157,6 +178,13 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(resolution.explain()))
         return 0
     except PlatformError as exc:
+        if args.command == "_run-turn" and getattr(args, "ready_fd", None) is not None:
+            try:
+                write_worker_ready(args.ready_fd, {
+                    "ok": False, "code": exc.code, "message": exc.message, "details": exc.details,
+                })
+            except OSError:
+                pass
         refusal = exc.to_dict()
         refusal["text"] = Translator(negotiate(args.locale, config.ui.locale if config else None).locale) \
             .code("error", exc.code)
@@ -180,7 +208,7 @@ def _locale(args: argparse.Namespace, config) -> int:
 def _run(args: argparse.Namespace, config) -> int:
     # Only a send starts a CLI, so only a send pays for the scan (local
     # --version and --help commands; it records the CLI version for the breaker).
-    scans = scan_all() if args.run_command == "send" else None
+    scans = scan_all() if (args.run_command == "send" and not args.detach) else None
     service = RunService(Platform(config, scans, state_dir=args.state_dir))
     command = args.run_command
     if command == "create":
@@ -194,13 +222,15 @@ def _run(args: argparse.Namespace, config) -> int:
             instruction = args.instruction
         else:
             raise SystemExit("run send needs an instruction or --file")
-        result = service.send(args.run, instruction, request_id=args.request_id)
+        result = service.send(args.run, instruction, request_id=args.request_id, detach=args.detach)
     elif command == "cancel":
         result = service.cancel(args.run, args.reason)
     elif command == "status":
         result = service.status(args.run)
     elif command == "events":
         result = service.events(args.run, args.after_seq)
+    elif command == "wait":
+        result = service.wait(args.run, timeout_seconds=args.timeout)
     elif command == "close":
         result = service.close(args.run)
     elif command == "reconcile":
@@ -208,6 +238,27 @@ def _run(args: argparse.Namespace, config) -> int:
     else:
         result = service.list()
     print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _run_turn(args: argparse.Namespace, config, state_dir: Path | None) -> int:
+    try:
+        instruction = args.instruction_file.read_text(encoding="utf-8")
+    finally:
+        try:
+            args.instruction_file.unlink()
+        except FileNotFoundError:
+            pass
+    service = RunService(
+        Platform(config, scan_all(), state_dir=state_dir),
+        poll_seconds=args.poll_seconds,
+    )
+    service.run_turn_worker(
+        args.run_id,
+        instruction,
+        request_id=args.request_id,
+        ready_fd=args.ready_fd,
+    )
     return 0
 
 

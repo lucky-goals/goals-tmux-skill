@@ -35,6 +35,9 @@ import fcntl
 import hashlib
 import json
 import os
+import select
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -661,29 +664,180 @@ class RunService:
 
     # -- send -------------------------------------------------------------------------
 
-    def send(self, ref: str, instruction: str, *, request_id: str | None = None) -> dict:
+    def send(self, ref: str, instruction: str, *, request_id: str | None = None,
+             detach: bool = False) -> dict:
+        if detach:
+            return self._send_detached(ref, instruction, request_id=request_id)
+        return self._send_sync(ref, instruction, request_id=request_id)
+
+    def _prepare_send(self, run: _Run, instruction: str, request_id: str | None) -> tuple[str, int, dict | None]:
+        turns = int(run.state.get("turns", 0))
+        resolved_request_id = request_id or "req-" + hashlib.sha256(
+            f"{run.run['run_id']}:{turns}:{instruction}".encode()).hexdigest()[:16]
+        earlier = self._committed(run, resolved_request_id)
+        if earlier is not None:
+            return resolved_request_id, turns, dict(earlier, duplicate=True, state=run.state["state"])
+        if run.state["state"] not in ("created", "idle", "failed"):
+            raise PlatformError(errors.RUN_STATE_INVALID,
+                                f"run is {run.state['state']}; a turn needs created, idle or failed")
+        return resolved_request_id, turns, None
+
+    def _send_sync(self, ref: str, instruction: str, *, request_id: str | None = None,
+                   on_ready: Callable[[_Run, str, int], None] | None = None) -> dict:
         handle = self.find(ref)
         with handle.lock():
             run = _Run(handle)
-            turns = int(run.state.get("turns", 0))
-            request_id = request_id or "req-" + hashlib.sha256(
-                f"{run.run['run_id']}:{turns}:{instruction}".encode()).hexdigest()[:16]
-            earlier = self._committed(run, request_id)
-            if earlier is not None:
-                return dict(earlier, duplicate=True, state=run.state["state"])
-            if run.state["state"] not in ("created", "idle", "failed"):
-                raise PlatformError(errors.RUN_STATE_INVALID,
-                                    f"run is {run.state['state']}; a turn needs created, idle or failed")
+            before_seq = run.log.last_seq
+            request_id, turns, duplicate = self._prepare_send(run, instruction, request_id)
+            if duplicate is not None:
+                return duplicate
             handle.clear_cancel()
             turn_id = f"t{turns + 1:04d}"
             selection, account = self._route(run, turn_id)
-            lease = self._lease(run, turn_id, selection, account)
+            ready_called = False
+
+            def notify_ready() -> None:
+                nonlocal ready_called
+                if on_ready is not None and not ready_called:
+                    ready_called = True
+                    on_ready(run, turn_id, before_seq)
+
+            lease = self._lease(run, turn_id, selection, account, on_state_change=notify_ready)
             if lease is None:
                 return self._summary(run, turn_id, request_id)
             try:
                 return self._turn(run, turn_id, request_id, instruction, selection, account, lease)
             finally:
                 handle.clear_cancel()
+
+    def _send_detached(self, ref: str, instruction: str, *, request_id: str | None = None) -> dict:
+        """Spawn a setsid per-turn worker holding ``RunHandle.lock`` and wait for readiness."""
+        _prune_detached()
+        handle = self.find(ref)
+        with handle.lock():
+            run = _Run(handle)
+            resolved_request_id, _, duplicate = self._prepare_send(run, instruction, request_id)
+            if duplicate is not None:
+                return duplicate
+            run_id = run.run["run_id"]
+
+        config_path = Path(self.platform.config.path)
+        if not config_path.is_file():
+            raise PlatformError(errors.SPAWN_FAILED, f"config file not found: {config_path}")
+
+        private_dir(handle.dir)
+        instruction_path = handle.dir / f"turn-{uuid.uuid4().hex[:12]}.instruction"
+        inst_fd = os.open(instruction_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(inst_fd, "w", encoding="utf-8") as inst_handle:
+                inst_handle.write(instruction)
+                inst_handle.flush()
+                os.fsync(inst_handle.fileno())
+        except Exception:
+            _unlink_quiet(instruction_path)
+            raise
+
+        read_fd, write_fd = os.pipe()
+        err_path = handle.dir / "supervisor.err"
+        err_fd: int | None = None
+        proc: subprocess.Popen | None = None
+        try:
+            err_fd = os.open(err_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+            cmd = [
+                sys.executable, "-m", "cli_platform",
+                "--config", str(config_path),
+                "--state-dir", str(self.platform.state_dir),
+                "_run-turn",
+                run_id,
+                "--instruction-file", str(instruction_path),
+                "--request-id", resolved_request_id,
+                "--ready-fd", str(write_fd),
+                "--poll-seconds", str(self._poll),
+            ]
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=err_fd,
+                env=_worker_env(),
+                start_new_session=True,
+                pass_fds=(write_fd,),
+                close_fds=True,
+            )
+        except Exception as exc:
+            _unlink_quiet(instruction_path)
+            _close_quiet(read_fd)
+            raise PlatformError(errors.SPAWN_FAILED, f"failed to spawn detached supervisor: {exc}") from exc
+        finally:
+            _close_quiet(write_fd)
+            if err_fd is not None:
+                _close_quiet(err_fd)
+
+        try:
+            ready = _read_ready_pipe(read_fd)
+        except Exception as exc:
+            _reap_failed_worker(proc)
+            _unlink_quiet(instruction_path)
+            raise PlatformError(errors.SPAWN_FAILED, f"invalid readiness response from worker: {exc}") from exc
+
+        if ready is None:
+            _reap_failed_worker(proc)
+            _unlink_quiet(instruction_path)
+            tail = _read_err_tail(err_path)
+            detail = f": {tail}" if tail else ""
+            raise PlatformError(errors.SPAWN_FAILED, f"detached supervisor exited before ready{detail}")
+        if not ready.get("ok"):
+            _reap_failed_worker(proc)
+            _unlink_quiet(instruction_path)
+            details = ready.get("details")
+            raise PlatformError(
+                str(ready.get("code") or errors.SPAWN_FAILED),
+                str(ready.get("message") or "detached supervisor failed before ready"),
+                **(details if isinstance(details, dict) else {}),
+            )
+
+        _DETACHED_PROCS.append(proc)
+        return ready["result"]
+
+    def run_turn_worker(self, ref: str, instruction: str, *, request_id: str | None = None,
+                        ready_fd: int | None = None) -> dict:
+        """Execute one turn inside a detached worker and report readiness over ``ready_fd``."""
+        ready_sent = False
+
+        def send_ready(payload: dict) -> None:
+            nonlocal ready_sent
+            if ready_sent or ready_fd is None:
+                return
+            ready_sent = True
+            write_worker_ready(ready_fd, payload)
+
+        def on_ready(run: _Run, turn_id: str, before_seq: int) -> None:
+            send_ready({
+                "ok": True,
+                "result": {
+                    "run_id": run.run["run_id"],
+                    "nickname": run.run["nickname"],
+                    "turn_id": turn_id,
+                    "state": run.state["state"],
+                    "after_seq": before_seq,
+                    "supervisor": {
+                        "pid": os.getpid(),
+                        "started_at": _now(),
+                    },
+                },
+            })
+
+        try:
+            result = self._send_sync(ref, instruction, request_id=request_id, on_ready=on_ready)
+        except PlatformError as exc:
+            send_ready({"ok": False, "code": exc.code, "message": exc.message, "details": _jsonable(exc.details)})
+            raise
+        except Exception as exc:
+            send_ready({"ok": False, "code": errors.SPAWN_FAILED, "message": str(exc), "details": {}})
+            raise
+        if not ready_sent:
+            send_ready({"ok": True, "result": result})
+        return result
 
     def _committed(self, run: _Run, request_id: str) -> dict | None:
         """The turn a request already reached the commit point with, if any.
@@ -729,7 +883,8 @@ class RunService:
         run.append("route_resolved", payload, turn_id=turn_id)
         return selection, account
 
-    def _lease(self, run: _Run, turn_id: str, selection: Candidate, account: str) -> Outcome | None:
+    def _lease(self, run: _Run, turn_id: str, selection: Candidate, account: str,
+               *, on_state_change: Callable[[], None] | None = None) -> Outcome | None:
         """Acquire the turn's lease, queueing if needed. None: the wait ended
         without a lease (cancelled or timed out) and the state says why."""
         limiter = self.platform.limiter
@@ -741,6 +896,8 @@ class RunService:
             run.append("lease_queued", {"ticket_id": outcome.ticket_id, "position": outcome.position,
                                         "blocked_on": list(outcome.blocked_on)}, turn_id=turn_id)
             run.transition("queued", "lease_queued", turn_id=turn_id)
+            if on_state_change is not None:
+                on_state_change()
             while not outcome.granted:
                 if run.handle.cancel_requested():
                     limiter.cancel(outcome.ticket_id)
@@ -759,6 +916,8 @@ class RunService:
                                      "stage": run.run["stage"], "ref": outcome.ref}, turn_id=turn_id)
         run.state["lease_id"] = outcome.lease_id
         run.transition("starting", "lease_granted", turn_id=turn_id)
+        if on_state_change is not None:
+            on_state_change()
         return outcome
 
     # -- the turn -----------------------------------------------------------------------
@@ -1095,6 +1254,98 @@ class RunService:
                 return {"state": handle.read_state()["state"], "supervisor_alive": True}
             raise
 
+    def wait(self, ref: str, *,
+             until: Iterable[str] = ("idle", "failed", "cancelled", "lost", "closed"),
+             timeout_seconds: float = 300.0) -> dict:
+        """Wait until ``ref`` reaches a target state or its supervisor dies."""
+        handle = self.find(ref)
+        target = frozenset(until)
+        deadline = self._clock() + timeout_seconds
+        poll_interval = min(0.05, max(0.01, self._poll)) if self._poll > 0 else 0.05
+        state_path = handle.dir / "state.json"
+        last_sig: tuple[int, int] | None = None
+        last_state: dict | None = None
+
+        kq, dir_fd = _open_dir_kqueue(handle.dir)
+
+        try:
+            while True:
+                _prune_detached()
+                try:
+                    st = os.stat(state_path)
+                    sig: tuple[int, int] | None = (st.st_mtime_ns, st.st_ino)
+                except FileNotFoundError:
+                    sig = None
+
+                if sig is not None and (sig != last_sig or last_state is None):
+                    try:
+                        last_state = handle.read_state()
+                        last_sig = sig
+                    except (FileNotFoundError, ValueError, OSError):
+                        last_state = None
+
+                if last_state is not None:
+                    current = last_state["state"]
+                    if current in target:
+                        if current not in LIVE_STATES:
+                            while self._holder_alive(handle):
+                                remaining = deadline - self._clock()
+                                if remaining <= 0:
+                                    break
+                                time.sleep(min(0.01, remaining))
+                            _prune_detached()
+                        return self._wait_summary(handle, last_state)
+                    if current in LIVE_STATES and not self._holder_alive(handle):
+                        reconciled = self.reconcile(ref)
+                        try:
+                            last_state = handle.read_state()
+                            st = os.stat(state_path)
+                            last_sig = (st.st_mtime_ns, st.st_ino)
+                        except (FileNotFoundError, ValueError, OSError):
+                            pass
+                        if last_state is not None and (
+                            last_state["state"] in target or reconciled["state"] in target
+                        ):
+                            return self._wait_summary(handle, last_state)
+
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    run_data = handle.read_run()
+                    current = last_state["state"] if last_state is not None else "unknown"
+                    raise PlatformError(
+                        errors.TURN_TIMEOUT,
+                        f"timed out after {timeout_seconds}s waiting for {run_data['nickname']} ({current})",
+                        run_id=run_data["run_id"],
+                        nickname=run_data["nickname"],
+                        state=current,
+                    )
+                step = min(poll_interval, remaining)
+                if kq is not None:
+                    kq.control(None, 1, step)
+                else:
+                    time.sleep(step)
+        finally:
+            if kq is not None:
+                kq.close()
+            if dir_fd is not None:
+                os.close(dir_fd)
+
+    def _wait_summary(self, handle: RunHandle, state: dict) -> dict:
+        run = handle.read_run()
+        current = state["state"]
+        return {
+            "run_id": run["run_id"],
+            "nickname": run["nickname"],
+            "state": current,
+            "turns": state.get("turns", 0),
+            "last_turn": state.get("last_turn"),
+            "last_result": state.get("last_result"),
+            "transport": state.get("transport"),
+            "resume_id": state.get("resume_id"),
+            "as_of_seq": state.get("as_of_seq", 0),
+            "live": self._holder_alive(handle) if current in LIVE_STATES else False,
+        }
+
     def list(self) -> list[dict]:
         runs = self.platform.state_dir / "runs"
         out = []
@@ -1134,3 +1385,109 @@ class _TurnOutcome:
 
 def _jsonable(value: object) -> object:
     return json.loads(json.dumps(value, default=str))
+
+
+_DETACHED_PROCS: list[subprocess.Popen] = []
+
+
+def _open_dir_kqueue(directory: Path) -> tuple[select.kqueue | None, int | None]:
+    if not hasattr(select, "kqueue"):
+        return None, None
+    kq: select.kqueue | None = None
+    dir_fd: int | None = None
+    try:
+        dir_fd = os.open(directory, os.O_RDONLY)
+        kq = select.kqueue()
+        kq.control(
+            [select.kevent(
+                dir_fd,
+                filter=select.KQ_FILTER_VNODE,
+                flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                fflags=select.KQ_NOTE_WRITE | select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME,
+            )],
+            0,
+            0,
+        )
+        return kq, dir_fd
+    except OSError:
+        if kq is not None:
+            kq.close()
+        if dir_fd is not None:
+            _close_quiet(dir_fd)
+        return None, None
+
+
+def _prune_detached() -> None:
+    _DETACHED_PROCS[:] = [proc for proc in _DETACHED_PROCS if proc.poll() is None]
+
+
+def _worker_env() -> dict[str, str]:
+    env = dict(os.environ)
+    src_dir = str(Path(__file__).resolve().parents[1])
+    existing = env.get("PYTHONPATH", "")
+    parts = [part for part in existing.split(os.pathsep) if part] if existing else []
+    if src_dir not in parts:
+        env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{existing}" if existing else src_dir
+    return env
+
+
+def _close_quiet(fd: int) -> None:
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _unlink_quiet(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _reap_failed_worker(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    try:
+        proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _read_err_tail(path: Path, max_bytes: int = 1024) -> str:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    if not data:
+        return ""
+    return data[-max_bytes:].decode("utf-8", errors="replace").strip()
+
+
+def _read_ready_pipe(read_fd: int) -> dict | None:
+    chunks: list[bytes] = []
+    try:
+        while True:
+            chunk = os.read(read_fd, 4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        _close_quiet(read_fd)
+    raw = b"".join(chunks).strip()
+    if not raw:
+        return None
+    return json.loads(raw.decode("utf-8"))
+
+
+def write_worker_ready(ready_fd: int, payload: dict) -> None:
+    """Write the detached worker readiness payload as one JSON line and close ``ready_fd``."""
+    data = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+    try:
+        view = memoryview(data)
+        sent = 0
+        while sent < len(data):
+            sent += os.write(ready_fd, view[sent:])
+    finally:
+        _close_quiet(ready_fd)
