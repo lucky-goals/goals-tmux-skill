@@ -1,9 +1,16 @@
 # ACP-first execution layer: layering assessment
 
-Status: proposal for user adjudication, 2026-11-13. Assessment and design
-only. Nothing described here is implemented, and no existing file was
-changed: not the final design, the scaffold, the mockup, the runtime, the
-tests, the references or any README.
+Status: adjudicated, 2026-11-13. The user decided the fourteen questions of
+sections 10.6 and 11. **[Appendix A](#appendix-a-decision-register) is the
+authoritative decision register (D01 to D14) and fact register (F01 to
+F10).** Sections 1 to 12 are kept as the assessment the user decided on;
+where a decision differs from a recommendation below, the register wins,
+and each affected section points to it. The decisions are applied in the
+[final design](2026-11-13-cli-platform-final-design.md) (revision 4, its
+section 21), the scaffold and the mockup. The ACP transport itself is still
+not implemented.
+
+- **Adjudication landed by**: `cli-platform-decisions-landing-20261113-g1-bb8d0b9c-C01-dd8fb85c`
 
 - **Dispatch**: `cli-platform-acp-layering-20261113-g1-1963824a-C01-f68541b6`
 - **Baseline commit**: `7499bf9` (final design, revision 3)
@@ -525,6 +532,15 @@ decision (item 4 of section 11).
 
 ### 6.6 Permission requests
 
+> **Decided differently: D06.** Permissions are a per-stage
+> `permission_profile` (`bypass` or `read_only_auto`) passed at launch, not
+> the run-level policy and allow-rule table below. `read_only_auto`
+> auto-approves `read`, `search` and `fetch` only and never executes
+> commands. The decision order below (record the request, answer, record
+> the answer, never `allow_always`) still describes how the ACP transport
+> answers, with the profile in place of the allow rules. See Appendix A and
+> section 9.4 of the final design.
+
 An ACP agent may send `session/request_permission` with the tool call and a
 list of options, each of kind `allow_once`, `allow_always`, `reject_once` or
 `reject_always`. The turn waits for the answer.
@@ -749,6 +765,9 @@ Written to the run stream by the supervisor, `source: "supervisor"`.
 
 ### 7.7 Configuration this would add
 
+> **D05** adopts these defaults, all configurable. The keys are added to
+> the loader together with the code that reads them.
+
 Not applied. The loader refuses unknown keys, so these would be added to the
 schema together with the code that reads them. They are additive;
 `schema_version` stays 1.
@@ -848,6 +867,11 @@ Fields added to existing types: `turn_started.payload.transport`;
 takes the ACP values on an ACP turn.
 
 ### 8.2 Streams, snapshots and the single source of truth
+
+> **D07** adopts the middle option: one envelope for the run, lease
+> (`limits`), breaker (`adapters`) and catalog streams; snapshots are
+> fold-verifiable caches. **D08**: observation reads `config_applied`
+> events and published snapshots, not `cli-platform.toml`.
 
 **One envelope, several streams.** Each stream keeps its own file, writer
 and lock, as today. Only the record shape is unified.
@@ -1040,6 +1064,9 @@ Where a name already exists in 19.6, it is used here.
 
 ## 9. SSE semantics
 
+> **D09** adopts this section as written: the read-only server hosts SSE,
+> frames are published after the write, and retention equals the log's.
+
 ### 9.1 Where it sits
 
 The **contract** belongs to the event layer: a pure stream reader that
@@ -1208,6 +1235,9 @@ Notes on the scores that decide the outcome:
 
 ### 10.3 Recommendation
 
+> **D01** adopts option B. **D02**: Claude is headless-only in phase 1 and
+> no third-party ACP bridge is installed.
+
 **Adopt B, gated per adapter.** Concretely:
 
 1. Accept the adapter interface (section 6), the event envelope and types
@@ -1267,6 +1297,9 @@ proposal already asks for in its Phase 0, extended to both transports.
 
 ### 10.6 Open questions
 
+> Recorded as facts F01 to F09 in Appendix A, authorized for the Phase 0
+> probe (D03) and pending. F10 was added by D06.
+
 1. Does an identifier created over ACP resume in headless mode, and the
    reverse, for Cursor and for Kiro?
 2. Can `agent acp` select a model: through a parent option, or a session
@@ -1299,6 +1332,10 @@ proposal already asks for in its Phase 0, extended to both transports.
 | The user wants the first working turn with the least code | A now, with the interface of section 6 reserved, and B later |
 
 ## 11. Adjudication list
+
+> **Adjudicated.** The user's answers are D01 to D10 in Appendix A, which
+> also records D11 to D14 (questions raised by section 10.6 item 9 and by
+> section 20 of the final design). The list is kept as asked.
 
 Decisions needed before implementation. Each has a recommended answer.
 
@@ -1364,3 +1401,69 @@ Every command was local. None sent a prompt or created a session.
 The handshake probes did start the two agent processes. They ran with the
 user's normal environment, which the scanner's sanitized probes do not use.
 Whether a process contacted its vendor while starting was not observed.
+
+## Appendix A. Decision register
+
+Authoritative record of the user's adjudication, 2026-11-13. The
+[final design](2026-11-13-cli-platform-final-design.md) cross-references
+this appendix and lists, in its section 17, the file that carries each
+decision. Status values: **decided** (in force, nothing outstanding),
+**decided, evidence pending** (in force; a fact from the probe is still
+needed to implement or enable something), **not supported** (decided
+against; no field or code path may be added for it).
+
+### A.1 Decisions
+
+| Id | Question | Decision | Status | Evidence needed |
+| --- | --- | --- | --- | --- |
+| D01 | Direction: A, B, C or D (section 10) | **B.** ACP is preferred per adapter, after that adapter passes the evidence gate of section 10.4. Headless is the fallback and the only transport of an adapter without a passing gate. | decided, evidence pending | Gate checks 1 to 7 per adapter: F01 to F04, F07, F08. Until an adapter passes, it runs headless. |
+| D02 | What "supported CLI" means; a third-party ACP bridge for Claude | A CLI is supported when **any** transport passes its gate. Claude is **headless-only in phase 1**. **No third-party ACP bridge** is installed. | decided | None. Reopened only if Claude documents an ACP mode (section 10.7). |
+| D03 | Is the Phase 0 one-prompt probe authorized; will Kiro be logged in | **Authorized**, including logging Kiro in for its handshake. Fact questions F01 to F10 are authorized and pending. | decided, evidence pending | The probe runs of A.2; each records fixtures and events. |
+| D04 | ACP process model: per turn or per run | **One ACP process per turn**, the same as headless. | decided | F08 measures the cost of `session/load`; it does not reopen the decision. |
+| D05 | Fallback thresholds | Handshake timeout **10 s**; setup timeout **30 s**; breaker opens at **2 consecutive faults or 3 of the last 10 turns**; retry after **30 minutes**. All configurable (section 7.7). | decided | None |
+| D06 | Permission handling | A **per-stage `permission_profile`**, not a global policy. Values: `bypass`, `read_only_auto`. Defaults: `design`, `development`, `testing` and `ui_design` use `bypass`; `code_review` uses `read_only_auto`, which auto-approves **read, search and fetch only** and **never executes commands**. The CLI's own default permission configuration is **never modified**; the profile is passed at launch. Profiles and their defaults are editable in the workbench's configuration module. **Stages are a configurable list**: the Stage routing module adds, removes and reorders stages, because roles split work differently. | decided, evidence pending | F10: how each adapter expresses each profile at launch, per transport. F04: whether ACP agents ask in default mode. |
+| D07 | Scope of the single source of truth | **One envelope** for the run, lease, breaker and catalog streams. Snapshots are **fold-verifiable caches**. | decided | None. A fold test per snapshot is part of the implementation. |
+| D08 | How observation learns the configuration | Observation reads **`config_applied` events and published snapshots**, not `cli-platform.toml` directly. | decided | None |
+| D09 | SSE hosting, publish point, retention | Hosted by the **read-only server**; **publish after write**; **retention equal to the log's**. | decided | None |
+| D10 | May a run's later turn change transport | Only when **`resume_portable` is verified** for that adapter; otherwise the turn fails with **`TRANSPORT_UNAVAILABLE`** and the coordinator decides. | decided, evidence pending | F01 |
+| D11 | Child environment | A **per-variant allowlist** at runtime. The **full environment only for the authorized probe**, with the authorization recorded. | decided, evidence pending | F09: whether the allowlist is enough for each handshake and auth check. |
+| D12 | Per-model sub-cap inside an account | **Not implemented now.** | decided | Reopened only by evidence that a vendor limits per model inside one account. |
+| D13 | tmux session names | **`gt-<nickname>` for new sessions only**; existing sessions keep their names. | decided | None |
+| D14 | Capacity reservation for long tasks | **Never supported.** No reservation fields are added. | not supported | None |
+
+### A.2 Facts
+
+All ten are **authorized and pending** (D03). Each is answered by one probe
+of the Phase 0 run below. A fact moves to "answered" only with a recorded
+fixture or event; until then every design statement that depends on it is
+an assumption.
+
+| Probe | What it does | Model call |
+| --- | --- | --- |
+| P0-A | Help and version scan per installed CLI (stage D0 of section 6.3) | No |
+| P0-B | ACP `initialize` handshake per ACP-capable CLI (stage D1), Kiro after login; run once with the D11 allowlisted environment and, under the recorded authorization, once with the full environment | No |
+| P0-C | One trivial prompt per installed CLI and transport, with the pinned model (gate checks 2 and 4) | Yes |
+| P0-D | A second process continues the P0-C session on the same transport and on the other one, timed (gate checks 3 and 7) | Yes |
+| P0-E | In default mode, a prompt that needs a tool approval, answered once with allow and once with reject; repeated with each `permission_profile` rendered at launch (gate check 6) | Yes |
+| P0-F | A prompt that starts a background subagent; record when the turn ends | Yes |
+
+| Id | Question (source) | Answered by | Status |
+| --- | --- | --- | --- |
+| F01 | Does a session created over ACP resume headless, and the reverse, on Cursor and Kiro? (10.6 item 1) | P0-D | authorized, pending |
+| F02 | Can `agent acp` select a model: a parent option or a session configuration option? (10.6 item 2) | P0-C on Cursor | authorized, pending |
+| F03 | Does `kiro-cli acp` complete the handshake once logged in, with which protocol version and capabilities? (10.6 item 3) | P0-B on Kiro, after login | authorized, pending |
+| F04 | In default mode, do the agents send `session/request_permission`, and with which option kinds? (10.6 item 4) | P0-E | authorized, pending |
+| F05 | How does a rate limit appear over ACP: a JSON-RPC error, a stop reason or text? (10.6 item 5) | P0-C, recorded if a limit occurs; otherwise the first live occurrence. A limit is not provoked on purpose. | authorized, pending |
+| F06 | Does an ACP agent wait for background subagents before it answers `session/prompt`? (10.6 item 6) | P0-F | authorized, pending |
+| F07 | Is Kiro's `stream-json` output exactly the ACP `session/update` payloads? (10.6 item 7) | P0-C on Kiro, both transports, fixtures compared | authorized, pending |
+| F08 | How long does `session/load` take on a long conversation? (10.6 item 8) | P0-D, timed on a conversation with many turns | authorized, pending |
+| F09 | Does the ACP handshake (and the auth hint) need more of the user's environment than the per-variant allowlist? (10.6 item 9; final design section 20) | P0-B, allowlisted run compared with the full-environment run | authorized, pending |
+| F10 | How does each adapter express `bypass` and `read_only_auto` at launch, per transport, without changing the CLI's own permission configuration? (D06) | P0-A for the flags, P0-E for the behavior | authorized, pending |
+
+### A.3 Where a decision departs from the recommendation
+
+| Recommendation | Decision | Effect on this document |
+| --- | --- | --- |
+| Section 11 item 6: one run-level policy, default reject, with the allow-rule table of section 6.6 | D06: a per-stage profile with two values; `fetch` is auto-approved under `read_only_auto`, edits are not | Section 6.6's allow-rule table is superseded. Its decision order and "never `allow_always`" stay. |
+| Section 11 item 3: probe authorized | D03 also authorizes logging Kiro in and the full environment for the probe only | Section 12's note on the full environment now has an authorization to record (D11). |
+| Final design section 20 items 2, 4, 5 (open) | D12, D13, D14 | Closed. The final design no longer lists them as open. |

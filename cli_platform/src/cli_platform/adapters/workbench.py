@@ -74,11 +74,12 @@ def read_model(config: PlatformConfig, state_dir: Path | None = None, *,
         ],
         "catalog": [asdict(entry) for variant in config.variants for entry in catalog.entries(variant)],
         "routing": {
-            stage_id: {"candidates": [item.label() for item in stage.candidates],
+            stage_id: {"position": position, "permission_profile": stage.permission_profile,
+                       "candidates": [item.label() for item in stage.candidates],
                        "max_parallel": stage.max_parallel, "on_busy": stage.on_busy,
                        "effort_fallback": stage.effort_fallback,
                        "allow_pins_outside": stage.allow_pins_outside}
-            for stage_id, stage in config.stages.items()
+            for position, (stage_id, stage) in enumerate(config.stages.items(), start=1)
         },
         "concurrency": concurrency,
         "nicknames": read_live_nicknames(state_dir),

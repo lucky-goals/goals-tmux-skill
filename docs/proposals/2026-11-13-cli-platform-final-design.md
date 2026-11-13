@@ -1,6 +1,6 @@
 # CLI platform: final design
 
-Status: final design, 2026-11-13, revision 3. The design is final for the
+Status: final design, 2026-11-13, revision 4. The design is final for the
 items listed in section 2. The scaffold under `cli_platform/` implements and
 tests the platform logic (nicknames, configuration, variants, catalog merge,
 routing, limiter) and the layer boundaries. The run supervisor, the MCP
@@ -20,14 +20,32 @@ tests, the `[ui] locale` setting, a `--locale` option, and a language
 switcher in the mockup. It also adds a feasibility check of every element of
 the Sessions view against real data sources (section 19).
 
+Revision 4 lands the user's adjudication of the
+[ACP layering assessment](2026-11-13-acp-first-layering-assessment.md).
+The fourteen decisions D01 to D14 and the ten pending facts F01 to F10 are
+recorded once, in that document's
+[Appendix A](2026-11-13-acp-first-layering-assessment.md#appendix-a-decision-register);
+section 21 here cross-references it, and section 17 lists the file that
+carries each decision. Stages become a configurable ordered list, each with
+a `permission_profile` (section 9.4). The execution layer gains a transport
+binding, ACP preferred per adapter after a gate with headless as the
+fallback (section 11.5). One event envelope covers every stream, and
+observation reads `config_applied` events and snapshots instead of the
+configuration file (section 5). The per-model sub-cap and capacity
+reservation are removed from the open questions: the first is not
+implemented, the second is never supported.
+
 - **Dispatch**: `cli-platform-final-design-20261113-g1-7c9d2ec0-C01-6f530449`;
   revision 2: `cli-platform-design-v2-20261113-g1-43213fb6-C01-f2cd19b6`;
-  revision 3: `cli-platform-i18n-20261113-g1-795fafa8-C01-676c7fd6`
+  revision 3: `cli-platform-i18n-20261113-g1-795fafa8-C01-676c7fd6`;
+  revision 4: `cli-platform-decisions-landing-20261113-g1-bb8d0b9c-C01-dd8fb85c`
 - **Builds on**: [CLI gateway and workbench proposal](2026-11-13-cli-gateway-and-workbench.md)
   (called "the gateway proposal" below). Its recommendation stands: headless
   runner core, then MCP adapter, then read-only workbench, with no state of
   any window gating execution. Its terms (run, turn, supervisor, Run API,
   lease, resume identifier, zero-gate) keep their meaning here.
+- **Decisions**: [decision register D01 to D14, facts F01 to F10](2026-11-13-acp-first-layering-assessment.md#appendix-a-decision-register)
+  (section 21)
 - **Companions**: [project structure](../design/project-structure.md),
   [workbench mockup](../design/workbench-mockup.html),
   [scaffold README](../../cli_platform/README.md)
@@ -46,13 +64,19 @@ accounts, without a human having to track identifiers:
 3. Each variant has a **model catalog** with effort levels and descriptive
    fields (display name, context window, cost tier), built from recorded
    observations plus a curated overlay.
-4. Each development **stage** has an ordered list of allowed models, with
-   fallback rules and a resolution result that explains itself.
+4. The **stages** are a list the user defines, adds to, removes from and
+   reorders. Each stage has an ordered list of allowed models, fallback
+   rules, a resolution result that explains itself, and a
+   **permission profile** passed to the CLI at launch.
 5. **Concurrency caps** per account, per stage and globally are enforced
    across processes, with queueing, rate-limit cooldown and crash recovery.
+6. Each turn runs over one **transport**: ACP where the adapter has passed
+   its evidence gate, headless otherwise.
 
-Non-goals: SSH endpoints, multi-host scheduling, cost accounting, and
-automatic discovery of rate limits from vendor documentation.
+Non-goals: SSH endpoints, multi-host scheduling, cost accounting,
+automatic discovery of rate limits from vendor documentation, a per-model
+cap inside an account (D12), capacity reservation (D14), and third-party
+ACP bridges (D02).
 
 ## 2. Final versus deferred
 
@@ -60,14 +84,15 @@ automatic discovery of rate limits from vendor documentation.
 | --- | --- | --- |
 | Nicknames | Library rules, the 1000-name file, allocation, cooldown, incarnation references, where the name appears | Renaming a live session; user-supplied names |
 | CLI scan | Probe table, facts collected, auth probe as a hint | `codex` and `agy` rows (not installed on the host); Windows |
-| Variants | Identity, settings-file rule, environment rule, fingerprint, launch rendering for model selection | Settings-file support for adapters other than `claude`; headless and permission flags (owned by the runner adapters) |
+| Variants | Identity, settings-file rule, environment rule with a per-variant allowlist (D11), fingerprint, launch rendering for model selection | Settings-file support for adapters other than `claude`; the per-adapter flags that render a permission profile (F10) |
 | Catalog | Two layers, provenance record, merge rules, flags, routability | The probes that write observations (`--list-models`, `run_event`); a review command for observed models |
-| Routing | Candidate order, eligibility checks, fallback policy, explain trace, error codes | Cost- or latency-aware ordering; per-user overrides |
-| Concurrency | Scopes, lease protocol, queue, backpressure, cooldown, reaping | Detecting rate limits in each CLI's stream (needs the Phase 0 fixtures); a fair-share policy between tasks |
+| Routing | A configurable ordered stage list (add, remove, reorder), a `permission_profile` per stage with defaults (D06), candidate order, eligibility checks, fallback policy, explain trace, error codes | Cost- or latency-aware ordering; per-user overrides |
+| Transport | ACP preferred per adapter after its gate, headless fallback (D01, D02), one process per turn (D04), fallback thresholds (D05), cross-transport turns only when `resume_portable` is verified (D10) | The ACP client and the breaker (P1 and later); enabling ACP on any adapter until F01 to F10 are answered |
+| Concurrency | Scopes, lease protocol, queue, backpressure, cooldown, reaping. No per-model scope (D12) and no capacity reservation (D14). | Detecting rate limits in each CLI's stream (needs the Phase 0 fixtures, F05); a fair-share policy between tasks |
 | Run lifecycle | The `queued` state and the events in section 11 | The supervisor process itself (gateway proposal, Phase 1) |
-| Layering | Three layers and the shared configuration input, placement of every component, dependency rules, contracts, failure isolation, import and behavior tests | Versioning the limiter journal (section 5.4) |
-| Workbench | Information architecture, routes, read model over files only | The HTTP/SSE server (gateway proposal, Phase 4) |
-| Settings | Pages, fields, validation, save, cancel, reset, delete confirmation, unsaved-changes guard (mockup); the write protocol of section 5.7 | The editor's entry point and server |
+| Layering | Three layers and the shared configuration input, placement of every component, dependency rules, contracts, failure isolation, import and behavior tests. One envelope for every stream (D07); observation reads `config_applied` and snapshots (D08). | The code of the unified envelope for the limiter, breaker and catalog streams (P1) |
+| Workbench | Information architecture, routes, read model over files only, SSE rules (D09) | The HTTP/SSE server (gateway proposal, Phase 4) |
+| Settings | Pages, fields, validation, save, cancel, reset, delete confirmation, unsaved-changes guard (mockup); adding, removing and reordering stages and editing each stage's permission profile; the write protocol of section 5.7 | The editor's entry point and server |
 | Internationalization | Locales `en`, `ja`, `zh-Hant`; negotiation and fallback; catalog format, key naming, interpolation, plurals, number and date formats; codes versus text; what stays English; `ui.locale` and `--locale`; mockup switcher for chrome and settings labels (section 18) | Field hints and validation messages in the catalogs; more locales; right-to-left scripts |
 | Sessions view data | Source, required fields and verdict for every element; fallbacks for what a CLI does not report (section 19) | The adapter mappings themselves (Phase 0 fixtures); the event fields of section 19.6 |
 
@@ -89,7 +114,9 @@ Three points amend the gateway proposal. Everything else in it is unchanged.
 | Adapter | The code that knows one CLI family: `claude`, `cursor`, `codex`, `agy`, `kiro`. |
 | Variant | A stable id for adapter + binary + optional settings file + environment overrides + account. |
 | Account | The unit a vendor rate-limits. Several variants may share one. |
-| Stage | One of `design`, `development`, `testing`, `code_review`, `ui_design`. |
+| Stage | One entry of the configured, ordered stage list, addressed by its id. The sample configuration has `design`, `development`, `testing`, `code_review` and `ui_design`; a user may add, remove and reorder stages. |
+| Permission profile | What a stage's turns may do without asking: `bypass` or `read_only_auto` (section 9.4). Passed to the CLI at launch. |
+| Transport | How the supervisor talks to one CLI process for one turn: `acp` or `headless` (section 11.5). |
 | Candidate | `variant/model[/effort]`, one entry of a priority list. |
 | Pin | A candidate the user asked for explicitly. |
 | Resolution | The router's result: the selected candidate, the action (`run` or `queue`) and the trace. |
@@ -125,25 +152,28 @@ flowchart TB
         REG --> SCAN["CLI scanner"]
         API -->|"spawn detached"| SUP["Run supervisor (one per run)"]
         SUP -->|"3 acquire, renew, release"| LIM
-        SUP -->|"argv + env from the variant"| CLI["Coding CLI, headless"]
+        SUP -->|"bind transport; argv, allowlisted env, permission profile"| CLI["Coding CLI: ACP or headless"]
     end
-    subgraph EVT["Event layer: durable record, files 0600, no process"]
+    subgraph EVT["Event layer: durable record, one envelope, files 0600, no process"]
         LOG["runs/NICK-RUN_ID/events.jsonl"]
         JRN["limits/journal.jsonl"]
+        ADP["adapters/journal.jsonl"]
         OBS["catalog/observed/VARIANT.jsonl"]
-        SNAP["Published snapshots: limits/state.json, nicknames/live/"]
+        CEV["config/journal.jsonl: config_applied"]
+        SNAP["Snapshots (caches): limits/state.json, adapters/state.json, nicknames/live/, registry and catalog"]
     end
     subgraph OBSV["Observation layer: read-only"]
         WB["Workbench: read model, views, incidents, HTTP/SSE"]
     end
     SUP -->|"append (single writer)"| LOG
     SUP -->|"append observed model"| OBS
+    SUP -->|"append breaker events"| ADP
     LIM -->|"append"| JRN
     LIM -->|"atomic replace"| SNAP
     NICK -->|"exclusive create"| SNAP
     CAT -->|"read"| OBS
     CFG -.->|"read per command"| EXEC
-    CFG -.->|"read"| OBSV
+    EXEC -->|"append on load of a changed file"| CEV
     EVT -.->|"read, no lock"| OBSV
 ```
 
@@ -155,9 +185,11 @@ enforces each one.
    shared files (`limits/state.json`, the nickname ledger) are written only
    inside an exclusive `flock`, so there is one writer at a time, and every
    write is an atomic replace or an exclusive create.
-2. **The observation layer reads the event layer and the configuration,
-   nothing else.** It takes no lock, writes no file and does not import the
-   router, the limiter, the nickname allocator or the supervisor.
+2. **The observation layer reads the event layer, nothing else.** It
+   learns the configuration from `config_applied` events and published
+   snapshots, not from `cli-platform.toml` (D08). It takes no lock, writes
+   no file and does not import the router, the limiter, the nickname
+   allocator or the supervisor.
 3. **The execution layer never depends on the observation layer** (the
    zero-gate rule). No execution path imports, calls or waits for the
    workbench.
@@ -228,7 +260,7 @@ What was missing or conflated, and what this revision does about it:
 | Configuration (shared input) | Say what may run, where and with which limits; message catalogs every layer renders with | `cli-platform.toml`, through the settings editor only | Loader, settings editor, translator | `config.py`, `errors.py`, `fsutil.py`, `i18n/core.py` |
 | Execution | Decide and run: name, route, admit, launch, supervise, report back | Every file under the state directory, in event-layer formats | MCP adapter and command line, Run API, nickname allocator, stage router, variant registry, catalog merge, CLI scanner, concurrency limiter, run supervisor | `scanner`, `variants`, `catalog`, `nicknames`, `router`, `limiter`, `supervisor`, `__main__`, `adapters/mcp` |
 | Event | Keep the durable, ordered record and its formats. Give lock-free readers. Make no decision and own no process. | Nothing on its own; its write functions run inside execution components | Event log writer and reader, limiter journal, catalog observation store, published snapshots and their readers | `events.py`, `snapshots.py` |
-| Observation | Show state, derive incidents, stream events to people | Nothing | Workbench read model, views, incident rules, HTTP/SSE server (P4) | `adapters/workbench.py` |
+| Observation | Show state, derive incidents, stream events to people | Nothing | Workbench read model, views, incident rules, HTTP/SSE server (P4; SSE rules D09) | `adapters/workbench.py` |
 
 Placement of each named component, exactly one layer each:
 
@@ -240,7 +272,7 @@ Placement of each named component, exactly one layer each:
 | Run supervisor | Execution | It owns the CLI process and is the single writer of its run's event log. |
 | Event log | Event | Format, sequence and append discipline, whoever calls `append`. `EventLog`, `read_events`, the journal and observation formats, and the snapshot readers live here. |
 | MCP adapter | Execution (ingress) | Its mutating tools are the Run API. Its read tools (`route_explain`, `concurrency_status`, `catalog_list`, ...) answer a coordinator that is about to decide its next call, so they belong to the decision path and may use execution libraries. The workbench never calls them, and they never call the workbench. |
-| Workbench | Observation | Read-only views over the event layer and the configuration. |
+| Workbench | Observation | Read-only views over the event layer: run, lease, breaker and catalog streams, `config_applied` events and published snapshots (D08). |
 | Settings editor | Configuration (its only writer) | It changes what the execution layer will read next. It touches no run, lease, name or event (section 5.7). |
 
 Two execution modules are pure **evaluators** that the observation layer
@@ -250,8 +282,18 @@ state, take no lock and write nothing. The registry and catalog views
 therefore apply the same rules the router applies. This is the one
 exception to rule 2 of section 4. The import test lists it by name, and a
 behavioral test shows that the read model built on the evaluators leaves
-the state directory unchanged. Phase 1 can remove the exception by
-publishing registry and catalog snapshots from the scanner.
+the state directory unchanged.
+
+**Decided (D08): the exception and the configuration read are
+transitional.** The scanner publishes registry and catalog snapshots, and
+execution appends `config_applied` (digest plus the effective non-secret
+values, including the ordered stage list and each stage's
+`permission_profile`) when it loads a changed file, or `config_rejected`
+when the load fails. The workbench server (P4) reads those, not
+`cli-platform.toml` and not the evaluators. The scaffold's placeholder read
+model still reads the file and calls the evaluators; it changes when the
+publishers exist. Consequence: a file broken by hand shows in the workbench
+when execution next loads it, not at the moment it is saved.
 
 ### 5.3 Dependency rules
 
@@ -260,7 +302,7 @@ publishing registry and catalog snapshots from the scanner.
 | Configuration | yes | **no** | **no** | **no** |
 | Execution | read | yes | append, replace, read for recovery and idempotency | **no** (zero-gate) |
 | Event | types only (caps for `summarize_limits`) | **no** | yes | **no** |
-| Observation | read | **no**, except the two evaluators of section 5.2 | read, without a lock | yes |
+| Observation | **no** (target, D08); read in the scaffold until `config_applied` exists | **no**, except the two evaluators of section 5.2 until their snapshots exist | read, without a lock | yes |
 | Settings editor | write, after validation | **no** | **no** | **no** |
 
 Forbidden, spelled out:
@@ -284,11 +326,14 @@ Forbidden, spelled out:
 | --- | --- | --- |
 | Configuration | `cli-platform.toml`, `schema_version = 1` (section 12). `load_config` and `parse_config` refuse with `CONFIG_INVALID` or `SECRET_IN_CONFIG` and name the key. The settings editor validates with the same function. | Execution, observation, settings editor |
 | Execution | Run API and MCP tools (section 11.4) with their refusals. Library results `Resolution` (section 9.3), `Outcome` (lease, queue or busy, with `blocked_on`) and `LaunchSpec`. Only this layer produces them. | Host coordinator |
+| Event: one envelope (D07) | Every stream below uses the v1 envelope: `v`, `seq` (gap-free from 1 per stream, assigned by its single writer under its lock), `event_id`, `ts`, `type`, `source`, `payload`, plus the stream's ids. A fact is authoritative in exactly one stream; a copy elsewhere carries `ref: "<stream>:<seq>"`. Each snapshot carries `as_of_seq`, and a fold of its stream from `seq` 1 reproduces it: snapshots are caches. | Every reader |
 | Event: run stream | `runs/<nickname>-<run_id>/events.jsonl`. v1 envelope plus `nickname`. `seq` is gap-free from 1 per run. One writer. Types from the closed list in `events.py`. Additive changes only within v1. Readers ignore a torn last line. Lifecycle, route, `nickname_assigned`, `lease_granted` and `rate_limited` events are fsynced before the writer continues. Reader: `read_events(path, after_seq)`. | Observation (timeline, SSE cursor), execution (recovery) |
-| Event: limiter journal | `limits/journal.jsonl`. One record per line: `ts`, `type` (`lease_queued`, `lease_granted`, `lease_released`, `lease_reaped`, `rate_limited`) and the lease, session, account, stage and variant ids. Written with the limiter lock held. **Gap:** no `v` field and no `seq`. Phase 1 adds both, or mirrors these records into the run stream (section 11.3). | Observation (concurrency history, incidents) |
+| Event: limiter journal | `limits/journal.jsonl`, authoritative for leases. Types `lease_queued`, `lease_granted`, `lease_released`, `lease_reaped`, `rate_limited`, with the lease, session, account, stage and variant ids. Written with the limiter lock held, appended before `state.json` is replaced. **Decided (D07):** v1 envelope with `seq`; the run stream's `lease_granted` carries `ref: "limits:<seq>"`. The scaffold still writes `ts`, `type` and ids only; P1 changes it. | Observation (concurrency history, incidents) |
+| Event: adapters stream | `adapters/journal.jsonl`, written by the transport binding and the handshake probe under `adapters/lock`: `adapter_probe`, `adapter_selected`, `adapter_degraded`, breaker transitions. Cache `adapters/state.json`. P1, not in the scaffold. | Observation (breaker state, incidents), execution (binding) |
+| Event: configuration | `config/journal.jsonl`: `config_applied` (digest, effective non-secret values) and `config_rejected` (the loader's error). Written by execution when it loads a changed file. P1, not in the scaffold. | Observation (D08) |
 | Event: catalog observations | `catalog/observed/<variant>.jsonl`, the `Observation` record of section 8. Readers ignore lines with a bad model id, and fields they do not know. | Catalog merge |
 | Event: published snapshots | `limits/state.json` (`{"v": 1, "leases", "queue", "accounts"}`), written only by atomic replace. `nicknames/live/<name>.json`, written only by exclusive create and removed on release. `runs/<nickname>-<run_id>/state.json` (P1, supervisor, atomic replace). Readers: `snapshots.read_limits`, `snapshots.read_live_nicknames`. Projection: `snapshots.summarize_limits`, used by both `Limiter.snapshot` and the workbench. | Observation, execution |
-| Observation | GET routes and the read model JSON (section 13). SSE resumes from an event `seq`. No mutating route. | People, scripts |
+| Observation | GET routes and the read model JSON (section 13). SSE, hosted by the read-only server, publishes a frame only after its event is written, resumes from an event `seq`, and can replay as far back as the log is retained (D09). No mutating route. | People, scripts |
 
 ### 5.5 Failure isolation
 
@@ -300,8 +345,8 @@ Forbidden, spelled out:
 | Torn last line after a crash | Event | The writer truncates it on reopen. Readers skip it. |
 | Event append fails (disk full, I/O error) | Event, surfacing in execution | The supervisor must not start a turn it cannot record. If appending `turn_started` fails, the turn fails before the CLI is spawned. A failing `heartbeat` append stops the turn like a failing lease renewal does. (Phase 1 supervisor test.) |
 | Supervisor dies | Execution | The lease is reaped (section 10.5) and the run shows as `lost`. The event log stays intact and readable. |
-| Invalid configuration saved by hand | Configuration | New commands refuse with the key named. Running turns keep their resolved values. Observation shows the loader error. |
-| Settings saved while turns run | Configuration | New values apply at the next resolution or acquisition. A lowered cap revokes no lease and stops no turn. A deleted variant stays in history under its id. |
+| Invalid configuration saved by hand | Configuration | New commands refuse with the key named. Running turns keep their resolved values. Observation shows the loader error from the `config_rejected` event. |
+| Settings saved while turns run | Configuration | New values apply at the next resolution or acquisition. A lowered cap revokes no lease and stops no turn. A deleted variant stays in history under its id. A removed stage refuses new requests with `STAGE_UNKNOWN`; its held leases keep counting against the global, account and variant caps until released. A changed `permission_profile` applies from the next turn. |
 
 ### 5.6 Enforcement tests
 
@@ -358,9 +403,18 @@ nothing else.
   `MODEL_DISABLED`. Deleting a variant or a model that a stage lists removes
   those candidate rows only after a confirmation that names the stages. It
   is refused if a stage would be left with no candidate.
+- **Stages are edited as a list (D06).** The Stage routing page adds a
+  stage (id `^[a-z][a-z0-9_]{1,31}$`, unique), removes one after a
+  confirmation (at least one must remain), and reorders them; the saved
+  order is the `[[stages]]` order. Each stage has a `permission_profile`
+  control with the two values. A new stage starts at `read_only_auto`, the
+  least privilege; built-in ids start at their default (section 9.4). Stage
+  ids appear in run records, so an id is read-only after its first save:
+  to rename, add a new stage and remove the old one.
 - **Fields the pages need.** `variants.<id>.max_parallel` (section 10.1),
-  and `display_name`, `context_tokens` and `cost_tier` on `[[models]]`
-  (section 8). The scaffold's loader accepts and validates all of them.
+  `display_name`, `context_tokens` and `cost_tier` on `[[models]]`
+  (section 8), and `id` and `permission_profile` on `[[stages]]`
+  (section 9.1). The scaffold's loader accepts and validates all of them.
 
 The editor itself is deferred (section 2). Its interaction design is final
 in the mockup.
@@ -451,7 +505,7 @@ Example live record:
 
 | Place | Form | Notes |
 | --- | --- | --- |
-| tmux session name | `gt-kedo` | Used by the tmux backend and by takeover panes. Address it with the exact form `-t =gt-kedo`. |
+| tmux session name | `gt-kedo` | For **new** sessions only (D13): sessions that exist when the platform is adopted keep their `create_session.name` and are not renamed or migrated. Used by the tmux backend and by takeover panes. Address it with the exact form `-t =gt-kedo`. |
 | Task record | `nickname`, `nickname_ref` on each run entry and in `resource_report.runs` | The task record keeps `run_id` as the key. |
 | Run log path | `runs/kedo-run-01JCQ8M4T7/events.jsonl` | The directory name carries both, so `ls` is readable and the path is still unique after the name is reused. |
 | Run events | `nickname` field on every event | Additive field in the v1 envelope. |
@@ -483,8 +537,9 @@ Each result records `path`, `realpath`, `version` (the first line the
 version command prints, for example `2.1.311 (Claude Code)` or
 `kiro-cli 2.34.0`), a capability map derived
 from the help text (`headless`, `stream_json`, `resume`, `model_flag`,
-`effort_flag`, `settings_file`, `list_models`, ...), the auth hint and a
-timestamp.
+`effort_flag`, `settings_file`, `list_models`, and, from P1, `acp` with its
+entry point: stage D0 of the transport detection, section 11.5), the auth
+hint and a timestamp.
 
 Results on the verification host, from `python -m cli_platform scan --auth`:
 
@@ -529,7 +584,7 @@ env_unset = ["ANTHROPIC_API_KEY"]
 | Id | `^[a-z][a-z0-9-]{1,31}$`. Permanent: it is written into run records, events and audit entries. To change what a variant means, add a new id and disable the old one. |
 | Binary | A name resolved on `PATH`, or an absolute path. |
 | Settings file | Referenced by path. Passed to the CLI as `--settings <path>`. Supported for the `claude` adapter only, which is the one CLI whose help documents such a flag. |
-| Environment | `env` sets non-secret values. `env_unset` removes inherited variables that would override the variant (for example an ambient API key). |
+| Environment | Built from a **per-variant allowlist** (D11): the child starts from the supervisor's base allowlist (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR` and similar) plus the names in the variant's `env_allow` list (P1 key, section 12), never from the full environment. Then `env_unset` removes inherited variables that would override the variant (for example an ambient API key), and `env` sets non-secret values. The full environment is used only by the authorized Phase 0 probe, and that run records the authorization (D03, D11). |
 | Account | Required. Decides which concurrency cap the variant consumes. Two variants with different endpoints must not share an account. |
 | Fingerprint | A hash of adapter, binary realpath, settings path, settings metadata, the *names* of set and unset environment variables, and extra arguments. Recorded in `turn_started`; a change between turns is visible as drift. |
 
@@ -555,8 +610,10 @@ env_unset = ["ANTHROPIC_API_KEY"]
   `.gitignore`, has mode 0600 on the verification host, and is referred to
   by path only in this design, the sample config and the tests.
 
-Launch rendering for model selection (headless and permission flags are
-added by the runner adapter of the gateway proposal):
+Launch rendering for model selection. The transport flags and the flags
+that render the stage's `permission_profile` (section 9.4) are added by the
+runner adapter; which flags express each profile on each adapter is fact
+F10, pending the Phase 0 probe:
 
 | Adapter | Model | Effort |
 | --- | --- | --- |
@@ -652,8 +709,15 @@ Facts recorded for the sample catalog, and where each comes from:
 
 ### 9.1 Configuration
 
+Stages are an **ordered list that the user defines** (D06). Roles split
+work differently, so no stage is fixed: the configuration may add stages,
+remove any of the sample's five, and reorder them. Each `[[stages]]` entry
+is one stage:
+
 ```toml
-[stages.development]
+[[stages]]
+id = "development"
+permission_profile = "bypass"   # bypass | read_only_auto (section 9.4)
 max_parallel = 3
 on_busy = "queue"            # queue | next
 effort_fallback = "lower"    # lower | skip
@@ -664,19 +728,38 @@ candidates = [
   { variant = "cursor", model = "grok-4.7-xhigh" },
   { variant = "kiro", model = "@default", effort = "high" },
 ]
+
+[[stages]]
+id = "code_review"
+permission_profile = "read_only_auto"
+max_parallel = 2
+on_busy = "next"
+candidates = [
+  { variant = "codex", model = "gpt-6.1-sol", effort = "xhigh" },
+  { variant = "cursor", model = "grok-4.7-xhigh" },
+]
+
+# A stage a role added. An id without a built-in default must name its profile.
+[[stages]]
+id = "security_review"
+permission_profile = "read_only_auto"
+max_parallel = 1
+candidates = [{ variant = "claude-gateway", model = "opus", effort = "high" }]
 ```
 
-The list is two things at once: the **allowed set** for the stage (its
-variant/model pairs) and the **priority order**. All five stages are
-required. The sample configuration:
+List rules: at least one stage; ids match `^[a-z][a-z0-9_]{1,31}$` and are
+unique; the list order is the order every view and command shows. The
+`candidates` list of a stage is two things at once: the **allowed set** for
+the stage (its variant/model pairs) and the **priority order**. The sample
+configuration:
 
-| Stage | 1 | 2 | 3 | 4 | on_busy | Cap |
-| --- | --- | --- | --- | --- | --- | --- |
-| `design` | claude/opus/max | claude-gateway/opus/high | codex/gpt-6.1-sol/xhigh | | queue | 2 |
-| `development` | claude/opus/high | codex/gpt-6.1-sol/high | cursor/grok-4.7-xhigh | kiro/@default/high | queue | 3 |
-| `testing` | claude/sonnet/medium | kiro/@default/medium | cursor/grok-4.7-xhigh | | next | 2 |
-| `code_review` | codex/gpt-6.1-sol/xhigh | cursor/grok-4.7-xhigh | claude-gateway/opus/high | | next | 2 |
-| `ui_design` | agy/gemini-4-argon-high/high | claude/opus/high | cursor/grok-4.7-xhigh | | queue | 1 |
+| Stage | 1 | 2 | 3 | 4 | on_busy | Cap | Permission profile |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `design` | claude/opus/max | claude-gateway/opus/high | codex/gpt-6.1-sol/xhigh | | queue | 2 | `bypass` |
+| `development` | claude/opus/high | codex/gpt-6.1-sol/high | cursor/grok-4.7-xhigh | kiro/@default/high | queue | 3 | `bypass` |
+| `testing` | claude/sonnet/medium | kiro/@default/medium | cursor/grok-4.7-xhigh | | next | 2 | `bypass` |
+| `code_review` | codex/gpt-6.1-sol/xhigh | cursor/grok-4.7-xhigh | claude-gateway/opus/high | | next | 2 | `read_only_auto` |
+| `ui_design` | agy/gemini-4-argon-high/high | claude/opus/high | cursor/grok-4.7-xhigh | | queue | 1 | `bypass` |
 
 ### 9.2 Resolution algorithm
 
@@ -684,7 +767,7 @@ Candidate order, highest priority first:
 
 1. **Pin**: the candidate named in the request. Strict by default.
 2. **Task candidates**: a list stored on the task.
-3. **Stage candidates**: `stages.<stage>.candidates`.
+3. **Stage candidates**: the `candidates` of the `[[stages]]` entry with that `id`.
 4. **Default candidates**: `routing.default_candidates`.
 
 A pin without `allow_fallback` is the only entry in the list. This carries
@@ -745,7 +828,7 @@ Real output of `python -m cli_platform resolve code_review` on the
 verification host, where `codex` is not installed:
 
 ```text
-stage=code_review action=run selected=cursor/grok-4.7-xhigh account=cursor-pro source=stage fallback=yes
+stage=code_review action=run selected=cursor/grok-4.7-xhigh account=cursor-pro source=stage permission_profile=read_only_auto fallback=yes
 1. [stage] codex/gpt-6.1-sol/xhigh -> skipped (BINARY_NOT_FOUND)
 2. [stage] cursor/grok-4.7-xhigh -> selected
 ```
@@ -756,7 +839,7 @@ The same result as stored in the `route_resolved` event:
 {"stage": "code_review", "action": "run",
  "selected": "cursor/grok-4.7-xhigh", "requested": "cursor/grok-4.7-xhigh",
  "source": "stage", "account": "cursor-pro", "fallback_used": true,
- "blocked_on": [],
+ "blocked_on": [], "permission_profile": "read_only_auto",
  "steps": [
    {"order": 1, "source": "stage", "candidate": "codex/gpt-6.1-sol/xhigh",
     "outcome": "skipped", "reasons": ["BINARY_NOT_FOUND"], "adjustments": []},
@@ -771,7 +854,55 @@ Routing is resolved **once per turn**, at `run_send`. A run keeps its stage.
 A resumed conversation must stay on its variant, because a resume identifier
 belongs to one CLI: from the second turn on, the Run API sends the run's
 recorded variant and model as a strict pin, and only the effort may be
-re-resolved.
+re-resolved. If the run's stage was removed from the configuration since
+the last turn, the turn is refused with `STAGE_UNKNOWN`; the run is not
+moved to another stage silently.
+
+### 9.4 Permission profiles
+
+A stage's `permission_profile` says what its turns may do without asking
+(D06). It is **per stage, not global**, so one configuration can let
+development write and run tests while review only reads.
+
+| Profile | Meaning | Default for |
+| --- | --- | --- |
+| `bypass` | The CLI runs without permission prompts for the turn. | `design`, `development`, `testing`, `ui_design` |
+| `read_only_auto` | Tool use of kind **read, search and fetch** is approved automatically. Everything else is refused, and **no command is ever executed**: no shell, no edit, no delete, no move. | `code_review` |
+
+Rules:
+
+1. **Passed at launch, never written into the CLI.** The supervisor renders
+   the profile as launch arguments of the turn's process (or, over ACP, as
+   the answer policy of section 11.5). It never edits the CLI's own default
+   permission configuration (user or project settings files, trust lists,
+   modes saved by the CLI). Which flags render each profile on each adapter
+   is fact F10. An adapter and transport that cannot express a profile
+   exactly is skipped for that stage with reason
+   `PERMISSION_PROFILE_UNSUPPORTED`; the profile is never widened to make a
+   candidate fit. (P1, with the adapters; the scaffold's router carries the
+   profile but does not yet check adapter support.)
+2. **Defaults.** The five sample ids have the defaults above. A stage with
+   any other id has no default and must set `permission_profile`; the
+   loader refuses it otherwise. The workbench starts a new stage at
+   `read_only_auto`. Any value other than the two is refused with
+   `CONFIG_INVALID`.
+3. **Editable.** The Stage routing page of the configuration module edits
+   each stage's profile, shows the default for built-in ids, and for
+   `read_only_auto` shows the hint "read, search and fetch only; no command
+   execution".
+4. **Recorded.** The resolution carries `permission_profile`; `turn_started`
+   records it, and the Sessions view shows it in place of the earlier
+   "bypass authorized" marker (section 19.2).
+5. **Not a sandbox.** Tool kinds are the agent's own description of what it
+   is about to do. The profile records and shapes consent; the CLI's
+   sandbox and the operating system remain the boundary.
+
+Over ACP, the profile decides the answer to `session/request_permission`:
+`bypass` chooses the first `allow_once` option; `read_only_auto` chooses
+`allow_once` for kinds `read`, `search` and `fetch` and `reject_once` for
+every other kind. `allow_always` and `reject_always` are never chosen. The
+request and the answer are each appended and fsynced before the answer is
+sent (assessment section 6.6).
 
 ## 10. Concurrency limits
 
@@ -780,9 +911,15 @@ re-resolved.
 | Scope | Config | Why |
 | --- | --- | --- |
 | Account | `accounts.<id>.max_parallel` | Vendors rate-limit per account or key, not per binary. Variants of one binary with different endpoints have different accounts. |
-| Stage | `stages.<id>.max_parallel` | Keeps one kind of work from taking every slot. |
+| Stage | `max_parallel` of the `[[stages]]` entry | Keeps one kind of work from taking every slot. Added stages get their own scope; a removed stage's held leases keep counting in the other scopes until released. |
 | Global | `concurrency.global_max_parallel` | Bounds load on the machine. |
 | Variant (optional) | `variants.<id>.max_parallel` | A tighter limit for one way of launching inside its account, for example a gateway endpoint with a smaller quota. Unset means no variant scope; the account cap still applies. |
+
+There are exactly these four scopes. **No per-model scope** is implemented
+(D12): models of one account share the account's cap. **Capacity
+reservation is never supported** (D14): a slot is held only by a granted
+lease, and no configuration key, lease field or Run API argument reserves
+one for later.
 
 A **lease** is held per turn, not per session. The gateway proposal runs one
 CLI process per turn, and an idle run has no process and makes no requests,
@@ -970,10 +1107,13 @@ A lease is held in `starting`, `running`, `cancelling`, `handed_off` and
    `route_resolved`.
 3. Spawn the supervisor. It acquires the lease or queues (`lease_queued`,
    state `queued`), then appends `lease_granted`.
-4. The supervisor builds the launch from the variant (`build_launch`), adds
-   the adapter's headless flags, checks the settings file again, and starts
-   the CLI. `turn_started` records `variant`, `variant_fingerprint`,
-   `model`, `effort`, `argv_digest` and the CLI version.
+4. The supervisor binds the transport (section 11.5), builds the launch
+   from the variant (`build_launch`), adds the transport's flags and the
+   flags that render the stage's `permission_profile` (section 9.4), builds
+   the child environment from the variant's allowlist (section 7.2), checks
+   the settings file again, and starts the CLI. `turn_started` records
+   `variant`, `variant_fingerprint`, `model`, `effort`, `transport`,
+   `permission_profile`, `argv_digest` and the CLI version.
 5. Every `heartbeat_seconds` the supervisor appends `heartbeat` and renews
    the lease.
 6. At exit it reports success or a rate limit, releases the lease
@@ -987,7 +1127,8 @@ temporary state directory.
 
 ### 11.3 Events
 
-New types in the v1 envelope, all with `source: "supervisor"`:
+Every stream uses the one v1 envelope of section 5.4 (D07). New types in
+the run stream, all with `source: "supervisor"`:
 
 | Type | Payload |
 | --- | --- |
@@ -998,6 +1139,13 @@ New types in the v1 envelope, all with `source: "supervisor"`:
 | `lease_released` | `lease_id`, `reason` |
 | `rate_limited` | `account`, `retry_after`, `cooldown_until`, `effective_cap` |
 | `nickname_released` | `nickname`, `ref` |
+| `adapter_selected`, `adapter_degraded` | The transport bound for the turn, or the fallback taken and its trigger (section 11.5) |
+| `permission_requested`, `permission_resolved` | ACP only: the tool call, its kind, the profile, and the answer (section 9.4) |
+
+Outside the run stream: lease records in `limits/journal.jsonl` (the
+run stream's `lease_granted` carries `ref: "limits:<seq>"`), breaker
+transitions in `adapters/journal.jsonl`, and `config_applied` /
+`config_rejected` in `config/journal.jsonl`.
 
 The scaffold's `open_session` already writes `nickname_assigned`,
 `route_resolved`, `lease_granted` or `lease_queued`, and, when routing is
@@ -1008,7 +1156,8 @@ the scaffold those two facts are recorded only in `limits/journal.jsonl`.
 Every event also gains a top-level `nickname` field. Both changes are
 additive, which the gateway proposal's versioning rule allows within major
 version 1. `error` gains the codes `RATE_LIMITED`, `AUTH_REQUIRED`,
-`QUEUE_TIMEOUT`, `NO_ROUTE` and `PIN_UNSATISFIABLE`.
+`QUEUE_TIMEOUT`, `NO_ROUTE`, `PIN_UNSATISFIABLE` and
+`TRANSPORT_UNAVAILABLE`.
 
 Example:
 
@@ -1026,7 +1175,7 @@ Example:
 `run_create` arguments gain:
 
 ```json
-{"stage": {"enum": ["design", "development", "testing", "code_review", "ui_design"]},
+{"stage": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,31}$"},
  "pin": {"type": "object", "additionalProperties": false,
          "required": ["variant", "model"],
          "properties": {"variant": {"type": "string"}, "model": {"type": "string"},
@@ -1034,12 +1183,41 @@ Example:
  "allow_fallback": {"type": "boolean", "default": false}}
 ```
 
+`stage` is not an enum any more: it must be the id of a configured stage,
+checked at `run_send` against the configuration in force (section 9.1).
+
 New refusals: `STAGE_UNKNOWN`, `PIN_NOT_ALLOWED_FOR_STAGE`,
 `PIN_UNSATISFIABLE`, `NO_ROUTE`, `NICKNAME_EXHAUSTED`, `QUEUE_FULL`. Read
 operations added to the command line and the MCP adapter: `cli_scan`,
 `variant_list`, `catalog_list`, `route_explain`, `concurrency_status`,
 `session_lookup`. All run operations accept a nickname in place of a
 `run_id` for live sessions.
+
+### 11.5 Transport binding
+
+Decided by D01, D02, D04, D05 and D10; the mechanics are in the
+[ACP assessment](2026-11-13-acp-first-layering-assessment.md), sections 6
+and 7.
+
+- **Preference.** ACP is preferred for an adapter only after that adapter
+  passes the evidence gate (assessment section 10.4). Until then, and for
+  an adapter without ACP, the turn runs headless. A CLI is supported when
+  either transport passes its gate. **Claude is headless-only in phase 1**,
+  and no third-party ACP bridge is installed (D02).
+- **One process per turn** on both transports (D04). The lease protocol of
+  section 10 is unchanged.
+- **Binding before the commit point.** The transport is chosen once,
+  before `turn_started` is fsynced. Before that point a transport fault may
+  fall back to headless and appends `adapter_degraded`; after it, never.
+- **Fallback defaults (D05), all configurable.** Handshake timeout 10 s;
+  setup timeout 30 s; a per-variant breaker opens at 2 consecutive faults
+  or 3 of the last 10 ACP turns, and retries after 30 minutes.
+- **Cross-transport turns (D10).** A later turn of a run may use another
+  transport only when `resume_portable` is verified for that adapter
+  (fact F01). Otherwise the turn fails with `TRANSPORT_UNAVAILABLE` and the
+  coordinator decides; the run is never moved silently.
+- **Permissions.** Both transports apply the stage's `permission_profile`
+  (section 9.4).
 
 ## 12. Configuration
 
@@ -1056,15 +1234,23 @@ complete example is `cli_platform/config/cli-platform.toml`.
 | `[catalog]` | `stale_after_days`, `allow_unreviewed` |
 | `[accounts.<id>]` | `vendor`, `max_parallel` |
 | `[variants.<id>]` | `adapter`, `binary`, `account`, `enabled`, `settings_file`, `env`, `env_unset`, `extra_args`, `max_parallel`, `note` |
+| `[variants.<id>]`, P1 | `env_allow` (names of variables the child may inherit, D11), `transport` (`auto`, `acp` or `headless`) |
 | `[[models]]` | `variant`, `id`, `display_name`, `efforts`, `default_effort`, `context_tokens`, `cost_tier`, `status`, `verified_at`, `note` |
-| `[stages.<id>]` | `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `allow_pins_outside` |
+| `[[stages]]` (ordered) | `id`, `permission_profile` (`bypass` or `read_only_auto`), `candidates`, `max_parallel`, `on_busy`, `effort_fallback`, `allow_pins_outside` |
 | `[routing]` | `default_candidates` |
 | `[ui]` | `locale` (`auto`, `en`, `ja` or `zh-Hant`; regional tags are normalized; section 18.2) |
+| `[execution]`, `[execution.acp]`, P1 | `transport_order`; `protocol_versions`, `handshake_timeout_seconds` (10), `setup_timeout_seconds` (30), `breaker_consecutive_faults` (2), `breaker_window_turns` (10), `breaker_window_faults` (3), `breaker_retry_seconds` (1800) (D05) |
+
+Keys marked P1 are decided but are added to the loader together with the
+code that reads them; until then the loader refuses them as unknown. There
+is no key for a per-model cap (D12) or for reserving capacity (D14).
 
 Loader rules: unknown keys are errors; every reference must resolve
-(variant to account, model to variant, candidate to a curated model); all
-five stages must be present; caps and `context_tokens` are positive
-integers; `cost_tier` is `low`, `medium` or `high`;
+(variant to account, model to variant, candidate to a curated model);
+`stages` is a non-empty array of tables with unique ids, in the order
+given; `permission_profile` is one of the two values and is required for
+an id without a built-in default (section 9.4); caps and `context_tokens`
+are positive integers; `cost_tier` is `low`, `medium` or `high`;
 `lease_ttl_seconds` is at least twice `heartbeat_seconds`; relative paths
 resolve against the config file's directory. Errors are `CONFIG_INVALID` or
 `SECRET_IN_CONFIG` and name the offending key.
@@ -1088,17 +1274,23 @@ in the real system they are served by their own entry point.
 | View | Shows | Source |
 | --- | --- | --- |
 | Sessions | Nickname, state, task, stage, selection, turn, heartbeat age, lease or queue position | `nicknames/live/`, `runs/*/state.json`, `limits/state.json` |
-| Session detail | Reference, `run_id`, tmux session name, log path, URL, resume id, bypass marker, copyable takeover command, timeline with type filter | `runs/<nickname>-<run_id>/events.jsonl` |
-| CLI registry | Scan results and variants: binary, version, settings path and check, account, auth hint, availability reasons | Scan cache, config, `lstat` |
-| Model catalog | Per variant: model, display name, efforts, context window, cost tier, status and flags, provenance | `catalog/observed/`, config |
-| Stage routing | The matrix of section 9.1, policies, and recent resolution traces | Config, `route_resolved` events |
-| Concurrency | Meters per scope with effective caps and cooldown countdowns, queue, leases | `limits/state.json` |
+| Session detail | Reference, `run_id`, tmux session name, log path, URL, resume id, permission profile, copyable takeover command, timeline with type filter | `runs/<nickname>-<run_id>/events.jsonl` |
+| CLI registry | Scan results and variants: binary, version, transport and breaker state, settings path and check, account, auth hint, availability reasons | Registry snapshot, `adapters/state.json`, `config_applied` |
+| Model catalog | Per variant: model, display name, efforts, context window, cost tier, status and flags, provenance | Catalog snapshot, `catalog/observed/`, `config_applied` |
+| Stage routing | The stages in configured order with each stage's permission profile, the matrix of section 9.1, policies, and recent resolution traces | `config_applied`, `route_resolved` events |
+| Concurrency | Meters per scope with effective caps and cooldown countdowns, queue, leases | `limits/state.json`, `limits/journal.jsonl` |
 | Incidents | Derived list, also counted in the navigation | Rules below |
 
 Routes (all `GET`): `/`, `/s/<nickname>`, `/runs/<run_id>`, `/api/sessions`,
 `/api/sessions/<nickname>`, `/api/runs/<run_id>`, `/api/runs/<run_id>/events`,
 `/api/runs/<run_id>/stream`, `/api/registry`, `/api/catalog`, `/api/routing`,
 `/api/concurrency`, `/api/incidents`.
+
+The source column is the target of D08: in the scaffold the placeholder
+read model still reads the configuration file and calls the two evaluators
+(section 5.2). `/api/runs/<run_id>/stream` is the SSE route; the read-only
+server hosts it, publishes a frame only after its event is written, and
+replays from a `seq` as far back as the log is retained (D09).
 
 Incident rules added to those of the gateway proposal:
 
@@ -1109,6 +1301,8 @@ Incident rules added to those of the gateway proposal:
 | Lease stale | A lease past `expires_at` whose holder is still alive |
 | Catalog stale | An entry with `stale`, `version_drift` or `unconfirmed` that a stage lists |
 | Settings file | A variant whose settings file fails its check |
+| Breaker open | `adapters/state.json` shows an open ACP breaker for a variant |
+| Configuration rejected | The latest configuration event is `config_rejected` |
 | Auth required | An `error` event with code `AUTH_REQUIRED` |
 | Nickname cooldown waived | A `nickname_assigned` event with `cooldown_waived: true` |
 
@@ -1131,11 +1325,11 @@ Additions to section 6.6 of the gateway proposal:
 | Secrets in configuration | Refused at load (section 7.2). The config file can be committed. |
 | Settings files | Never opened, hashed or copied by the platform. Permission-checked before every launch. Shown as a path and a check result. |
 | Credential in the repository directory | `gateway.json` stays ignored by Git. A variant should point at a file outside the repository where possible; the sample points inside only because that is where the file is today. |
-| Child environment | The supervisor's allowlisted environment, then `env_unset`, then `env`. Values are never written to events. |
+| Child environment | The supervisor's base allowlist plus the variant's `env_allow` (D11), then `env_unset`, then `env`. Values are never written to events. The full environment is used only by the authorized Phase 0 probe, and that run records the authorization. |
 | Scan | Sanitized environment, no shell, no model call, bounded time and output. The auth probe stores a verdict only, not the command's output, which can contain an account email. |
 | State files | Record, lock, journal and log files are created with mode 0600 and opened with `O_NOFOLLOW`. The directories the platform creates (`nicknames/`, `limits/`, `catalog/observed/`, each run directory) are 0700. The state directory itself is the existing private one and keeps its own mode. |
 | Nickname as input | Validated against `^[a-z]{3,6}$` before it touches a path, a tmux target or a URL route. |
-| Bypass mode | Unchanged. Routing never adds a permission flag. |
+| Permissions | The stage's `permission_profile` (section 9.4), passed at launch; the CLI's own permission configuration is never modified. Routing never widens a profile. `read_only_auto` never executes commands. |
 | Untrusted text | Model ids from observations are validated against the id pattern before they can reach an argv. Observed-only models are not routable by default. |
 | Settings editor | Applies the loader's secret refusal to drafts, so a credential cannot be saved into `cli-platform.toml`. The error names the variable and never echoes the value. Settings-file paths are stored as paths; the editor never opens the file either. Writes only the config file, by atomic replace with a digest check (section 5.7). |
 
@@ -1163,8 +1357,8 @@ platform adds to that phase.
 
 | Phase | Platform deliverable | Acceptance gate |
 | --- | --- | --- |
-| P0. Scaffold (this change) | `cli_platform/` package, config, nickname library, tests, mockup | Library validator passes. The targeted tests pass. `python -m cli_platform check-config`, `scan`, `resolve` and `plan` run on the host. |
-| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. `tmuxctl run` accepts nicknames. Scan results cached in state. Limiter journal gains `v` and `seq` (section 5.4). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
+| P0. Scaffold (this change) and probe | `cli_platform/` package, config with the configurable stage list and profiles, nickname library, tests, mockup. The authorized Phase 0 probe (D03), including Kiro's login, answers F01 to F10. | Library validator passes. The targeted tests pass. `python -m cli_platform check-config`, `scan`, `resolve` and `plan` run on the host. Each fact has a fixture or stays "pending" with the reason. |
+| P1. With the runner core | Supervisor calls `open_session`, renews and releases leases, writes the section 11.3 events. Headless transport for every adapter; permission profiles rendered at launch (F10); environment from the allowlist (D11). `tmuxctl run` accepts nicknames and names new sessions `gt-<nickname>` (D13). Scan results published as snapshots. One envelope for the limiter, adapters, catalog and configuration streams (D07); `config_applied` (D08). The ACP transport and breaker, enabled per adapter only after its gate (D01, D05). | Six parallel runs on `fake_cli` with an account cap of 2 never show more than two turns in flight for that account. Killing a supervisor frees its slot after the TTL. A killed queued run leaves no ticket. A turn whose `turn_started` cannot be appended is never spawned. The layering tests still pass with the supervisor modules placed in the execution layer. |
 | P2. With task integration | Nickname in task records, audit entries and `resource_report`. `stage` and `pin` on `run_create`. Fallback disclosure text from the resolution. Rate-limit mapping in each verified adapter. | A real task shows the nickname in its record, log path and audit index. A pin for an unavailable model is refused, not replaced. A recorded rate-limit fixture produces a cooldown. |
 | P3. With the MCP adapter | The read tools of section 11.4, nickname addressing | A host completes a task using stage names only, and can explain each choice from `route_explain`. |
 | P4. With the workbench | The views and routes of section 13, localized through the catalogs (section 18). The settings editor as its own entry point (section 5.7). | `/s/<nickname>` opens the live session. Every workbench route is `GET`. Stopping the workbench changes nothing in `limits/` or any run. A settings save changes only `cli-platform.toml`, refuses an invalid draft, and refuses when the file changed since it was opened. |
@@ -1188,16 +1382,42 @@ in [project-structure.md](../design/project-structure.md).
 | Kiro flags | `kiro-cli chat --help`, `kiro-cli --help-all` | `--model`, `--effort`, `--list-models`, `whoami` |
 | Settings file | `lstat` through `python -m cli_platform variants` | `gateway.json`: regular file, mode 0600, check passes; contents not read by the platform. Revision 2 did not open the file. |
 | Nickname library | `python3 scripts/nicknames.py validate` | 1000 names, 1000 unique, lengths 3/4/5/6 = 40/320/320/320, matches the generator |
-| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | Revision 3: 142 tests, all pass (115 before; 27 added in `test_i18n.py`). Revision 2: 115 (101 before; 2 deleted, 16 added). |
-| Catalogs | `python3 -m cli_platform locale`, `python3 scripts/i18n_embed.py check` | 328 keys in each of `en`, `ja`, `zh-Hant`; no key missing against English; the mockup's copy matches |
+| Targeted tests | `python3 -m unittest discover -s tests -t tests` in `cli_platform/` | Revision 4: 155 tests, all pass (142 before; 13 added: 8 in `test_config.py` for the stage list and profiles, with one fixed-five-stages test replaced; 2 in `test_router.py`; 3 in `test_limiter.py`). Per module: config 30, router 31, limiter 27, i18n 27, layering 10, nicknames 22, session flow 8. Revision 3: 142 tests, all pass (115 before; 27 added in `test_i18n.py`). Revision 2: 115 (101 before; 2 deleted, 16 added). |
+| Catalogs | `python3 -m cli_platform locale`, `python3 scripts/i18n_embed.py check` | Revision 4: 357 keys in each of `en`, `ja`, `zh-Hant` (29 added for the stage editor), no key missing, the mockup's copy matches. Revision 3: 328 keys in each of `en`, `ja`, `zh-Hant`; no key missing against English; the mockup's copy matches |
 | Locale option | `python3 -m cli_platform --locale ja resolve nope`, `--locale zh-CN locale` | Refusal keeps `code` and the English `message` and adds Japanese `text`; `zh-CN` is refused with a usage error (exit 2) |
-| Service-tier option removed | The dispatch's case-insensitive whole-word grep for the option's name over `cli_platform/`, this document and the mockup | no match |
+| Service-tier option removed | The dispatch's case-insensitive whole-word grep for the option's name over `cli_platform/`, this document and the mockup | no match (repeated in revision 4, also over the ACP assessment: no match) |
+| Stage list and profiles (revision 4) | `python3 -m cli_platform check-config`, `resolve code_review`, `resolve development`, `plan development` | `check-config` lists the stages in configured order with their profiles. `resolve` prints `permission_profile=read_only_auto` for `code_review` (section 9.3) and `bypass` for `development`. |
+| Mockup stage editor (revision 4) | Playwright with headless Chromium on the `file://` page; `node --check` on the main script | Exercised: add a stage (starts at `read_only_auto`), empty, malformed and duplicate ids refused, keyboard reorder with focus kept, profile change and reset to default, the `read_only_auto` hint, remove with confirmation and the last-stage guard, Cancel restoring all of it, a saved custom stage appearing in the Observe Stage routing and Concurrency views, the Japanese locale. No page errors. The TOML preview writes `[[stages]]` in list order. The browser store key moved to `config:v2`, so an old draft is dropped and the demo data reseeded. |
 | Command line after the change | `check-config`, `resolve development`, `resolve code_review`, `plan development`, `catalog`, `variants` | All run. `resolve code_review` gives the trace of section 9.3. A pin with an effort outside the scale (for example a leftover suffix of the removed option) is refused with a usage message; before this revision it crashed the router. |
 | Mockup | Playwright with headless Chromium, `file://` URL, viewports 1440×900 and 1024×900, plus a context where `localStorage` throws | 257 scripted checks pass. Covered: add, edit, save (toast, timestamp, Save disabled afterwards), cancel, delete with confirmation (cancel, Escape and confirm, with cascade listing), blocked delete, inline validation (bad id, secret-shaped env name and value, non-claude settings file, non-integer caps, `lease_ttl` below twice `heartbeat`, `context_tokens`, duplicate model, `tmux_prefix`, `cooldown_days`, rate-limit bounds), unsaved-changes guard (Stay, Save, Discard, `beforeunload`), routing add, remove, reorder and duplicate, reload persistence, Reset demo data. Also checked: no page-level horizontal scroll on all 12 views at both widths, zero console errors, no network request besides the file. Not exercised: the blocked delete of a variant (same helper as the tested model path), Tab focus trapping in dialogs, the TOML preview's draft tab while errors exist. Observation views of sessions, incidents and traces remain fixed sample data. |
 | Mockup language switcher (revision 3) | Playwright with headless Chromium, `file://`, viewports 1440×900 and 1024×900, browser locales `en-US`, `ja-JP`, `zh-CN`, and a context where `localStorage` throws | 128 scripted checks pass: each language on all 12 views without page-level horizontal scroll, `<html lang>` follows the choice, no catalog miss recorded, nicknames, variant ids and configuration keys stay untranslated, the choice survives a reload, an unsaved draft survives a switch, `ja-JP` defaults to Japanese and `zh-CN` to English, switching works without storage, zero console errors, no network request. The 390-pixel width overflows horizontally, as it did before this revision. |
 | Mermaid diagrams | none | Not rendered: no Mermaid renderer is available offline on the host. The diagrams were checked by reading only. |
 | Model calls | none | none made |
 | Existing test suite | none | not run; no existing file changed |
+
+Decision status (revision 4). Each decision of the
+[register](2026-11-13-acp-first-layering-assessment.md#appendix-a-decision-register)
+and the files that carry it. "Applied" means the design, and where the
+decision reaches code, the scaffold and the mockup, now say what the
+decision says; code that belongs to a later phase is named as such in the
+cited section.
+
+| Id | Status | Carried by |
+| --- | --- | --- |
+| D01 | applied (design); ACP code P1, after the gate | This document 2, 11.5, 16; assessment 10.3, A.1 |
+| D02 | applied (design) | This document 1, 2, 11.5; assessment A.1 |
+| D03 | applied; probe pending | This document 16, 20; assessment A.1, A.2 (F01 to F10) |
+| D04 | applied (design) | This document 11.5; assessment A.1 |
+| D05 | applied (design); keys added in P1 | This document 11.5, 12; assessment 7.7, A.1 |
+| D06 | applied (design, scaffold, mockup) | This document 9.1, 9.4, 5.7, 12, 14; `cli_platform/src/cli_platform/config.py`, `router.py`, `limiter.py`, `adapters/workbench.py`, `__main__.py`; `cli_platform/config/cli-platform.toml`; `cli_platform/tests/test_config.py`, `test_router.py`, `test_limiter.py`; `docs/design/workbench-mockup.html`; `i18n/*.json` |
+| D07 | applied (design); journal code P1 | This document 4, 5.4, 11.3; assessment 8.2 |
+| D08 | applied (design); publishers P1, server P4 | This document 4, 5.2, 5.3, 13 |
+| D09 | applied (design); server P4 | This document 5.4, 13; assessment 9 |
+| D10 | applied (design) | This document 11.3, 11.5 |
+| D11 | applied (design); `env_allow` key P1 | This document 7.2, 12, 14 |
+| D12 | applied | This document 1, 10.1, 12, 20; `cli_platform/config/cli-platform.toml` (comment); `limiter.py` (docstring) |
+| D13 | applied (design); `tmuxctl` naming P1 | This document 6.3, 16, 20; `cli_platform/config/cli-platform.toml` (comment) |
+| D14 | applied | This document 1, 10.1, 12, 20; `cli_platform/config/cli-platform.toml` (comment); `limiter.py` (docstring); `test_config.py` (an unknown stage key such as `reserved_slots` is refused) |
 
 ## 18. Internationalization
 
@@ -1348,7 +1568,7 @@ Python side uses fixed tables:
 | Router and variant reason codes | `route_resolved` steps, registry state | `ACCOUNT_BUSY` | `reason.<CODE>` |
 | Event types | `type` of every event | `lease_granted` | `event.<type>` |
 | Incident rules | Derived, never stored | `rate_limited` | `incident.<id>` |
-| Run states, stages, catalog flags | Events, `state.json`, config | `handed_off`, `code_review`, `version_drift` | `state.*`, `stage.*`, `flag.*` |
+| Run states, stages, catalog flags | Events, `state.json`, config | `handed_off`, `code_review`, `version_drift` | `state.*`, `stage.*` (built-in stage ids only; a user-added stage is shown by its id), `flag.*` |
 
 Rules:
 
@@ -1375,7 +1595,8 @@ Rules:
 - Session nicknames and references (`kedo#2`), run ids, task ids, lease and
   ticket ids, tmux session names, paths and URLs.
 - Variant ids, account ids, adapter names, model ids, display names from
-  configuration, and effort levels (`low` ... `max`).
+  configuration, effort levels (`low` ... `max`), ids of stages a user
+  added, and permission profile values (`bypass`, `read_only_auto`).
 - Configuration keys and values, including `cli-platform.toml` itself and
   the TOML preview.
 - Everything a CLI produces: event payloads, assistant text, tool input and
@@ -1455,7 +1676,7 @@ Stream sources per adapter:
 | State badge | `state_changed` events, `runs/<nickname>-<run_id>/state.json` [spec] | The `state.json` fields of section 19.6. No component writes `state.json` yet. | `lost` cannot be written by the supervisor that died (section 19.5) | achievable now ([spec]) |
 | `turn N` | `turn_id` in the envelope; `state.json.turn_count` [spec] | `turn_count` | Do not use claude `result.num_turns`, which counts model round trips | achievable now |
 | Heartbeat age `hb N s` | `heartbeat` events [spec]; the ticket's `last_seen_at` in `limits/state.json` while queued [code] | A heartbeat for queued runs is not specified; show the ticket poll instead, labeled "poll" | Supervisor-side, the same for every CLI | achievable now |
-| `bypass authorized` badge | Not in `turn_started` (gateway section 6.3) | `turn_started.permission_mode`, mirrored in `state.json` | The platform knows it from the launch. claude `system/init.permissionMode` [doc] can confirm it. | achievable with a defined adapter field (platform field) |
+| Permission profile badge (`bypass` or `read_only_auto`; replaces the earlier "bypass authorized" badge, D06) | The stage's profile in `route_resolved` [code] | `turn_started.permission_profile`, mirrored in `state.json` | The platform knows it from the launch. claude `system/init.permissionMode` [doc] can confirm it. | achievable now from `route_resolved`; confirmation by the CLI is an adapter field |
 | tmux session `gt-kedo` | `tmux_session_name()` [code] | None | None | achievable now |
 | Workbench URL `/s/kedo` | Route table [code] | None | None | achievable now |
 | Resume id | Pre-assigned, or from the first stream event | `turn_started.resume_id`, `state.json.resume_id` | **claude**: `--session-id <uuid>` [help], known before spawn. **cursor**: `agent create-chat` returns an id [help]. **kiro**: no pre-assignment in help; an ACP `sessionId` in the stream is [doc]. **codex**: `thread.started.thread_id` [doc]. **agy**: unknown. | claude, cursor: achievable now. kiro, codex, agy: needs unverified CLI capability. Fallback: "resume id pending; first stream event not seen". |
@@ -1473,7 +1694,7 @@ Stream sources per adapter:
 | File edit with diff | claude `Edit`/`Write` input (`old_string`, `new_string`) and a structured patch in the result [doc]; ACP `diff` content (`path`, `oldText`, `newText`) [doc]; cursor edit result [doc]; codex `file_change` has paths and kinds only [doc] | `tool_result.diff_stat` (exists, shape undefined) plus new `diff`: bounded unified text, `truncated`, `line_numbers` | Hunk line numbers (`@@ -212,8 +212,12 @@`) need a structured patch or the whole old file. A fragment diff has none. Full text stays in `raw.jsonl` under its 4 KiB cap. | claude: achievable with a defined adapter field. kiro: achievable with a defined adapter field if it sends `diff` content (unverified). cursor: needs unverified CLI capability. codex: not available per call. Fallback: path, kind and "diff not reported", plus an optional turn-level `git diff` taken by the supervisor. |
 | Error | Supervisor errors [code] [spec]; CLI errors mapped by the adapter | `code`, `message`, `retryable`, `phase` (exist), plus new `match` (what the adapter recognized) | `RATE_LIMITED` and `AUTH_REQUIRED` detection is unknown for every CLI (section 20, question 1) | Supervisor errors: achievable now. CLI error codes: needs unverified CLI capability. |
 | CLI exit | Supervisor `waitpid` [spec] | `exit_code`, `signal`, `expected` | None | achievable now |
-| Permission request | ACP `session/request_permission` [doc]; claude `--permission-prompts none`, where anything that would prompt is denied [help], with denials in `result.permission_denials` [doc]; cursor `-p` has access to all tools [help] | New type `permission_request` (`call_id`, `tool`, `outcome`: `denied_auto`, `allowed`, `rejected`, `unanswered`) | Not in the mockup today. Whether headless kiro puts the request in its JSON Lines, and what happens with no client to answer it, is unverified. | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: the turn times out and an error row says so. |
+| Permission request | ACP `session/request_permission` [doc]; claude `--permission-prompts none`, where anything that would prompt is denied [help], with denials in `result.permission_denials` [doc]; cursor `-p` has access to all tools [help] | Two types, `permission_requested` and `permission_resolved` (`call_id`, `tool`, `kind`, `profile`, `outcome`: `denied_auto`, `allowed`, `rejected`, `unanswered`, `cancelled`), because the request must be on disk before the answer exists (section 9.4) | Not in the mockup today. Whether headless kiro puts the request in its JSON Lines, and what happens with no client to answer it, is unverified. | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: the turn times out and an error row says so. |
 | Plan update | ACP `plan` (`entries` with `content`, `priority`, `status`) [doc]; claude `TodoWrite` tool input [doc]; codex `todo_list` [doc] | New type `plan` (`entries`, `source`) | Not in the mockup today | claude: achievable with a defined adapter field. kiro, cursor, codex, agy: needs unverified CLI capability. Fallback: no plan panel. |
 | Subagent fan-out nesting | claude `--forward-subagent-text` sets `parent_tool_use_id` [help] | `tool_call.parent_call_id` (exists) | The mockup does not indent. ACP has no parent field in its stable schema [doc]. Whether a headless CLI waits for its subagents is an open gateway question (gateway section 10, question 1). | claude: achievable with a defined adapter field. kiro, cursor: needs unverified CLI capability. codex, agy: unverified. Fallback: a flat list. |
 | Mode and command list updates | ACP `current_mode_update`, `available_commands_update` [doc] | Optional `mode` in `state.json` | Not displayed. Kiro has `--mode default\|spec` [help]. | Not needed: stored as `adapter_unknown` or ignored |
@@ -1515,7 +1736,7 @@ Additive event fields (allowed within v1):
 
 | Event | New fields |
 | --- | --- |
-| `turn_started` | `permission_mode`, `observed_model`, `resume_id`, and `variant`, `variant_fingerprint`, `effort`, `cli_version` (section 11.2 lists them; the gateway proposal's table does not) |
+| `turn_started` | `permission_profile`, `transport`, `observed_model`, `resume_id`, and `variant`, `variant_fingerprint`, `effort`, `cli_version` (section 11.2 lists them; the gateway proposal's table does not) |
 | `tool_call` | `kind` (`read`, `edit`, `delete`, `move`, `search`, `execute`, `fetch`, `think`, `subagent`, `plan`, `other`), `title` |
 | `tool_result` | `diff_stat` (`added`, `removed`), `diff` (list of `path`, `unified`, `truncated`, `line_numbers`), `bytes` nullable |
 | `turn_completed` | `usage` (section 19.4), `usage_reported` |
@@ -1527,12 +1748,12 @@ Additive event fields (allowed within v1):
 | `route_resolved` | `steps[].scopes` |
 | `nickname_assigned` | `previous_ref`, `previous_released_at` |
 | `nickname_released` | `reuse_eligible_at` |
-| New types | `thought`, `plan`, `permission_request` (section 19.3) |
+| New types | `thought`, `plan`, `permission_requested`, `permission_resolved` (section 19.3) |
 
 `runs/<nickname>-<run_id>/state.json`, written by the supervisor by atomic
 replace: `v`, `run_id`, `nickname`, `ref`, `task_id`, `stage`, `state`,
 `since`, `turn_id`, `turn_count`, `variant`, `model`, `observed_model`,
-`effort`, `permission_mode`, `resume_id`, `lease_id`, `ticket_id`,
+`effort`, `permission_profile`, `transport`, `resume_id`, `lease_id`, `ticket_id`,
 `last_seq`, `last_adapter_seq`, `last_adapter_ts`, `heartbeat_at`,
 `supervisor_pid`, `cli_pid`, `takeover_argv` (loggable form), `mode`. Also:
 `runs/index.jsonl` gains `nickname`, `ref` and `stage`. `variants.py` gains
@@ -1578,15 +1799,43 @@ model call.
 
 ## 20. Open questions
 
-1. What does each CLI emit when rate-limited in headless mode? Section 10.4
-   depends on the Phase 0 fixtures of the gateway proposal.
-2. Is a vendor's limit per account or per model within an account? If per
-   model, the account scope gains an optional per-model sub-cap; the lease
-   record already carries enough to add it.
-3. Do `agent status` and `kiro-cli whoami` need more of the user's
-   environment than the sanitized probe passes? The probe results on the
-   host were inconclusive.
-4. Should the tmux backend's existing `create_session.name` values be
-   migrated to `gt-<nickname>`, or only new sessions?
-5. Should a task be able to reserve capacity (for example one slot of
-   `anthropic-sub`) so a long task is not starved by short ones?
+Revision 4 closes the questions the user decided: the per-model sub-cap is
+not implemented (D12), new tmux sessions only are named `gt-<nickname>`
+(D13), and capacity reservation is never supported (D14). The remaining
+questions are facts, authorized for the Phase 0 probe and pending:
+
+1. What does each CLI emit when rate-limited, in headless mode and over
+   ACP? Section 10.4 depends on it. (Fact F05.)
+2. Do the handshakes and the auth hints (`agent status`, `kiro-cli whoami`)
+   need more of the user's environment than the per-variant allowlist?
+   (Fact F09.)
+3. Which launch flags express `bypass` and `read_only_auto` on each adapter
+   and transport? (Fact F10.)
+
+F01 to F10, with the probe that answers each, are in the
+[fact register](2026-11-13-acp-first-layering-assessment.md#a2-facts).
+
+## 21. Decisions
+
+The user adjudicated fourteen questions on 2026-11-13. The authoritative
+record, with the question, the decision, its status and the evidence still
+needed, is the
+[decision register](2026-11-13-acp-first-layering-assessment.md#appendix-a-decision-register)
+in the ACP assessment. This document does not restate it; it applies it.
+
+| Id | Decision, in short | Applied in |
+| --- | --- | --- |
+| D01 | ACP preferred per adapter after its gate; headless fallback | 1, 2, 11.5, 16 |
+| D02 | Any transport that passes its gate; Claude headless-only in phase 1; no bridge | 1, 2, 11.5 |
+| D03 | Phase 0 probe authorized, Kiro login included; F01 to F10 pending | 16, 20 |
+| D04 | One ACP process per turn | 11.5 |
+| D05 | Handshake 10 s, setup 30 s, breaker 2 consecutive or 3 of 10, retry 30 min; configurable | 11.5, 12 |
+| D06 | Per-stage `permission_profile`; defaults `bypass` and `read_only_auto` for `code_review`; stages added, removed and reordered in the workbench | 3, 5.7, 9.1, 9.4, 12, 13, 14, 19 |
+| D07 | One envelope for run, lease, breaker and catalog streams; snapshots are caches | 4, 5.4, 11.3 |
+| D08 | Observation reads `config_applied` and snapshots | 4, 5.2, 5.3, 13 |
+| D09 | SSE in the read-only server, after write, retention equal to the log | 5.4, 13 |
+| D10 | Cross-transport only with verified `resume_portable`, else `TRANSPORT_UNAVAILABLE` | 11.3, 11.5 |
+| D11 | Per-variant environment allowlist; full environment only for the authorized probe | 7.2, 12, 14 |
+| D12 | No per-model sub-cap | 1, 10.1, 12, 20 |
+| D13 | `gt-<nickname>` for new tmux sessions only | 6.3, 16, 20 |
+| D14 | Capacity reservation never supported | 1, 10.1, 12, 20 |

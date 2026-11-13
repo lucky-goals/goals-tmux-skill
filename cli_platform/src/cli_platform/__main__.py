@@ -66,7 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "check-config":
             print(json.dumps({"ok": True, "path": str(config.path), "variants": sorted(config.variants),
                               "accounts": sorted(config.accounts), "models": len(config.models),
-                              "stages": sorted(config.stages)}, indent=2))
+                              "stages": [{"id": stage.id, "permission_profile": stage.permission_profile}
+                                         for stage in config.stages.values()]}, indent=2))
             return 0
         if args.command == "scan":
             print(json.dumps([item.to_dict() for item in scan_all(probe_auth=args.auth)], indent=2))

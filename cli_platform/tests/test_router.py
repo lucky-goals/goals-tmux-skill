@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from support import make_config, raw_config
+from support import make_config, raw_config, stage
 
 from cli_platform.catalog import ModelCatalog, Observation, ObservationStore
 from cli_platform.config import Candidate
@@ -121,7 +121,7 @@ class RouterTest(unittest.TestCase):
 
     def test_stage_can_allow_outside_pins(self):
         raw = raw_config()
-        raw["stages"]["design"]["allow_pins_outside"] = True
+        stage(raw, "design")["allow_pins_outside"] = True
         result = self.router(raw).resolve(
             RouteRequest(stage="design", pin=Candidate("gamma", "@default", "high")))
         self.assertEqual(result.selected.variant, "gamma")
@@ -203,7 +203,7 @@ class RouterTest(unittest.TestCase):
     def test_observed_only_model_is_not_routable_until_reviewed(self):
         seen = Observation("alpha", "new-model", "list_models_command", "2026-11-13T00:00:00+00:00")
         raw = raw_config()
-        raw["stages"]["design"]["allow_pins_outside"] = True
+        stage(raw, "design")["allow_pins_outside"] = True
         with self.assertRaises(PlatformError) as caught:
             self.router(raw, [seen]).resolve(
                 RouteRequest(stage="design", pin=Candidate("alpha", "new-model")))
@@ -235,6 +235,29 @@ class RouterTest(unittest.TestCase):
     def test_unknown_stage(self):
         with self.assertRaises(PlatformError) as caught:
             self.resolve("deploy")
+        self.assertEqual(caught.exception.code, "STAGE_UNKNOWN")
+
+    # -- configurable stages ------------------------------------------------------
+
+    def test_resolution_carries_the_stage_permission_profile(self):
+        review = self.resolve("code_review")
+        self.assertEqual(review.permission_profile, "read_only_auto")
+        self.assertEqual(review.to_dict()["permission_profile"], "read_only_auto")
+        self.assertIn("permission_profile=read_only_auto", review.explain()[0])
+        self.assertEqual(self.resolve("development").permission_profile, "bypass")
+
+    def test_an_added_stage_routes_and_a_removed_one_is_unknown(self):
+        raw = raw_config()
+        raw["stages"] = [item for item in raw["stages"] if item["id"] != "ui_design"]
+        raw["stages"].insert(0, {"id": "triage", "permission_profile": "read_only_auto",
+                                 "max_parallel": 1,
+                                 "candidates": [{"variant": "beta", "model": "quick", "effort": "low"}]})
+        router = self.router(raw)
+        result = router.resolve(RouteRequest(stage="triage"))
+        self.assertEqual((result.stage, result.selected, result.permission_profile),
+                         ("triage", Candidate("beta", "quick", "low"), "read_only_auto"))
+        with self.assertRaises(PlatformError) as caught:
+            router.resolve(RouteRequest(stage="ui_design"))
         self.assertEqual(caught.exception.code, "STAGE_UNKNOWN")
 
 

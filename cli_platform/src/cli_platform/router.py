@@ -11,6 +11,10 @@ Candidate order:
 2. the task's own candidates
 3. the stage's ``candidates`` from the config
 4. ``routing.default_candidates``
+
+The resolution carries the stage's ``permission_profile``; the supervisor
+passes it to the CLI at launch. Stages are whatever the configuration lists,
+so an id that is not configured is ``STAGE_UNKNOWN``.
 """
 
 from __future__ import annotations
@@ -62,10 +66,12 @@ class Resolution:
     fallback_used: bool
     blocked_on: tuple[str, ...]
     steps: tuple[Step, ...]
+    permission_profile: str = ""
 
     def explain(self) -> list[str]:
         head = (f"stage={self.stage} action={self.action} selected={self.selected.label()} "
-                f"account={self.account} source={self.source}"
+                f"account={self.account} source={self.source} "
+                f"permission_profile={self.permission_profile}"
                 + (" fallback=yes" if self.fallback_used else ""))
         return [head, *_trace_lines(self.steps)]
 
@@ -73,6 +79,7 @@ class Resolution:
         return {"stage": self.stage, "action": self.action, "selected": self.selected.label(),
                 "requested": self.requested.label(), "source": self.source, "account": self.account,
                 "fallback_used": self.fallback_used, "blocked_on": list(self.blocked_on),
+                "permission_profile": self.permission_profile,
                 "steps": [step.to_dict() for step in self.steps]}
 
 
@@ -194,7 +201,7 @@ class Router:
             stage=stage.id, action=action, selected=effective, requested=chosen.candidate,
             source=chosen.source, account=self._registry.get(effective.variant).account,
             fallback_used=chosen.order > 1 or bool(chosen.adjustments),
-            blocked_on=blocked, steps=tuple(steps))
+            blocked_on=blocked, steps=tuple(steps), permission_profile=stage.permission_profile)
 
 
 def _busy_code(scope: str) -> str:

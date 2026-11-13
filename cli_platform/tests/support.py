@@ -31,28 +31,33 @@ BASE: dict = {
         {"variant": "beta", "id": "quick", "efforts": ["low", "medium", "high"]},
         {"variant": "gamma", "id": "@default", "efforts": EFFORTS},
     ],
-    "stages": {
-        "design": {"max_parallel": 2, "candidates": [
+    "stages": [
+        {"id": "design", "max_parallel": 2, "candidates": [
             {"variant": "alpha", "model": "big", "effort": "max"},
             {"variant": "beta", "model": "quick", "effort": "high"}]},
-        "development": {"max_parallel": 3, "on_busy": "next", "candidates": [
+        {"id": "development", "max_parallel": 3, "on_busy": "next", "candidates": [
             {"variant": "alpha", "model": "big", "effort": "high"},
             {"variant": "beta", "model": "quick", "effort": "high"}]},
-        "testing": {"max_parallel": 1, "candidates": [
+        {"id": "testing", "max_parallel": 1, "candidates": [
             {"variant": "alpha", "model": "small", "effort": "max"},
             {"variant": "gamma", "model": "@default", "effort": "medium"}]},
-        "code_review": {"max_parallel": 2, "effort_fallback": "skip", "candidates": [
+        {"id": "code_review", "max_parallel": 2, "effort_fallback": "skip", "candidates": [
             {"variant": "alpha", "model": "small", "effort": "max"},
             {"variant": "beta", "model": "quick", "effort": "medium"}]},
-        "ui_design": {"max_parallel": 1, "candidates": [
+        {"id": "ui_design", "max_parallel": 1, "candidates": [
             {"variant": "alpha", "model": "big", "effort": "high"}]},
-    },
+    ],
     "routing": {"default_candidates": [{"variant": "gamma", "model": "@default", "effort": "low"}]},
 }
 
 
 def raw_config() -> dict:
     return copy.deepcopy(BASE)
+
+
+def stage(raw: dict, stage_id: str) -> dict:
+    """The ``[[stages]]`` table with ``id``, from a raw config dict."""
+    return next(item for item in raw["stages"] if item["id"] == stage_id)
 
 
 def make_config(tmp: Path, raw: dict | None = None) -> PlatformConfig:

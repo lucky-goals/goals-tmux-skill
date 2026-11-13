@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support import ROOT, make_config, raw_config
+from support import ROOT, make_config, raw_config, stage
 
 from cli_platform.errors import PlatformError
 from cli_platform.limiter import LeaseRequest, Limiter
@@ -104,6 +104,41 @@ class LimiterTest(unittest.TestCase):
         self.assertEqual(snapshot["global"], {"in_use": 2, "cap": 4})
         self.assertEqual(snapshot["stages"]["design"], {"in_use": 2, "cap": 2})
         self.assertEqual(snapshot["accounts"]["acct-b"]["in_use"], 1)
+
+    # -- configurable stages ------------------------------------------------------
+
+    def test_an_added_stage_has_its_own_cap(self):
+        raw = raw_config()
+        raw["stages"].append({"id": "triage", "permission_profile": "read_only_auto", "max_parallel": 1,
+                              "candidates": [{"variant": "beta", "model": "quick"}]})
+        limiter = self.limiter(raw)
+        self.assertTrue(limiter.acquire(self.request(stage="triage")).granted)
+        second = limiter.acquire(self.request(account="acct-b", stage="triage"), queue=False)
+        self.assertEqual(second.blocked_on, ("stage:triage",))
+        self.assertEqual(limiter.snapshot()["stages"]["triage"], {"in_use": 1, "cap": 1})
+
+    def test_lease_for_a_removed_stage_still_counts_elsewhere(self):
+        self.assertTrue(self.limiter().acquire(self.request(stage="testing")).granted)
+        raw = raw_config()
+        raw["stages"] = [item for item in raw["stages"] if item["id"] != "testing"]
+        limiter = self.limiter(raw)     # same state directory, configuration without "testing"
+        with self.assertRaises(PlatformError) as caught:
+            limiter.acquire(self.request(stage="testing"))
+        self.assertEqual(caught.exception.code, "STAGE_UNKNOWN")
+        self.assertTrue(limiter.acquire(self.request(stage="design")).granted)
+        busy = limiter.acquire(self.request(stage="design"), queue=False)
+        self.assertEqual(busy.blocked_on, ("account:acct-a",))
+        self.assertNotIn("testing", limiter.snapshot()["stages"])
+        self.assertEqual(limiter.snapshot()["global"]["in_use"], 2)
+
+    def test_reordering_stages_changes_no_cap(self):
+        raw = raw_config()
+        raw["stages"].reverse()
+        stage(raw, "testing")["max_parallel"] = 1
+        limiter = self.limiter(raw)
+        self.assertTrue(limiter.acquire(self.request(stage="testing")).granted)
+        self.assertEqual(limiter.acquire(self.request(account="acct-b", stage="testing"),
+                                         queue=False).blocked_on, ("stage:testing",))
 
     # -- queue ----------------------------------------------------------------
 

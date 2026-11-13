@@ -20,7 +20,8 @@ state_dir = "~/.local/state/goals-tmux-skill"
 [nicknames]
 library = "../data/nicknames.txt"
 cooldown_days = 7        # a released nickname rests this long before reuse
-tmux_prefix = "gt"       # tmux session name: gt-<nickname>
+tmux_prefix = "gt"       # tmux session name: gt-<nickname>, for new sessions only;
+                         # existing sessions keep their names
 
 [concurrency]
 global_max_parallel = 6
@@ -33,6 +34,8 @@ queue_timeout_seconds = 1800
 cooldown_base_seconds = 60     # doubles per consecutive rate limit
 cooldown_max_seconds = 900
 recover_after_turns = 5        # clean turns before the cap grows back by one
+# Scopes are global, account, stage and (optional) variant. There is no
+# per-model cap and no capacity reservation; neither has a key here.
 
 [catalog]
 stale_after_days = 14
@@ -196,12 +199,23 @@ default_effort = "high"
 note = "From references/cli-adapters.md; agy is not installed on the verification host."
 
 # ---------------------------------------------------------------------------
-# Stages: ordered candidates (first usable wins), a stage cap and fallback
-# policy. on_busy = "queue" waits for the preferred account; "next" tries the
+# Stages: an ordered list. Add, remove or reorder [[stages]] entries to match
+# how a role splits its work; the order is the order the workbench shows.
+# Each stage has ordered candidates (first usable wins), a stage cap, a
+# fallback policy and a permission_profile passed to the CLI at launch:
+#   bypass          skip permission prompts for the turn
+#   read_only_auto  auto-approve read, search and fetch only; never execute
+#                   commands
+# The CLI's own permission configuration is never modified. Built-in stage
+# ids default to bypass, except code_review, which defaults to read_only_auto;
+# a stage with any other id must set permission_profile.
+# on_busy = "queue" waits for the preferred account; "next" tries the
 # following candidate when only that account is busy.
 # ---------------------------------------------------------------------------
 
-[stages.design]
+[[stages]]
+id = "design"
+permission_profile = "bypass"
 max_parallel = 2
 on_busy = "queue"
 candidates = [
@@ -210,7 +224,9 @@ candidates = [
   { variant = "codex", model = "gpt-6.1-sol", effort = "xhigh" },
 ]
 
-[stages.development]
+[[stages]]
+id = "development"
+permission_profile = "bypass"
 max_parallel = 3
 on_busy = "queue"
 candidates = [
@@ -220,7 +236,9 @@ candidates = [
   { variant = "kiro", model = "@default", effort = "high" },
 ]
 
-[stages.testing]
+[[stages]]
+id = "testing"
+permission_profile = "bypass"
 max_parallel = 2
 on_busy = "next"
 candidates = [
@@ -229,8 +247,11 @@ candidates = [
   { variant = "cursor", model = "grok-4.7-xhigh" },
 ]
 
-# Review prefers a different vendor from the one that wrote the code.
-[stages.code_review]
+# Review prefers a different vendor from the one that wrote the code, and
+# only reads: read_only_auto never executes commands.
+[[stages]]
+id = "code_review"
+permission_profile = "read_only_auto"
 max_parallel = 2
 on_busy = "next"
 candidates = [
@@ -239,7 +260,9 @@ candidates = [
   { variant = "claude-gateway", model = "opus", effort = "high" },
 ]
 
-[stages.ui_design]
+[[stages]]
+id = "ui_design"
+permission_profile = "bypass"
 max_parallel = 1
 on_busy = "queue"
 candidates = [

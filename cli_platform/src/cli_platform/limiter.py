@@ -9,6 +9,11 @@ never oversubscribe a cap or deadlock on partial holds.
 
 There is no limiter daemon. Waiters hold a queue ticket and poll; a ticket or
 lease whose holder stops refreshing it is reclaimed by the next caller.
+
+There is no per-model scope and no capacity reservation: a slot is held only
+by a granted lease. Stages come from the configuration; a lease or ticket for
+a stage that a later configuration removed still counts against global,
+account and variant caps, and simply has no stage cap left to check.
 """
 
 from __future__ import annotations
@@ -237,7 +242,8 @@ class Limiter:
             blocked.append(f"account:{account}")
         if record["cooldown_until"] > now:
             blocked.append(f"cooldown:{account}")
-        if usage.get(f"stage:{stage}", 0) >= self._config.stages[stage].max_parallel:
+        stage_config = self._config.stages.get(stage)
+        if stage_config and usage.get(f"stage:{stage}", 0) >= stage_config.max_parallel:
             blocked.append(f"stage:{stage}")
         variant = self._config.variants.get(entry.get("variant") or "")
         if variant and variant.max_parallel is not None \

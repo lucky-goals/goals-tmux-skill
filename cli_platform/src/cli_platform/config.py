@@ -20,7 +20,23 @@ from .i18n.core import require_locale
 
 SCHEMA_VERSION = 1
 ADAPTERS = ("claude", "cursor", "codex", "agy", "kiro")
-STAGES = ("design", "development", "testing", "code_review", "ui_design")
+# Permission profile a stage passes to the CLI at launch (decision D06). The
+# CLI's own permission configuration is never modified.
+#   bypass          skip permission prompts for the turn
+#   read_only_auto  auto-approve READ_ONLY_TOOLS only; never execute commands
+PERMISSION_PROFILES = ("bypass", "read_only_auto")
+READ_ONLY_TOOLS = ("read", "search", "fetch")
+# The built-in stages and their default profiles. Stages are a configurable
+# ordered list: these ids may be removed, reordered or joined by others. Only
+# a stage not listed here must name its permission_profile explicitly.
+DEFAULT_STAGE_PROFILES = {
+    "design": "bypass",
+    "development": "bypass",
+    "testing": "bypass",
+    "code_review": "read_only_auto",
+    "ui_design": "bypass",
+}
+STAGES = tuple(DEFAULT_STAGE_PROFILES)  # built-in ids; they have translated labels
 EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
 MODEL_STATUSES = ("enabled", "disabled", "deprecated")
 # Informational label for people choosing a model; the router does not read it.
@@ -28,6 +44,7 @@ COST_TIERS = ("low", "medium", "high")
 DEFAULT_MODEL_ID = "@default"  # launch without a model flag; the CLI decides
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+_STAGE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _MODEL_RE = re.compile(r"^@default$|^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
 MODEL_ID_RE = _MODEL_RE
 _ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
@@ -90,6 +107,7 @@ class Stage:
     id: str
     candidates: tuple[Candidate, ...]
     max_parallel: int
+    permission_profile: str = "read_only_auto"  # one of PERMISSION_PROFILES
     on_busy: str = "queue"            # queue | next
     effort_fallback: str = "lower"    # lower | skip
     allow_pins_outside: bool = False
@@ -140,7 +158,7 @@ class PlatformConfig:
     accounts: dict[str, Account]
     variants: dict[str, Variant]
     models: tuple[ModelEntry, ...]
-    stages: dict[str, Stage]
+    stages: dict[str, Stage]             # in configured order
     default_candidates: tuple[Candidate, ...]
     ui: UiSettings = UiSettings()
 
@@ -292,13 +310,22 @@ def _candidates(raw: Any, where: str, config_models: tuple[ModelEntry, ...]) -> 
     return tuple(out)
 
 
-def _stage(stage_id: str, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
+def _stage(index: int, raw: Any, models: tuple[ModelEntry, ...]) -> Stage:
+    where = f"stages[{index}]"
+    raw = _table(raw, where, {"id", "permission_profile", "candidates", "max_parallel", "on_busy",
+                              "effort_fallback", "allow_pins_outside"},
+                 {"id", "candidates", "max_parallel"})
+    stage_id = _typed(raw, "id", str, "", where)
+    if not _STAGE_ID_RE.fullmatch(stage_id):
+        raise _fail(f"{where}.id must match {_STAGE_ID_RE.pattern}")
     where = f"stages.{stage_id}"
-    raw = _table(raw, where, {"candidates", "max_parallel", "on_busy", "effort_fallback",
-                              "allow_pins_outside"}, {"candidates", "max_parallel"})
+    if "permission_profile" not in raw and stage_id not in DEFAULT_STAGE_PROFILES:
+        raise _fail(f"{where}.permission_profile is required for a stage without a default")
     return Stage(
         id=stage_id, candidates=_candidates(raw["candidates"], f"{where}.candidates", models),
         max_parallel=_positive(raw, "max_parallel", 1, where),
+        permission_profile=_choice(raw, "permission_profile", PERMISSION_PROFILES,
+                                   DEFAULT_STAGE_PROFILES.get(stage_id, ""), where),
         on_busy=_choice(raw, "on_busy", ("queue", "next"), "queue", where),
         effort_fallback=_choice(raw, "effort_fallback", ("lower", "skip"), "lower", where),
         allow_pins_outside=_typed(raw, "allow_pins_outside", bool, False, where),
@@ -372,8 +399,14 @@ def parse_config(raw: dict, path: Path) -> PlatformConfig:
     if len(set(keys)) != len(keys):
         raise _fail("models: a variant lists the same model id twice")
 
-    stage_tables = _table(raw["stages"], "stages", set(STAGES), set(STAGES))
-    stages = {stage_id: _stage(stage_id, stage_tables[stage_id], models) for stage_id in STAGES}
+    if not isinstance(raw["stages"], list) or not raw["stages"]:
+        raise _fail("stages must be a non-empty array of tables")
+    stages: dict[str, Stage] = {}
+    for index, item in enumerate(raw["stages"]):
+        stage = _stage(index, item, models)
+        if stage.id in stages:
+            raise _fail(f"stages[{index}]: duplicate stage id {stage.id!r}")
+        stages[stage.id] = stage
 
     routing = _table(raw.get("routing", {}), "routing", {"default_candidates"})
     default_candidates = (_candidates(routing["default_candidates"], "routing.default_candidates", models)
