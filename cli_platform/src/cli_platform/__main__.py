@@ -78,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--pin")
     create.add_argument("--allow-fallback", action="store_true")
     create.add_argument("--run-id")
+    create.add_argument("--worktree", action="store_true",
+                        help="provision an isolated git worktree for this run")
+    create.add_argument("--allow-shared-cwd", action="store_true",
+                        help="allow sharing cwd with another active bypass run")
     send = runs.add_parser("send", help="run one turn")
     send.add_argument("run")
     send.add_argument("instruction", nargs="?")
@@ -88,8 +92,13 @@ def main(argv: list[str] | None = None) -> int:
     cancel = runs.add_parser("cancel", help="cancel the running or queued turn")
     cancel.add_argument("run")
     cancel.add_argument("--reason", default="requested")
-    for name in ("status", "close"):
-        runs.add_parser(name).add_argument("run")
+    runs.add_parser("status").add_argument("run")
+    close = runs.add_parser("close", help="close a run and release its nickname")
+    close.add_argument("run")
+    close.add_argument("--remove-worktree", action="store_true",
+                       help="remove the run's isolated git worktree and branch")
+    close.add_argument("--force", action="store_true",
+                       help="force worktree removal even with uncommitted changes")
     events = runs.add_parser("events", help="events after a cursor")
     events.add_argument("run")
     events.add_argument("--after-seq", type=int, default=0)
@@ -214,7 +223,8 @@ def _run(args: argparse.Namespace, config) -> int:
     if command == "create":
         result = service.create(stage=args.stage, cwd=str(Path(args.cwd).resolve()),
                                 task_id=args.task_id, pin=_pin(args.pin),
-                                allow_fallback=args.allow_fallback, run_id=args.run_id)
+                                allow_fallback=args.allow_fallback, run_id=args.run_id,
+                                worktree=args.worktree, allow_shared_cwd=args.allow_shared_cwd)
     elif command == "send":
         if args.file is not None:
             instruction = sys.stdin.read() if str(args.file) == "-" else args.file.read_text()
@@ -232,7 +242,7 @@ def _run(args: argparse.Namespace, config) -> int:
     elif command == "wait":
         result = service.wait(args.run, timeout_seconds=args.timeout)
     elif command == "close":
-        result = service.close(args.run)
+        result = service.close(args.run, remove_worktree=args.remove_worktree, force=args.force)
     elif command == "reconcile":
         result = service.reconcile(args.run, args.resolve)
     else:

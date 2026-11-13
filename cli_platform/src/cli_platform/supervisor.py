@@ -64,6 +64,8 @@ from .router import Resolution, Router, RouteRequest
 from .scanner import CliScan
 from .transport import Bound, Breaker, TransportBinder, TransportFactory, TurnContext
 from .variants import LaunchSpec, VariantRegistry, build_launch
+from .worktree import (creation_lock, ensure_cwd_available, prepare_worktree,
+                       remove_worktree as cleanup_worktree, verify_git_repo)
 
 # Run states of the gateway proposal (section 6.1) plus ``queued``: a turn was
 # requested and is waiting for a lease. No CLI process exists while queued.
@@ -623,43 +625,79 @@ class RunService:
 
     # -- create ---------------------------------------------------------------------
 
+    @staticmethod
+    def _existing_run_dir(runs_dir: Path, run_id: str | None) -> Path | None:
+        if run_id is None or not runs_dir.is_dir():
+            return None
+        matches = [path for path in runs_dir.glob(f"*-{run_id}") if (path / "run.json").exists()]
+        return matches[0] if len(matches) == 1 else None
+
     def create(self, *, stage: str, cwd: str, task_id: str = "adhoc", pin: Candidate | None = None,
-               allow_fallback: bool = False, run_id: str | None = None) -> dict:
+               allow_fallback: bool = False, run_id: str | None = None,
+               worktree: bool = False, allow_shared_cwd: bool = False) -> dict:
         config = self.platform.config
         if stage not in config.stages:
             raise PlatformError(errors.STAGE_UNKNOWN, f"unknown stage {stage!r}")
         if not os.path.isabs(cwd) or not os.path.isdir(cwd):
             raise PlatformError(errors.RUN_STATE_INVALID, "cwd must be an existing absolute directory")
-        run_id = run_id or new_run_id()
-        nickname = self.platform.nicknames.allocate(run_id, task_id=task_id)
-        handle = RunHandle(self.platform.state_dir / "runs" / f"{nickname.nickname}-{run_id}")
-        if (handle.dir / "run.json").exists():
+        runs_dir = self.platform.state_dir / "runs"
+        if self._existing_run_dir(runs_dir, run_id) is not None:
             return self.status(run_id)                 # create is idempotent per run id
-        run = {"v": 1, "run_id": run_id, "task_id": task_id, "stage": stage, "cwd": cwd,
-               "pin": pin.__dict__ if pin else None, "allow_fallback": allow_fallback,
-               "nickname": nickname.nickname, "ref": nickname.ref,
-               "tmux_session": tmux_session_name(config.nicknames.tmux_prefix, nickname.nickname),
-               "created_at": _now()}
-        handle.write_json("run.json", run)
-        log = handle.log()
-        log.append("nickname_assigned", {
-            "nickname": nickname.nickname, "ref": nickname.ref,
-            "cooldown_waived": nickname.cooldown_waived,
-            "previous_ref": nickname.previous_ref,
-            "previous_released_at": nickname.previous_released_at,
-        })
-        state = {
-            "v": 1, "run_id": run_id, "state": "created", "turns": 0,
-            "requests": {},
-            "heartbeat_at": None,
-            "last_adapter_seq": None,
-            "last_adapter_ts": None,
-            "takeover_argv": None,
-            "as_of_seq": log.last_seq,
-            "updated_at": _now(),
-        }
-        handle.write_json("state.json", state)
-        _append_runs_index(handle.dir.parent, run, state)
+
+        stage_obj = config.stages[stage]
+        stage_profiles = {sid: st.permission_profile for sid, st in config.stages.items()}
+        with creation_lock(self.platform.state_dir):
+            if self._existing_run_dir(runs_dir, run_id) is not None:
+                return self.status(run_id)             # create is idempotent per run id
+            if not worktree and stage_obj.permission_profile == "bypass" and not allow_shared_cwd:
+                ensure_cwd_available(self.platform.state_dir, cwd, stage_profiles=stage_profiles)
+            if worktree:
+                verify_git_repo(cwd)
+            run_id = run_id or new_run_id()
+            nickname = self.platform.nicknames.allocate(run_id, task_id=task_id)
+            handle = RunHandle(runs_dir / f"{nickname.nickname}-{run_id}")
+            if (handle.dir / "run.json").exists():
+                return self.status(run_id)                 # create is idempotent per run id
+            wt = None
+            if worktree:
+                try:
+                    wt = prepare_worktree(self.platform.state_dir, cwd, task_id, nickname.nickname)
+                except Exception:
+                    self.platform.nicknames.release(nickname.nickname, run_id)
+                    raise
+            effective_cwd = str(wt.path) if wt is not None else cwd
+            worktree_meta = wt.to_dict() if wt is not None else None
+            run = {"v": 1, "run_id": run_id, "task_id": task_id, "stage": stage, "cwd": effective_cwd,
+                   "permission_profile": stage_obj.permission_profile,
+                   "worktree": worktree_meta,
+                   "allow_shared_cwd": bool(allow_shared_cwd),
+                   "pin": pin.__dict__ if pin else None, "allow_fallback": allow_fallback,
+                   "nickname": nickname.nickname, "ref": nickname.ref,
+                   "tmux_session": tmux_session_name(config.nicknames.tmux_prefix, nickname.nickname),
+                   "created_at": _now()}
+            handle.write_json("run.json", run)
+            log = handle.log()
+            log.append("nickname_assigned", {
+                "nickname": nickname.nickname, "ref": nickname.ref,
+                "cooldown_waived": nickname.cooldown_waived,
+                "previous_ref": nickname.previous_ref,
+                "previous_released_at": nickname.previous_released_at,
+            })
+            if wt is not None:
+                log.append("worktree_prepared", wt.event_payload())
+            state = {
+                "v": 1, "run_id": run_id, "state": "created", "turns": 0,
+                "requests": {},
+                "worktree": dict(worktree_meta) if worktree_meta is not None else None,
+                "heartbeat_at": None,
+                "last_adapter_seq": None,
+                "last_adapter_ts": None,
+                "takeover_argv": None,
+                "as_of_seq": log.last_seq,
+                "updated_at": _now(),
+            }
+            handle.write_json("state.json", state)
+            _append_runs_index(handle.dir.parent, run, state)
         return self.status(run_id)
 
     # -- send -------------------------------------------------------------------------
@@ -1201,14 +1239,34 @@ class RunService:
         read = read_stream(self.find(ref).events_path, after_seq)
         return {"events": read.events, "last_seq": read.last_seq, "problem": read.problem}
 
-    def close(self, ref: str) -> dict:
+    @staticmethod
+    def _cleanup_run_worktree(run: _Run, *, force: bool) -> None:
+        wt_meta = run.run.get("worktree")
+        state_wt = run.state.get("worktree")
+        if not isinstance(wt_meta, dict):
+            return
+        if isinstance(state_wt, dict) and state_wt.get("cleaned"):
+            return
+        cleaned = cleanup_worktree(wt_meta, force=force)
+        run.append("worktree_cleaned", cleaned)
+        if isinstance(state_wt, dict):
+            run.state["worktree"] = dict(state_wt, cleaned=True, forced=bool(force))
+
+    def close(self, ref: str, *, remove_worktree: bool = False, force: bool = False) -> dict:
         handle = self.find(ref)
         with handle.lock():
             run = _Run(handle)
             if run.state["state"] == "closed":
+                if remove_worktree:
+                    before_seq = run.log.last_seq
+                    self._cleanup_run_worktree(run, force=force)
+                    if run.log.last_seq != before_seq:
+                        run.save()
                 return self.status(run.run["run_id"])
             if "closed" not in TRANSITIONS[run.state["state"]]:
                 raise PlatformError(errors.RUN_STATE_INVALID, f"a {run.state['state']} run cannot close")
+            if remove_worktree:
+                self._cleanup_run_worktree(run, force=force)
             released = self.platform.nicknames.release(run.run["nickname"], run.run["run_id"])
             run.append("nickname_released", {
                 "nickname": run.run["nickname"],

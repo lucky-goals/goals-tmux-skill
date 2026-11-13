@@ -232,6 +232,7 @@ class DetachedSupervisorTest(unittest.TestCase):
         self.assertEqual(finished["state"], "idle")
         self.assertFalse(RunService._holder_alive(handle))
         self.assertEqual(service.platform.limiter.snapshot()["leases"], [])
+        self.assertEqual(service.close(nick)["state"]["state"], "closed")
 
         # Short-lived parent CLI process exits immediately after `run send --detach`;
         # a second CLI `run wait` resolves the detached turn to `idle`.
@@ -250,6 +251,7 @@ class DetachedSupervisorTest(unittest.TestCase):
         self.assertEqual(waited_cli["state"], "idle")
         self.assertFalse(RunService._holder_alive(handle2))
         self.assertEqual(service.platform.limiter.snapshot()["leases"], [])
+        self.assertEqual(self._run_cli("run", "close", nick2)["state"]["state"], "closed")
 
     def test_cancel_stops_detached_turn_cleanly(self) -> None:
         service = self._make_service(scenario="slow")

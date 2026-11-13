@@ -304,6 +304,9 @@
   "error.ACP_STREAM_ENDED": "ターン完了前に ACP ストリームが終了しました。",
   "error.ACP_STREAM_CORRUPT": "ACP ストリームが読めない行を送りました。",
   "error.ACP_CANCEL_UNACKNOWLEDGED": "CLI がキャンセルを時間内に確認しませんでした。",
+  "error.WORKTREE_CONFLICT": "別の有効なバイパス実行がこの作業ディレクトリをすでに使用しています。",
+  "error.WORKTREE_DIRTY": "ワークツリーに未コミットの変更があります。",
+  "error.WORKTREE_FAILED": "Git ワークツリーの操作に失敗しました。",
 
   "reason.unknown": "理由 {code}",
   "reason.VARIANT_UNKNOWN": "バリアントが構成されていない",
@@ -357,6 +360,8 @@
   "event.usage": "コンテキスト使用量",
   "event.config_applied": "構成を適用",
   "event.config_rejected": "構成を拒否",
+  "event.worktree_prepared": "ワークツリーを準備",
+  "event.worktree_cleaned": "ワークツリーを削除",
 
   "incident.unknown": "インシデント {code}",
   "incident.rate_limited": "レート制限",

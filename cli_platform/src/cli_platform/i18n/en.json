@@ -304,6 +304,9 @@
   "error.ACP_STREAM_ENDED": "The ACP stream ended before the turn did.",
   "error.ACP_STREAM_CORRUPT": "The ACP stream sent unreadable lines.",
   "error.ACP_CANCEL_UNACKNOWLEDGED": "The CLI did not acknowledge the cancel in time.",
+  "error.WORKTREE_CONFLICT": "Another active bypass run already uses this working directory.",
+  "error.WORKTREE_DIRTY": "The worktree has uncommitted changes.",
+  "error.WORKTREE_FAILED": "The git worktree operation failed.",
 
   "reason.unknown": "Reason {code}",
   "reason.VARIANT_UNKNOWN": "variant not configured",
@@ -357,6 +360,8 @@
   "event.usage": "Context usage",
   "event.config_applied": "Configuration applied",
   "event.config_rejected": "Configuration rejected",
+  "event.worktree_prepared": "Worktree prepared",
+  "event.worktree_cleaned": "Worktree cleaned",
 
   "incident.unknown": "Incident {code}",
   "incident.rate_limited": "Rate limited",

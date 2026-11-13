@@ -31,7 +31,7 @@ LAYER = {
     "events": "event", "snapshots": "event",
     "scanner": "execution", "variants": "execution", "catalog": "execution",
     "nicknames": "execution", "router": "execution", "limiter": "execution",
-    "supervisor": "execution", "__main__": "execution", "adapters.mcp": "execution",
+    "supervisor": "execution", "__main__": "execution", "worktree": "execution", "adapters.mcp": "execution",
     "transport": "execution", "normalize": "execution", "adapters.base": "execution",
     "adapters.acp": "execution", "adapters.headless": "execution",
     "adapters.workbench": "observation",

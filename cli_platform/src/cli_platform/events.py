@@ -45,6 +45,7 @@ RUN_EVENT_TYPES = (
 PLATFORM_EVENT_TYPES = (
     "nickname_assigned", "nickname_released", "route_resolved",
     "lease_queued", "lease_granted", "lease_released", "rate_limited",
+    "worktree_prepared", "worktree_cleaned",
 )
 # Types added by the ACP assessment, section 8.1.
 TRANSPORT_EVENT_TYPES = (
@@ -71,6 +72,7 @@ FSYNC_TYPES = frozenset({
     "permission_requested", "permission_resolved", "adapter_probe", "breaker_recorded",
     "breaker_opened", "breaker_half_open", "breaker_closed",
     "config_applied", "config_rejected",
+    "worktree_prepared", "worktree_cleaned",
 })
 # Other events are fsynced at least this often.
 FSYNC_INTERVAL_SECONDS = 1.0

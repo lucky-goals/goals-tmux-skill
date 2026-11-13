@@ -304,6 +304,9 @@
   "error.ACP_STREAM_ENDED": "ACP 串流在回合結束前中斷。",
   "error.ACP_STREAM_CORRUPT": "ACP 串流傳送了無法讀取的內容。",
   "error.ACP_CANCEL_UNACKNOWLEDGED": "CLI 未及時確認取消。",
+  "error.WORKTREE_CONFLICT": "另一個作用中的 bypass 執行已在使用此工作目錄。",
+  "error.WORKTREE_DIRTY": "Git worktree 中有尚未提交的變更。",
+  "error.WORKTREE_FAILED": "Git worktree 操作失敗。",
 
   "reason.unknown": "原因 {code}",
   "reason.VARIANT_UNKNOWN": "未設定此變體",
@@ -357,6 +360,8 @@
   "event.usage": "內容使用量",
   "event.config_applied": "已套用組態",
   "event.config_rejected": "已拒絕組態",
+  "event.worktree_prepared": "已準備 worktree",
+  "event.worktree_cleaned": "已清理 worktree",
 
   "incident.unknown": "異常事件 {code}",
   "incident.rate_limited": "速率限制",
