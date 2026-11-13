@@ -1,0 +1,161 @@
+{
+  "probe": "p0d-cursor-hl-to-acp",
+  "transport": "acp",
+  "command": [
+    "agent",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-cwd-cursor",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:29:11.867+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 0.2886,
+  "setup_duration_s": 3.6102,
+  "turn_duration_s": null,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "promptCapabilities": {
+      "audio": false,
+      "embeddedContext": false,
+      "image": true
+    },
+    "sessionCapabilities": {
+      "list": {}
+    }
+  },
+  "agent_info": null,
+  "auth_methods": [
+    {
+      "id": "cursor_login",
+      "name": "Cursor Login",
+      "description": "Authenticate using existing Cursor login credentials. Run 'agent login' first if not logged in."
+    }
+  ],
+  "session_id": "5ca6bd52-f875-41b0-a382-52c69bd8e494",
+  "config_options": null,
+  "modes": null,
+  "replayed_updates_count": 0,
+  "stop_reason": null,
+  "prompt_error": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": {
+      "message": "Session \"5ca6bd52-f875-41b0-a382-52c69bd8e494\" not found"
+    }
+  },
+  "update_variants": {},
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 143,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0036,
+      "ts": "2026-11-13T10:29:11.867+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.2921,
+      "ts": "2026-11-13T10:29:12.156+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "promptCapabilities": {
+              "audio": false,
+              "embeddedContext": false,
+              "image": true
+            },
+            "sessionCapabilities": {
+              "list": {}
+            }
+          },
+          "authMethods": [
+            {
+              "id": "cursor_login",
+              "name": "Cursor Login",
+              "description": "Authenticate using existing Cursor login credentials. Run 'agent login' first if not logged in."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.2922,
+      "ts": "2026-11-13T10:29:12.156+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/load",
+        "params": {
+          "sessionId": "5ca6bd52-f875-41b0-a382-52c69bd8e494",
+          "cwd": "/tmp/phase0-cwd-cursor",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9022,
+      "ts": "2026-11-13T10:29:15.766+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "Invalid params",
+          "data": {
+            "message": "Session \"5ca6bd52-f875-41b0-a382-52c69bd8e494\" not found"
+          }
+        }
+      }
+    }
+  ],
+  "duration_s": 6.966
+}

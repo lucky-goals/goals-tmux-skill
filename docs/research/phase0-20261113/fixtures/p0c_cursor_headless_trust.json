@@ -1,0 +1,74 @@
+{
+  "probe": "p0c-cursor-headless",
+  "transport": "headless",
+  "command": [
+    "agent",
+    "-p",
+    "--trust",
+    "--output-format",
+    "stream-json",
+    "--stream-partial-output",
+    "--model",
+    "grok-4.7-low",
+    "Reply with exactly: PROBE_OK"
+  ],
+  "cwd": "/tmp/phase0-cwd-cursor",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:27:09.576+00:00",
+  "duration_s": 5.5999,
+  "timed_out": false,
+  "exit_code": 1,
+  "signal": null,
+  "stdout_line_count": 2,
+  "stderr_line_count": 1,
+  "frames": [
+    {
+      "t_rel_s": 3.7863,
+      "ts": "2026-11-13T10:27:07.763+00:00",
+      "dir": "rx",
+      "data": {
+        "type": "system",
+        "subtype": "init",
+        "apiKeySource": "login",
+        "cwd": "/private/tmp/phase0-cwd-cursor",
+        "session_id": "f206ad12-04ce-4823-bceb-0e1d6f0dded2",
+        "model": "Grok 4.7 256K Low",
+        "permissionMode": "default"
+      }
+    },
+    {
+      "t_rel_s": 3.7866,
+      "ts": "2026-11-13T10:27:07.763+00:00",
+      "dir": "rx",
+      "data": {
+        "type": "user",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Reply with exactly: PROBE_OK"
+            }
+          ]
+        },
+        "session_id": "f206ad12-04ce-4823-bceb-0e1d6f0dded2"
+      }
+    },
+    {
+      "t_rel_s": 5.2477,
+      "ts": "2026-11-13T10:27:09.224+00:00",
+      "dir": "stderr",
+      "data": "ActionRequiredError: Model unavailable on Free Free includes Grok 4.7, Grok 4.6, and Auto with fixed settings. Switch to an included model to continue."
+    }
+  ]
+}

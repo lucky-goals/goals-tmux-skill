@@ -1,0 +1,101 @@
+{
+  "probe": "p0c-cursor-headless",
+  "transport": "headless",
+  "command": [
+    "agent",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--stream-partial-output",
+    "--model",
+    "grok-4.7-low",
+    "Reply with exactly: PROBE_OK"
+  ],
+  "cwd": "/tmp/phase0-cwd-cursor",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:25:59.189+00:00",
+  "duration_s": 1.173,
+  "timed_out": false,
+  "exit_code": 1,
+  "signal": null,
+  "stdout_line_count": 0,
+  "stderr_line_count": 11,
+  "frames": [
+    {
+      "t_rel_s": 1.1676,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": ""
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "⚠ Workspace Trust Required"
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": ""
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "  Cursor Agent can execute code and access files in this directory."
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "  Do you trust the contents of this directory?"
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": ""
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "    /private/tmp/phase0-cwd-cursor"
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": ""
+    },
+    {
+      "t_rel_s": 1.1677,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "  To proceed, you can either:"
+    },
+    {
+      "t_rel_s": 1.1678,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "    • Run 'agent' interactively to decide"
+    },
+    {
+      "t_rel_s": 1.1678,
+      "ts": "2026-11-13T10:25:59.183+00:00",
+      "dir": "stderr",
+      "data": "    • Pass --trust, --yolo, or -f if you trust this directory"
+    }
+  ]
+}

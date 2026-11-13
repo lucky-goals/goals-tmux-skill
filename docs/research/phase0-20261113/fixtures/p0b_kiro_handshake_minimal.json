@@ -1,0 +1,332 @@
+{
+  "probe": "p0b-kiro-minimal",
+  "transport": "acp",
+  "command": [
+    "kiro-cli",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-probe.zwsOEQ",
+  "env_mode": "minimal",
+  "env_keys": [
+    "HOME",
+    "PATH"
+  ],
+  "started_at": "2026-11-13T10:24:09.616+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 2.2305,
+  "setup_duration_s": null,
+  "turn_duration_s": null,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "sessionCapabilities": {
+      "list": {},
+      "close": {},
+      "delete": {},
+      "fork": {
+        "_meta": {
+          "kiro": {
+            "messageId": true
+          }
+        }
+      }
+    },
+    "_meta": {
+      "kiro": {
+        "checkpoints": true,
+        "sessionList": true,
+        "policyNotifications": true,
+        "extensionMethods": [
+          "_kiro/knowledge",
+          "_kiro/memory/list",
+          "_kiro/memory/get",
+          "_kiro/memory/create",
+          "_kiro/memory/update",
+          "_kiro/memory/delete",
+          "_kiro/memory/import",
+          "_kiro/memory/export",
+          "_kiro/memory/getImportPrompt",
+          "_kiro/memory/getSyncStatus",
+          "_kiro/memory/sync",
+          "_kiro/codeIntelligence",
+          "_kiro/environment/start_ssh_session",
+          "_kiro/environment/get_network_configuration",
+          "_kiro/session/context",
+          "_kiro/session/compact",
+          "_kiro/session/export",
+          "_kiro/session/history",
+          "_kiro/session/delete",
+          "_kiro/session/rename",
+          "_kiro/job/cancel",
+          "_kiro/job/output",
+          "_kiro/config/template",
+          "_kiro/permissions/presets/list",
+          "_kiro/permissions/presets/add",
+          "_kiro/permissions/presets/remove",
+          "_kiro/configuration/getState",
+          "_kiro/configuration/set",
+          "_kiro/workflow/new",
+          "_kiro/workflow/invoke",
+          "_kiro/workflow/load",
+          "_kiro/workflow/inspect",
+          "_kiro/workflow/list",
+          "_kiro/workflow/pause",
+          "_kiro/workflow/cancel",
+          "_kiro/workflow/delete",
+          "_kiro/workflow/listRecipes",
+          "_kiro/workflow/listWatchHandlers",
+          "_kiro/workflow/resumeAll",
+          "_kiro/workflow/retry",
+          "_kiro/workflow/update",
+          "_kiro/workflow/resume",
+          "_kiro/sourceProviders/list",
+          "_kiro/sourceProviders/listResources"
+        ],
+        "sessionSources": [
+          "local",
+          "remote"
+        ],
+        "sessionListScopes": [
+          "workspace",
+          "user"
+        ],
+        "executionTargets": [
+          "local",
+          "cloud-sandbox"
+        ],
+        "sourceProviders": true,
+        "replayMarking": true,
+        "autoCompactionThreshold": {
+          "min": 0,
+          "max": 80,
+          "default": 80
+        },
+        "modelFallbackReporting": true,
+        "logging": {
+          "logDir": "<HOME>/.kiro/logs/20261113T102411803-68969",
+          "channels": [
+            {
+              "name": "kiro",
+              "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/kiro.log"
+            },
+            {
+              "name": "mcp",
+              "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/mcp.log"
+            },
+            {
+              "name": "powers",
+              "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/powers.log"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "agent_info": null,
+  "auth_methods": [
+    {
+      "id": "aws-builder-id",
+      "name": "AWS Builder ID"
+    },
+    {
+      "id": "aws-iam-identity-center",
+      "name": "AWS IAM Identity Center"
+    }
+  ],
+  "session_id": "",
+  "config_options": null,
+  "modes": null,
+  "replayed_updates_count": 0,
+  "stop_reason": null,
+  "prompt_error": null,
+  "update_variants": {},
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 0,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0031,
+      "ts": "2026-11-13T10:24:09.617+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.2334,
+      "ts": "2026-11-13T10:24:11.847+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "promptCapabilities": {
+              "image": true,
+              "embeddedContext": true
+            },
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "sessionCapabilities": {
+              "list": {},
+              "close": {},
+              "delete": {},
+              "fork": {
+                "_meta": {
+                  "kiro": {
+                    "messageId": true
+                  }
+                }
+              }
+            },
+            "_meta": {
+              "kiro": {
+                "checkpoints": true,
+                "sessionList": true,
+                "policyNotifications": true,
+                "extensionMethods": [
+                  "_kiro/knowledge",
+                  "_kiro/memory/list",
+                  "_kiro/memory/get",
+                  "_kiro/memory/create",
+                  "_kiro/memory/update",
+                  "_kiro/memory/delete",
+                  "_kiro/memory/import",
+                  "_kiro/memory/export",
+                  "_kiro/memory/getImportPrompt",
+                  "_kiro/memory/getSyncStatus",
+                  "_kiro/memory/sync",
+                  "_kiro/codeIntelligence",
+                  "_kiro/environment/start_ssh_session",
+                  "_kiro/environment/get_network_configuration",
+                  "_kiro/session/context",
+                  "_kiro/session/compact",
+                  "_kiro/session/export",
+                  "_kiro/session/history",
+                  "_kiro/session/delete",
+                  "_kiro/session/rename",
+                  "_kiro/job/cancel",
+                  "_kiro/job/output",
+                  "_kiro/config/template",
+                  "_kiro/permissions/presets/list",
+                  "_kiro/permissions/presets/add",
+                  "_kiro/permissions/presets/remove",
+                  "_kiro/configuration/getState",
+                  "_kiro/configuration/set",
+                  "_kiro/workflow/new",
+                  "_kiro/workflow/invoke",
+                  "_kiro/workflow/load",
+                  "_kiro/workflow/inspect",
+                  "_kiro/workflow/list",
+                  "_kiro/workflow/pause",
+                  "_kiro/workflow/cancel",
+                  "_kiro/workflow/delete",
+                  "_kiro/workflow/listRecipes",
+                  "_kiro/workflow/listWatchHandlers",
+                  "_kiro/workflow/resumeAll",
+                  "_kiro/workflow/retry",
+                  "_kiro/workflow/update",
+                  "_kiro/workflow/resume",
+                  "_kiro/sourceProviders/list",
+                  "_kiro/sourceProviders/listResources"
+                ],
+                "sessionSources": [
+                  "local",
+                  "remote"
+                ],
+                "sessionListScopes": [
+                  "workspace",
+                  "user"
+                ],
+                "executionTargets": [
+                  "local",
+                  "cloud-sandbox"
+                ],
+                "sourceProviders": true,
+                "replayMarking": true,
+                "autoCompactionThreshold": {
+                  "min": 0,
+                  "max": 80,
+                  "default": 80
+                },
+                "modelFallbackReporting": true,
+                "logging": {
+                  "logDir": "<HOME>/.kiro/logs/20261113T102411803-68969",
+                  "channels": [
+                    {
+                      "name": "kiro",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/kiro.log"
+                    },
+                    {
+                      "name": "mcp",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/mcp.log"
+                    },
+                    {
+                      "name": "powers",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102411803-68969/powers.log"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "authMethods": [
+            {
+              "id": "aws-builder-id",
+              "name": "AWS Builder ID"
+            },
+            {
+              "id": "aws-iam-identity-center",
+              "name": "AWS IAM Identity Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.2334,
+      "ts": "2026-11-13T10:24:11.847+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/memory/syncStatus",
+        "params": {
+          "state": "notStarted"
+        }
+      }
+    }
+  ],
+  "duration_s": 3.8976
+}

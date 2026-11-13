@@ -1,0 +1,51 @@
+{
+  "probe": "f10-claude-auth",
+  "command": [
+    "claude",
+    "auth",
+    "status",
+    "--json"
+  ],
+  "cwd": "/tmp/phase0-probe.mX7BSk",
+  "started_at": "2026-11-13T10:24:58.562+00:00",
+  "runs": {
+    "minimal": {
+      "env_keys": [
+        "HOME",
+        "PATH"
+      ],
+      "duration_s": 0.3269,
+      "timed_out": false,
+      "exit_code": 1,
+      "stdout": "{\n  \"loggedIn\": false,\n  \"authMethod\": \"none\",\n  \"apiProvider\": \"firstParty\",\n  \"analyticsDisabled\": false,\n  \"projectsDirectory\": \"<HOME>/.claude/projects\",\n  \"configDirectory\": \"<HOME>/.claude\"\n}\n",
+      "stderr": ""
+    },
+    "sanitized": {
+      "env_keys": [
+        "HOME",
+        "LANG",
+        "LOGNAME",
+        "PATH",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "USER"
+      ],
+      "duration_s": 0.1116,
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout": "{\n  \"loggedIn\": true,\n  \"authMethod\": \"claude.ai\",\n  \"apiProvider\": \"firstParty\",\n  \"analyticsDisabled\": false,\n  \"projectsDirectory\": \"<HOME>/.claude/projects\",\n  \"configDirectory\": \"<HOME>/.claude\",\n  \"email\": \"<REDACTED>\",\n  \"orgId\": \"<REDACTED>\",\n  \"orgName\": \"<REDACTED_EMAIL>'s Organization\",\n  \"subscriptionType\": \"pro\"\n}\n",
+      "stderr": ""
+    },
+    "full": {
+      "env_keys": [
+        "<FULL_ENV:121_VARS>"
+      ],
+      "duration_s": 0.0991,
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout": "{\n  \"loggedIn\": true,\n  \"authMethod\": \"oauth_token\",\n  \"apiProvider\": \"firstParty\",\n  \"analyticsDisabled\": false,\n  \"projectsDirectory\": \"<HOME>/.claude/projects\",\n  \"configDirectory\": \"<HOME>/.claude\"\n}\n",
+      "stderr": ""
+    }
+  }
+}

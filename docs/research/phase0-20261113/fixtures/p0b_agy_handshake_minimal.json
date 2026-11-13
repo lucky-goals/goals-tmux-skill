@@ -1,0 +1,193 @@
+{
+  "probe": "p0b-agy-minimal",
+  "transport": "acp",
+  "command": [
+    "agy",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-probe.zwsOEQ",
+  "env_mode": "minimal",
+  "env_keys": [
+    "HOME",
+    "PATH"
+  ],
+  "started_at": "2026-11-13T10:24:17.859+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 0.0576,
+  "setup_duration_s": null,
+  "turn_duration_s": null,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "load_session": true,
+    "promptCapabilities": {
+      "image": true,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "sessionCapabilities": {
+      "resume": {},
+      "close": {},
+      "load": {},
+      "list": {},
+      "additionalDirectories": {}
+    },
+    "session_capabilities": {
+      "resume": {},
+      "close": {},
+      "load": {},
+      "list": {},
+      "additionalDirectories": {}
+    },
+    "auth": {
+      "logout": {}
+    },
+    "_meta": {
+      "antigravity": {
+        "tier": true,
+        "systemPrompt": {
+          "append": true
+        }
+      }
+    }
+  },
+  "agent_info": {
+    "name": "Antigravity ACP Server",
+    "version": "1.5.8"
+  },
+  "auth_methods": [
+    {
+      "id": "oauth-personal",
+      "name": "Log in with Google",
+      "description": "Log in with your Google account"
+    },
+    {
+      "id": "oauth-business",
+      "name": "Log in with Gemini Enterprise",
+      "description": "Log in with your Gemini Enterprise account"
+    },
+    {
+      "id": "gemini-api-key",
+      "name": "Gemini API key",
+      "description": "Use an API key with Gemini Developer API"
+    },
+    {
+      "id": "agent-platform",
+      "name": "Gemini Enterprise Agent Platform",
+      "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+    }
+  ],
+  "session_id": "",
+  "config_options": null,
+  "modes": null,
+  "replayed_updates_count": 0,
+  "stop_reason": null,
+  "prompt_error": null,
+  "update_variants": {},
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 0,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0027,
+      "ts": "2026-11-13T10:24:17.859+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.0601,
+      "ts": "2026-11-13T10:24:17.917+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "load_session": true,
+            "promptCapabilities": {
+              "image": true,
+              "audio": false,
+              "embeddedContext": true
+            },
+            "sessionCapabilities": {
+              "resume": {},
+              "close": {},
+              "load": {},
+              "list": {},
+              "additionalDirectories": {}
+            },
+            "session_capabilities": {
+              "resume": {},
+              "close": {},
+              "load": {},
+              "list": {},
+              "additionalDirectories": {}
+            },
+            "auth": {
+              "logout": {}
+            },
+            "_meta": {
+              "antigravity": {
+                "tier": true,
+                "systemPrompt": {
+                  "append": true
+                }
+              }
+            }
+          },
+          "agentInfo": {
+            "name": "Antigravity ACP Server",
+            "version": "1.5.8"
+          },
+          "authMethods": [
+            {
+              "id": "oauth-personal",
+              "name": "Log in with Google",
+              "description": "Log in with your Google account"
+            },
+            {
+              "id": "oauth-business",
+              "name": "Log in with Gemini Enterprise",
+              "description": "Log in with your Gemini Enterprise account"
+            },
+            {
+              "id": "gemini-api-key",
+              "name": "Gemini API key",
+              "description": "Use an API key with Gemini Developer API"
+            },
+            {
+              "id": "agent-platform",
+              "name": "Gemini Enterprise Agent Platform",
+              "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+            }
+          ]
+        },
+        "id": 0
+      }
+    }
+  ],
+  "duration_s": 0.1154
+}

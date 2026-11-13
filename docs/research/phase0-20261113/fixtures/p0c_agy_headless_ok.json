@@ -1,0 +1,184 @@
+{
+  "probe": "p0c-agy-headless",
+  "transport": "headless",
+  "command": [
+    "agy",
+    "-p",
+    "Reply with exactly: PROBE_OK",
+    "--output-format",
+    "stream-json",
+    "--model",
+    "gemini-3.8-flash-low"
+  ],
+  "cwd": "/tmp/phase0-cwd-agy",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:27:54.892+00:00",
+  "duration_s": 11.1917,
+  "timed_out": false,
+  "exit_code": 0,
+  "signal": null,
+  "stdout_line_count": 5,
+  "stderr_line_count": 0,
+  "frames": [
+    {
+      "t_rel_s": 6.8194,
+      "ts": "2026-11-13T10:27:50.519+00:00",
+      "dir": "rx",
+      "data": {
+        "event": "init",
+        "conversation_id": "9f15a908-0f98-493d-89d4-44c28020b4bc",
+        "init": {
+          "model": "gemini-3.8-flash-low",
+          "cwd": "/private/tmp/phase0-cwd-agy",
+          "tools": [
+            "ask_custom_permission",
+            "ask_permission",
+            "ask_question",
+            "browser_click_element",
+            "browser_drag_pixel_to_pixel",
+            "browser_get_dom",
+            "browser_get_network_request",
+            "browser_input",
+            "browser_list_network_requests",
+            "browser_mouse_down",
+            "browser_mouse_up",
+            "browser_move_mouse",
+            "browser_press_key",
+            "browser_refresh_page",
+            "browser_resize_window",
+            "browser_scroll",
+            "browser_scroll_dom",
+            "browser_select_option",
+            "browser_subagent",
+            "call_mcp_tool",
+            "capture_browser_console_logs",
+            "capture_browser_screenshot",
+            "click_browser_pixel",
+            "command_status",
+            "define_subagent",
+            "delete_knowledge",
+            "execute_browser_javascript",
+            "find_by_name",
+            "finish",
+            "generate_image",
+            "grep_search",
+            "invoke_subagent",
+            "list_browser_pages",
+            "list_dir",
+            "list_permissions",
+            "list_plugin_accounts",
+            "list_resources",
+            "manage_inbox",
+            "manage_subagents",
+            "manage_task",
+            "multi_replace_file_content",
+            "notebook_edit",
+            "notebook_execution",
+            "open_browser_url",
+            "read_browser_page",
+            "read_resource",
+            "read_url_content",
+            "replace_file_content",
+            "run_command",
+            "run_workflow",
+            "schedule",
+            "search_marketplace",
+            "search_web",
+            "sed_file",
+            "send_command_input",
+            "send_message",
+            "view_file",
+            "wait",
+            "wait_5_seconds",
+            "write_to_file"
+          ],
+          "permission_mode": "request-review"
+        }
+      }
+    },
+    {
+      "t_rel_s": 6.8459,
+      "ts": "2026-11-13T10:27:50.546+00:00",
+      "dir": "rx",
+      "data": {
+        "event": "step_update",
+        "step_update": {
+          "conversation_id": "9f15a908-0f98-493d-89d4-44c28020b4bc",
+          "step_index": 0,
+          "state": "DONE",
+          "step_type": "user_input"
+        }
+      }
+    },
+    {
+      "t_rel_s": 10.2981,
+      "ts": "2026-11-13T10:27:53.998+00:00",
+      "dir": "rx",
+      "data": {
+        "event": "step_update",
+        "step_update": {
+          "conversation_id": "9f15a908-0f98-493d-89d4-44c28020b4bc",
+          "step_index": 1,
+          "state": "ACTIVE",
+          "step_type": "agent_response",
+          "text_delta": "PROBE_OK"
+        }
+      }
+    },
+    {
+      "t_rel_s": 10.3233,
+      "ts": "2026-11-13T10:27:54.023+00:00",
+      "dir": "rx",
+      "data": {
+        "event": "step_update",
+        "step_update": {
+          "conversation_id": "9f15a908-0f98-493d-89d4-44c28020b4bc",
+          "step_index": 1,
+          "state": "DONE",
+          "step_type": "agent_response",
+          "text_delta": "\n",
+          "duration_seconds": 3.4682209999999998,
+          "usage": {
+            "input_tokens": 18753,
+            "output_tokens": 4,
+            "thinking_tokens": 0,
+            "cache_read_tokens": 0,
+            "total_tokens": 18757
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 10.3234,
+      "ts": "2026-11-13T10:27:54.023+00:00",
+      "dir": "rx",
+      "data": {
+        "event": "result",
+        "result": {
+          "conversation_id": "9f15a908-0f98-493d-89d4-44c28020b4bc",
+          "status": "SUCCESS",
+          "response": "PROBE_OK\n",
+          "duration_seconds": 3.492053,
+          "num_turns": 1,
+          "usage": {
+            "input_tokens": 18753,
+            "output_tokens": 4,
+            "thinking_tokens": 0,
+            "cache_read_tokens": 0,
+            "total_tokens": 18757
+          }
+        }
+      }
+    }
+  ]
+}

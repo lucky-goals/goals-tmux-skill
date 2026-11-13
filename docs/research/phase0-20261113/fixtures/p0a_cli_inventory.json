@@ -1,0 +1,79 @@
+{
+  "probe": "p0a-cli-inventory",
+  "started_at": "2026-11-13T10:35:49.742+00:00",
+  "clis": {
+    "claude": {
+      "binary_path": "/opt/homebrew/bin/claude",
+      "version_exit": 0,
+      "version": "2.1.311 (Claude Code)",
+      "helps": {
+        "claude --help": {
+          "exit_code": 0,
+          "line_count": 314,
+          "has_acp": false
+        },
+        "claude acp --help": {
+          "exit_code": 0,
+          "line_count": 314,
+          "has_acp": false
+        }
+      }
+    },
+    "cursor": {
+      "binary_path": "<HOME>/.local/bin/agent",
+      "version_exit": 0,
+      "version": "2026.11.11-b912975",
+      "helps": {
+        "agent --help": {
+          "exit_code": 0,
+          "line_count": 96,
+          "has_acp": false
+        },
+        "agent acp --help": {
+          "exit_code": 0,
+          "line_count": 6,
+          "has_acp": true
+        }
+      }
+    },
+    "kiro": {
+      "binary_path": "<HOME>/.local/bin/kiro-cli",
+      "version_exit": 0,
+      "version": "kiro-cli 3.3.0",
+      "helps": {
+        "kiro-cli --help-all": {
+          "exit_code": 0,
+          "line_count": 38,
+          "has_acp": false
+        },
+        "kiro-cli acp --help": {
+          "exit_code": 0,
+          "line_count": 46,
+          "has_acp": true
+        },
+        "kiro-cli chat --help": {
+          "exit_code": 0,
+          "line_count": 146,
+          "has_acp": true
+        }
+      }
+    },
+    "agy": {
+      "binary_path": "<HOME>/.local/bin/agy",
+      "version_exit": 0,
+      "version": "1.5.8",
+      "helps": {
+        "agy --help": {
+          "exit_code": 0,
+          "line_count": 42,
+          "has_acp": true
+        },
+        "agy acp --help": {
+          "exit_code": 0,
+          "line_count": 32,
+          "has_acp": true
+        }
+      }
+    }
+  }
+}

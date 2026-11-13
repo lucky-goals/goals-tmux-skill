@@ -1,0 +1,2460 @@
+{
+  "probe": "p0c-agy-acp",
+  "transport": "acp",
+  "command": [
+    "agy",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-cwd-agy",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:26:32.372+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 0.0508,
+  "setup_duration_s": 3.93,
+  "turn_duration_s": 2.5817,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "load_session": true,
+    "promptCapabilities": {
+      "image": true,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "sessionCapabilities": {
+      "resume": {},
+      "close": {},
+      "load": {},
+      "list": {},
+      "additionalDirectories": {}
+    },
+    "session_capabilities": {
+      "resume": {},
+      "close": {},
+      "load": {},
+      "list": {},
+      "additionalDirectories": {}
+    },
+    "auth": {
+      "logout": {}
+    },
+    "_meta": {
+      "antigravity": {
+        "tier": true,
+        "systemPrompt": {
+          "append": true
+        }
+      }
+    }
+  },
+  "agent_info": {
+    "name": "Antigravity ACP Server",
+    "version": "1.5.8"
+  },
+  "auth_methods": [
+    {
+      "id": "oauth-personal",
+      "name": "Log in with Google",
+      "description": "Log in with your Google account"
+    },
+    {
+      "id": "oauth-business",
+      "name": "Log in with Gemini Enterprise",
+      "description": "Log in with your Gemini Enterprise account"
+    },
+    {
+      "id": "gemini-api-key",
+      "name": "Gemini API key",
+      "description": "Use an API key with Gemini Developer API"
+    },
+    {
+      "id": "agent-platform",
+      "name": "Gemini Enterprise Agent Platform",
+      "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+    }
+  ],
+  "session_id": "77c94c1a-809c-40e4-b503-67121ee79abf",
+  "config_options": [
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "gemini-3.8-flash",
+      "options": [
+        {
+          "value": "gemini-4-carbon",
+          "name": "Gemini 4 Carbon"
+        },
+        {
+          "value": "gemini-4-argon",
+          "name": "Gemini 4 Argon"
+        },
+        {
+          "value": "gemini-4-hydrogen",
+          "name": "Gemini 4 Hydrogen"
+        },
+        {
+          "value": "gemini-pro-orchestrator",
+          "name": "Orchestrator (Carbon)"
+        },
+        {
+          "value": "gemini-pro-orchestrator-argon",
+          "name": "Orchestrator (Argon)"
+        },
+        {
+          "value": "gemini-3.8-flash",
+          "name": "Gemini 3.8 Flash"
+        },
+        {
+          "value": "claude-opus-5-5",
+          "name": "Claude Opus 5.5"
+        },
+        {
+          "value": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5"
+        },
+        {
+          "value": "gpt-oss-120b-medium",
+          "name": "GPT-OSS 120B (Medium)"
+        }
+      ]
+    },
+    {
+      "id": "thought_level",
+      "name": "Thinking Level",
+      "category": "thought_level",
+      "type": "select",
+      "currentValue": "low",
+      "options": [
+        {
+          "value": "low",
+          "name": "Low"
+        },
+        {
+          "value": "medium",
+          "name": "Medium"
+        },
+        {
+          "value": "high",
+          "name": "High"
+        }
+      ]
+    },
+    {
+      "id": "mode",
+      "name": "Mode",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "default",
+      "options": [
+        {
+          "value": "default",
+          "name": "Default",
+          "description": "Ask before edits and commands, per your permission settings."
+        },
+        {
+          "value": "accept-edits",
+          "name": "Accept edits",
+          "description": "Approve file edits in the workspace without asking."
+        },
+        {
+          "value": "auto",
+          "name": "Auto",
+          "description": "Approve edits and safe commands; ask before irreversible actions."
+        },
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Plan carefully before executing a task."
+        }
+      ]
+    }
+  ],
+  "modes": {
+    "currentModeId": "default",
+    "availableModes": [
+      {
+        "id": "default",
+        "name": "Default",
+        "description": "Ask before edits and commands, per your permission settings."
+      },
+      {
+        "id": "accept-edits",
+        "name": "Accept edits",
+        "description": "Approve file edits in the workspace without asking."
+      },
+      {
+        "id": "auto",
+        "name": "Auto",
+        "description": "Approve edits and safe commands; ask before irreversible actions."
+      },
+      {
+        "id": "plan",
+        "name": "Plan",
+        "description": "Plan carefully before executing a task."
+      }
+    ]
+  },
+  "replayed_updates_count": 0,
+  "stop_reason": "end_turn",
+  "prompt_error": null,
+  "update_variants": {
+    "config_option_update": 2,
+    "available_commands_update": 3,
+    "usage_update": 2,
+    "user_message_chunk": 1,
+    "session_info_update": 1,
+    "agent_message_chunk": 1
+  },
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 0,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0027,
+      "ts": "2026-11-13T10:26:32.372+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.0534,
+      "ts": "2026-11-13T10:26:32.423+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "load_session": true,
+            "promptCapabilities": {
+              "image": true,
+              "audio": false,
+              "embeddedContext": true
+            },
+            "sessionCapabilities": {
+              "resume": {},
+              "close": {},
+              "load": {},
+              "list": {},
+              "additionalDirectories": {}
+            },
+            "session_capabilities": {
+              "resume": {},
+              "close": {},
+              "load": {},
+              "list": {},
+              "additionalDirectories": {}
+            },
+            "auth": {
+              "logout": {}
+            },
+            "_meta": {
+              "antigravity": {
+                "tier": true,
+                "systemPrompt": {
+                  "append": true
+                }
+              }
+            }
+          },
+          "agentInfo": {
+            "name": "Antigravity ACP Server",
+            "version": "1.5.8"
+          },
+          "authMethods": [
+            {
+              "id": "oauth-personal",
+              "name": "Log in with Google",
+              "description": "Log in with your Google account"
+            },
+            {
+              "id": "oauth-business",
+              "name": "Log in with Gemini Enterprise",
+              "description": "Log in with your Gemini Enterprise account"
+            },
+            {
+              "id": "gemini-api-key",
+              "name": "Gemini API key",
+              "description": "Use an API key with Gemini Developer API"
+            },
+            {
+              "id": "agent-platform",
+              "name": "Gemini Enterprise Agent Platform",
+              "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+            }
+          ]
+        },
+        "id": 0
+      }
+    },
+    {
+      "t_rel_s": 0.0535,
+      "ts": "2026-11-13T10:26:32.423+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/new",
+        "params": {
+          "cwd": "/tmp/phase0-cwd-agy",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9832,
+      "ts": "2026-11-13T10:26:36.352+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "models": {
+            "availableModels": [
+              {
+                "modelId": "gemini-4-carbon-medium",
+                "name": "Gemini 4 Carbon (Medium)"
+              },
+              {
+                "modelId": "gemini-4-carbon-high",
+                "name": "Gemini 4 Carbon (High)"
+              },
+              {
+                "modelId": "gemini-4-carbon-low",
+                "name": "Gemini 4 Carbon (Low)"
+              },
+              {
+                "modelId": "gemini-4-argon-medium",
+                "name": "Gemini 4 Argon (Medium)"
+              },
+              {
+                "modelId": "gemini-4-argon-high",
+                "name": "Gemini 4 Argon (High)"
+              },
+              {
+                "modelId": "gemini-4-argon-low",
+                "name": "Gemini 4 Argon (Low)"
+              },
+              {
+                "modelId": "gemini-4-hydrogen-high",
+                "name": "Gemini 4 Hydrogen (High)"
+              },
+              {
+                "modelId": "gemini-4-hydrogen-xhigh",
+                "name": "Gemini 4 Hydrogen (XHigh)"
+              },
+              {
+                "modelId": "gemini-4-hydrogen-medium",
+                "name": "Gemini 4 Hydrogen (Medium)"
+              },
+              {
+                "modelId": "gemini-4-hydrogen-low",
+                "name": "Gemini 4 Hydrogen (Low)"
+              },
+              {
+                "modelId": "gemini-pro-orchestrator",
+                "name": "Orchestrator (Carbon)"
+              },
+              {
+                "modelId": "gemini-pro-orchestrator-argon",
+                "name": "Orchestrator (Argon)"
+              },
+              {
+                "modelId": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)"
+              },
+              {
+                "modelId": "gemini-3.8-flash-medium",
+                "name": "Gemini 3.8 Flash (Medium)"
+              },
+              {
+                "modelId": "gemini-3.8-flash-low",
+                "name": "Gemini 3.8 Flash (Low)"
+              },
+              {
+                "modelId": "claude-opus-5-5-low",
+                "name": "Claude Opus 5.5 (Low)"
+              },
+              {
+                "modelId": "claude-opus-5-5-medium",
+                "name": "Claude Opus 5.5 (Medium)"
+              },
+              {
+                "modelId": "claude-opus-5-5-high",
+                "name": "Claude Opus 5.5 (High)"
+              },
+              {
+                "modelId": "claude-sonnet-5-5-low",
+                "name": "Claude Sonnet 5.5 (Low)"
+              },
+              {
+                "modelId": "claude-sonnet-5-5-medium",
+                "name": "Claude Sonnet 5.5 (Medium)"
+              },
+              {
+                "modelId": "claude-sonnet-5-5-high",
+                "name": "Claude Sonnet 5.5 (High)"
+              },
+              {
+                "modelId": "gpt-oss-120b-medium",
+                "name": "GPT-OSS 120B (Medium)"
+              }
+            ],
+            "currentModelId": "gemini-4-carbon-medium"
+          },
+          "modes": {
+            "currentModeId": "default",
+            "availableModes": [
+              {
+                "id": "default",
+                "name": "Default",
+                "description": "Ask before edits and commands, per your permission settings."
+              },
+              {
+                "id": "accept-edits",
+                "name": "Accept edits",
+                "description": "Approve file edits in the workspace without asking."
+              },
+              {
+                "id": "auto",
+                "name": "Auto",
+                "description": "Approve edits and safe commands; ask before irreversible actions."
+              },
+              {
+                "id": "plan",
+                "name": "Plan",
+                "description": "Plan carefully before executing a task."
+              }
+            ]
+          },
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "gemini-4-carbon",
+              "options": [
+                {
+                  "value": "gemini-4-carbon",
+                  "name": "Gemini 4 Carbon"
+                },
+                {
+                  "value": "gemini-4-argon",
+                  "name": "Gemini 4 Argon"
+                },
+                {
+                  "value": "gemini-4-hydrogen",
+                  "name": "Gemini 4 Hydrogen"
+                },
+                {
+                  "value": "gemini-pro-orchestrator",
+                  "name": "Orchestrator (Carbon)"
+                },
+                {
+                  "value": "gemini-pro-orchestrator-argon",
+                  "name": "Orchestrator (Argon)"
+                },
+                {
+                  "value": "gemini-3.8-flash",
+                  "name": "Gemini 3.8 Flash"
+                },
+                {
+                  "value": "claude-opus-5-5",
+                  "name": "Claude Opus 5.5"
+                },
+                {
+                  "value": "claude-sonnet-5-5",
+                  "name": "Claude Sonnet 5.5"
+                },
+                {
+                  "value": "gpt-oss-120b-medium",
+                  "name": "GPT-OSS 120B (Medium)"
+                }
+              ]
+            },
+            {
+              "id": "thought_level",
+              "name": "Thinking Level",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Ask before edits and commands, per your permission settings."
+                },
+                {
+                  "value": "accept-edits",
+                  "name": "Accept edits",
+                  "description": "Approve file edits in the workspace without asking."
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto",
+                  "description": "Approve edits and safe commands; ask before irreversible actions."
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan carefully before executing a task."
+                }
+              ]
+            }
+          ],
+          "_meta": {
+            "antigravity": {
+              "tier": {
+                "name": "Google AI Ultra",
+                "id": "g1-ultra-lite-tier",
+                "upgradeUri": "https://antigravity.google/g1-upgrade"
+              }
+            }
+          }
+        },
+        "id": 1
+      }
+    },
+    {
+      "t_rel_s": 3.9835,
+      "ts": "2026-11-13T10:26:36.353+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "session/set_config_option",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "configId": "model",
+          "value": "gemini-3.8-flash"
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9843,
+      "ts": "2026-11-13T10:26:36.353+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "gemini-3.8-flash",
+              "options": [
+                {
+                  "value": "gemini-4-carbon",
+                  "name": "Gemini 4 Carbon"
+                },
+                {
+                  "value": "gemini-4-argon",
+                  "name": "Gemini 4 Argon"
+                },
+                {
+                  "value": "gemini-4-hydrogen",
+                  "name": "Gemini 4 Hydrogen"
+                },
+                {
+                  "value": "gemini-pro-orchestrator",
+                  "name": "Orchestrator (Carbon)"
+                },
+                {
+                  "value": "gemini-pro-orchestrator-argon",
+                  "name": "Orchestrator (Argon)"
+                },
+                {
+                  "value": "gemini-3.8-flash",
+                  "name": "Gemini 3.8 Flash"
+                },
+                {
+                  "value": "claude-opus-5-5",
+                  "name": "Claude Opus 5.5"
+                },
+                {
+                  "value": "claude-sonnet-5-5",
+                  "name": "Claude Sonnet 5.5"
+                },
+                {
+                  "value": "gpt-oss-120b-medium",
+                  "name": "GPT-OSS 120B (Medium)"
+                }
+              ]
+            },
+            {
+              "id": "thought_level",
+              "name": "Thinking Level",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Ask before edits and commands, per your permission settings."
+                },
+                {
+                  "value": "accept-edits",
+                  "name": "Accept edits",
+                  "description": "Approve file edits in the workspace without asking."
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto",
+                  "description": "Approve edits and safe commands; ask before irreversible actions."
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan carefully before executing a task."
+                }
+              ]
+            }
+          ]
+        },
+        "id": 2
+      }
+    },
+    {
+      "t_rel_s": 3.9844,
+      "ts": "2026-11-13T10:26:36.354+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "session/set_config_option",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "configId": "thought_level",
+          "value": "low"
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9846,
+      "ts": "2026-11-13T10:26:36.354+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "config_option_update",
+            "configOptions": [
+              {
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "type": "select",
+                "currentValue": "gemini-3.8-flash",
+                "options": [
+                  {
+                    "value": "gemini-4-carbon",
+                    "name": "Gemini 4 Carbon"
+                  },
+                  {
+                    "value": "gemini-4-argon",
+                    "name": "Gemini 4 Argon"
+                  },
+                  {
+                    "value": "gemini-4-hydrogen",
+                    "name": "Gemini 4 Hydrogen"
+                  },
+                  {
+                    "value": "gemini-pro-orchestrator",
+                    "name": "Orchestrator (Carbon)"
+                  },
+                  {
+                    "value": "gemini-pro-orchestrator-argon",
+                    "name": "Orchestrator (Argon)"
+                  },
+                  {
+                    "value": "gemini-3.8-flash",
+                    "name": "Gemini 3.8 Flash"
+                  },
+                  {
+                    "value": "claude-opus-5-5",
+                    "name": "Claude Opus 5.5"
+                  },
+                  {
+                    "value": "claude-sonnet-5-5",
+                    "name": "Claude Sonnet 5.5"
+                  },
+                  {
+                    "value": "gpt-oss-120b-medium",
+                    "name": "GPT-OSS 120B (Medium)"
+                  }
+                ]
+              },
+              {
+                "id": "thought_level",
+                "name": "Thinking Level",
+                "category": "thought_level",
+                "type": "select",
+                "currentValue": "medium",
+                "options": [
+                  {
+                    "value": "low",
+                    "name": "Low"
+                  },
+                  {
+                    "value": "medium",
+                    "name": "Medium"
+                  },
+                  {
+                    "value": "high",
+                    "name": "High"
+                  }
+                ]
+              },
+              {
+                "id": "mode",
+                "name": "Mode",
+                "category": "mode",
+                "type": "select",
+                "currentValue": "default",
+                "options": [
+                  {
+                    "value": "default",
+                    "name": "Default",
+                    "description": "Ask before edits and commands, per your permission settings."
+                  },
+                  {
+                    "value": "accept-edits",
+                    "name": "Accept edits",
+                    "description": "Approve file edits in the workspace without asking."
+                  },
+                  {
+                    "value": "auto",
+                    "name": "Auto",
+                    "description": "Approve edits and safe commands; ask before irreversible actions."
+                  },
+                  {
+                    "value": "plan",
+                    "name": "Plan",
+                    "description": "Plan carefully before executing a task."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9868,
+      "ts": "2026-11-13T10:26:36.356+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "gemini-3.8-flash",
+              "options": [
+                {
+                  "value": "gemini-4-carbon",
+                  "name": "Gemini 4 Carbon"
+                },
+                {
+                  "value": "gemini-4-argon",
+                  "name": "Gemini 4 Argon"
+                },
+                {
+                  "value": "gemini-4-hydrogen",
+                  "name": "Gemini 4 Hydrogen"
+                },
+                {
+                  "value": "gemini-pro-orchestrator",
+                  "name": "Orchestrator (Carbon)"
+                },
+                {
+                  "value": "gemini-pro-orchestrator-argon",
+                  "name": "Orchestrator (Argon)"
+                },
+                {
+                  "value": "gemini-3.8-flash",
+                  "name": "Gemini 3.8 Flash"
+                },
+                {
+                  "value": "claude-opus-5-5",
+                  "name": "Claude Opus 5.5"
+                },
+                {
+                  "value": "claude-sonnet-5-5",
+                  "name": "Claude Sonnet 5.5"
+                },
+                {
+                  "value": "gpt-oss-120b-medium",
+                  "name": "GPT-OSS 120B (Medium)"
+                }
+              ]
+            },
+            {
+              "id": "thought_level",
+              "name": "Thinking Level",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "low",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Ask before edits and commands, per your permission settings."
+                },
+                {
+                  "value": "accept-edits",
+                  "name": "Accept edits",
+                  "description": "Approve file edits in the workspace without asking."
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto",
+                  "description": "Approve edits and safe commands; ask before irreversible actions."
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan carefully before executing a task."
+                }
+              ]
+            }
+          ]
+        },
+        "id": 3
+      }
+    },
+    {
+      "t_rel_s": 3.9869,
+      "ts": "2026-11-13T10:26:36.356+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "session/prompt",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "prompt": [
+            {
+              "type": "text",
+              "text": "Reply with exactly: PROBE_OK"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 3.9873,
+      "ts": "2026-11-13T10:26:36.357+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "config_option_update",
+            "configOptions": [
+              {
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "type": "select",
+                "currentValue": "gemini-3.8-flash",
+                "options": [
+                  {
+                    "value": "gemini-4-carbon",
+                    "name": "Gemini 4 Carbon"
+                  },
+                  {
+                    "value": "gemini-4-argon",
+                    "name": "Gemini 4 Argon"
+                  },
+                  {
+                    "value": "gemini-4-hydrogen",
+                    "name": "Gemini 4 Hydrogen"
+                  },
+                  {
+                    "value": "gemini-pro-orchestrator",
+                    "name": "Orchestrator (Carbon)"
+                  },
+                  {
+                    "value": "gemini-pro-orchestrator-argon",
+                    "name": "Orchestrator (Argon)"
+                  },
+                  {
+                    "value": "gemini-3.8-flash",
+                    "name": "Gemini 3.8 Flash"
+                  },
+                  {
+                    "value": "claude-opus-5-5",
+                    "name": "Claude Opus 5.5"
+                  },
+                  {
+                    "value": "claude-sonnet-5-5",
+                    "name": "Claude Sonnet 5.5"
+                  },
+                  {
+                    "value": "gpt-oss-120b-medium",
+                    "name": "GPT-OSS 120B (Medium)"
+                  }
+                ]
+              },
+              {
+                "id": "thought_level",
+                "name": "Thinking Level",
+                "category": "thought_level",
+                "type": "select",
+                "currentValue": "low",
+                "options": [
+                  {
+                    "value": "low",
+                    "name": "Low"
+                  },
+                  {
+                    "value": "medium",
+                    "name": "Medium"
+                  },
+                  {
+                    "value": "high",
+                    "name": "High"
+                  }
+                ]
+              },
+              {
+                "id": "mode",
+                "name": "Mode",
+                "category": "mode",
+                "type": "select",
+                "currentValue": "default",
+                "options": [
+                  {
+                    "value": "default",
+                    "name": "Default",
+                    "description": "Ask before edits and commands, per your permission settings."
+                  },
+                  {
+                    "value": "accept-edits",
+                    "name": "Accept edits",
+                    "description": "Approve file edits in the workspace without asking."
+                  },
+                  {
+                    "value": "auto",
+                    "name": "Auto",
+                    "description": "Approve edits and safe commands; ask before irreversible actions."
+                  },
+                  {
+                    "value": "plan",
+                    "name": "Plan",
+                    "description": "Plan carefully before executing a task."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 4.0211,
+      "ts": "2026-11-13T10:26:36.390+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "goal",
+                "description": "Run until the specified goal is completely finished."
+              },
+              {
+                "name": "compact",
+                "description": "Compact the conversation now (summarize history to free up the context window)."
+              },
+              {
+                "name": "schedule",
+                "description": "Run an instruction on a recurring schedule or as a one-time timer."
+              },
+              {
+                "name": "browser",
+                "description": "Invoke a browser agent for web tasks."
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before executing a task."
+              },
+              {
+                "name": "grill-me",
+                "description": "Interview me to align on a plan."
+              },
+              {
+                "name": "teamwork",
+                "description": "Invoke a team of agents to autonomously tackle large projects."
+              },
+              {
+                "name": "learn",
+                "description": "Reflect on recent successes or corrections to capture reusable skills or rules."
+              },
+              {
+                "name": "boost",
+                "description": "Invoke the Boost multi-agent orchestrator for complex tasks."
+              },
+              {
+                "name": "a11y-debugging",
+                "description": "Uses Chrome DevTools MCP for accessibility (a11y) debugging and auditing based on web.dev guidelines. Use when testing semantic HTML, ARIA labels, focus states, keyboard navigation, tap targets, and color contrast."
+              },
+              {
+                "name": "agy-customizations",
+                "description": "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guide the creation of skills, rules, plugins, hooks, and MCP servers."
+              },
+              {
+                "name": "alphafold-database-fetch-and-analyze",
+                "description": "Retrieve and analyze AlphaFold predicted structures for a protein. Use when the user provides a specific UniProt Accession ID and wants structural confidence metrics (pLDDT), domain boundary analysis, or disorder assessment. Do not use if the user only has a protein name, gene name, or amino acid sequence — ask for a UniProt ID first.\n"
+              },
+              {
+                "name": "alphagenome-atlas-website-links",
+                "description": "Constructs deep-links and URLs for the AlphaGenome Atlas website. Supports generating single-variant exploration links (1-based VCF-style coordinates), genomic locus views (1-based closed chr:start-end), candidate summary tables, and AlphaGenome reference vs. alternate predictions. Use when visualizing, exploring, charting, or linking genetic variants and genomic loci on the AlphaGenome Atlas, or when asked to inspect, view, or link predictions for a genomic variant. Don't use for computing raw AlphaGenome variant predictions directly without Atlas URLs (use alphagenome-single-variant-analysis or alphagenome-variant-impact-score)."
+              },
+              {
+                "name": "alphagenome-single-variant-analysis",
+                "description": "Analyzes genetic variant effects on gene expression (RNA-seq), chromatin accessibility (DNASE), histone marks (ChIP), and transcription factors using the AlphaGenome API. Use when the user asks about non-coding variant effects, pathogenicity, clinical significance, disease associations, functional effects, gene expression changes, splicing disruption, or regulatory effects in promoters and enhancers. Also use for resolving biological terms to tissue/cell-type ontologies (UBERON/CL) or analyzing variants in chr:pos:ref>alt format.\n"
+              },
+              {
+                "name": "alphagenome-variant-impact-score",
+                "description": "Score, annotate, and analyze the functional impact of genetic variants using AlphaGenome Variant Impact (AVI) scores. Query variants in chr:pos:ref>alt format, annotate VCF/tabular callsets, perform saturation mutagenesis window scans (1-based closed chr:start-end), and extract GENCODE v46 GTF gene/exon/junction coordinates all via the AlphaGenome Atlas API."
+              },
+              {
+                "name": "antigravity-guide",
+                "description": "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars). Activate this skill when the user asks questions about how to use, configure, or customize Antigravity, AGY, the agy CLI, the Antigravity IDE, or Antigravity 2.0."
+              },
+              {
+                "name": "architecture-design",
+                "description": "Use when designing new systems or significant features, evaluating architectural trade-offs, choosing between structural approaches, or when a task requires understanding system-wide design before writing code"
+              },
+              {
+                "name": "auto-review-gate",
+                "description": "Use when you have just generated a plan, task definition, or code changes — mandatory review gate that must execute before presenting any deliverable to the user"
+              },
+              {
+                "name": "biomolecular-structure-viewer",
+                "description": "Interactive 3D biomolecular structure viewer via Mol*. Renders 3D molecular structures from local workspace files (.cif, .mmcif, .pdb) or conversation artifacts, and manages user 3D annotations and highlighted residues. Use when the user asks to visualise a protein or nucleic acid, display a 3D structure, or asks about 3D biomolecular structure annotations and highlighted residues.\n"
+              },
+              {
+                "name": "brainstorming",
+                "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+              },
+              {
+                "name": "browser-agent",
+                "description": "Use when a task requires interacting with a web browser — testing UI flows, verifying web app behavior, clicking through screens, reading live web content, or automating browser workflows in Google Antigravity"
+              },
+              {
+                "name": "chembl-database",
+                "description": "Query the ChEMBL database for bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Use when the user asks about compounds, targets, IC50/Ki values, drug mechanisms, or structure searches.\n"
+              },
+              {
+                "name": "cheminformatics-cofolding",
+                "description": "Co-folds protein-ligand, protein-DNA/RNA, and covalent inhibitor complexes: prepares AlphaFold 3 JSON, Boltz-2 YAML, and Boltz API (boltz-2.1) inputs, extracts bound ligand poses from mmCIF/PDB, and computes 3D protein-ligand interaction fingerprints (PLIF) and pharmacophore overlaps."
+              },
+              {
+                "name": "cheminformatics-core",
+                "description": "Computes RDKit physicochemical descriptors (MW, cLogP, TPSA, CNS MPO, SA score), PAINS/Brenk structural alerts, pH 7.4 ionization, congeneric series curation, activity cliffs, combinatorial library enumeration, vendor pricing, and organometallic %V_bur sterics."
+              },
+              {
+                "name": "cheminformatics-doc2mol",
+                "description": "Extracts and curates validated chemical structures from patents, literature, synthesis procedures, and Markush core/R-group tables: resolves IUPAC names via OPSIN and PubChem, retrieves Google Patents full text and assay tables, and exports curated SDF/CSV."
+              },
+              {
+                "name": "cheminformatics-ml",
+                "description": "Trains, benchmarks, and evaluates predictive SAR and QSAR/ADMET models for chemical series: small-N regularized regressors, nested cross-validation, Tukey HSD model tiering, scaffold/temporal splitting, matched molecular pairs (MMPA), similarity attribution maps, model persistence, and candidate scoring."
+              },
+              {
+                "name": "cheminformatics-physics",
+                "description": "Simulates 3D molecular physics, conformer ensembles, and CADD workflows: pH-dependent ligand and receptor protonation, ETKDGv3 3D conformer generation, dihedral/relaxed PES torsion scans, AutoDock Vina/smina docking, conformational ligand strain energy, PROTAC/macrocycle 3D geometry, and OpenMM molecular dynamics."
+              },
+              {
+                "name": "cheminformatics-reactions",
+                "description": "Proposes and models organic reactions, retrosynthesis, multi-step synthesis routes, intramolecular cyclizations, and reaction SMARTS: checks experimental precedents first, validates atom conservation, prochirality (pro-R/pro-S, Re/Si), topicity, 1H/13C NMR equivalence, and stereogenesis, and renders 2D curved-arrow mechanisms."
+              },
+              {
+                "name": "chrome-devtools",
+                "description": "Uses Chrome DevTools via MCP for efficient debugging, troubleshooting and browser automation. Use when debugging web pages, automating browser interactions, analyzing performance, or inspecting network requests. This skill does not apply to `--slim` mode (MCP configuration)."
+              },
+              {
+                "name": "chrome-extensions",
+                "description": "Build and publish Chrome Extensions using Manifest V3 best practices. Use this skill whenever the user asks to create, modify, debug, or understand Chrome browser extensions, add-ons, or anything involving the Chrome Extensions API. Trigger on mentions of: 'Chrome extension', 'browser extension', 'manifest.json', 'content script', 'service worker' (in browser context), 'popup' (in browser extension context), 'side panel', 'chrome.* API', 'declarativeNetRequest', 'omnibox', 'context menu' (in extension context), 'userScripts', 'user script', 'script manager', or any request to build functionality that integrates with the Chrome browser UI. Also trigger for publishing to the Chrome Web Store: 'publish extension', preparing an extension for publishing, responding to a review rejection, writing permission justifications, or drafting a privacy policy."
+              },
+              {
+                "name": "clinical-trials-database",
+                "description": "Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details by NCT ID; check eligibility/inclusion criteria; count trials across conditions or time periods; identify a sponsor's trial portfolio; find recruiting trials for patient matching.\n"
+              },
+              {
+                "name": "clinvar-database",
+                "description": "Use when needing clinical significance, pathogenicity classifications (e.g., Pathogenic, Benign, VUS), clinical evidence rationales, or finding \"hard positive\" benchmark controls for human genomic variants.\n"
+              },
+              {
+                "name": "confidence-check",
+                "description": "Use before implementing a feature or making significant changes to verify you have enough context and understanding to proceed — prevents wasted effort from proceeding with wrong assumptions"
+              },
+              {
+                "name": "cookie-debugging",
+                "description": "Uses Chrome DevTools MCP for inspecting, debugging, and testing cookies, session state, authentication issues, and cookie consent compliance. Use when diagnosing 401/403 errors, authentication redirects, session expiration, Cookie/Set-Cookie header issues, cookie banner consent conformance, or third-party cookie/SameSite/Partitioned cookie warnings."
+              },
+              {
+                "name": "credentials",
+                "description": "Instructions for handling API keys and credentials safely, verifying their presence, and prompting the user to add them if missing using a safe protocol."
+              },
+              {
+                "name": "dbsnp-database",
+                "description": "Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates in VCF format, and HGVS strings. For an rsID, returns variant type, gene associations, clinical significance, allele frequencies, and genomic coordinates (GRCh38).\n"
+              },
+              {
+                "name": "debug-optimize-lcp",
+                "description": "Guides debugging and optimizing Largest Contentful Paint (LCP) using Chrome DevTools MCP tools. Use this skill whenever the user asks about LCP performance, slow page loads, Core Web Vitals optimization, or wants to understand why their page's main content takes too long to appear. Also use when the user mentions \"largest contentful paint\", \"page load speed\", \"CWV\", or wants to improve how fast their hero image or main content renders."
+              },
+              {
+                "name": "deep-research",
+                "description": "Use when a task requires gathering information from external sources, researching unfamiliar technologies, validating technical approaches, or answering questions that need current web knowledge before implementation"
+              },
+              {
+                "name": "dependency-management",
+                "description": "Use when adding new dependencies, deciding whether to update packages, running security audits on dependencies, evaluating library alternatives, or encountering outdated or vulnerable packages"
+              },
+              {
+                "name": "dispatching-parallel-agents",
+                "description": "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies"
+              },
+              {
+                "name": "embl-ebi-ols",
+                "description": "Query and search the EMBL-EBI Ontology Lookup Service (OLS) for biomedical ontology terms, definitions, and hierarchies across 250+ ontologies (e.g., GO, DOID, HP). Use when the user asks to search for terms, retrieve details, navigate hierarchies (parents, children, ancestors), look up properties and individuals, get autocomplete suggestions, or access ontology metadata and statistics.\n"
+              },
+              {
+                "name": "encode-ccres-database",
+                "description": "Query the ENCODE Registry of cis-Regulatory Elements (cCREs) via the SCREEN GraphQL API, or make custom queries to the ENCODE Portal REST API for experiments and files (ChIP-seq peaks, etc.). Use when you want to query regulatory annotations or raw experimental data across human cell types.\n"
+              },
+              {
+                "name": "ensembl-database",
+                "description": "Query the Ensembl database to resolve gene, transcript, and protein IDs, fetch genomic or protein sequences, retrieve gene structures (exons), and get variant consequence and effect predictions (VEP). Use this skill as a primary ID translator, genomic sequence database and variant effect prediction tool.\n"
+              },
+              {
+                "name": "executing-plans",
+                "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints"
+              },
+              {
+                "name": "extension-to-functions-codebase",
+                "description": "Skill for converting an installed Firebase Extension (or extension source) into a standalone Cloud Functions for Firebase codebase or publishable npm package, including V1 to V2 trigger upgrades, lifecycle hooks, and declarative security"
+              },
+              {
+                "name": "finishing-a-development-branch",
+                "description": "Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup"
+              },
+              {
+                "name": "firebase-ai-logic-basics",
+                "description": "Official skill for integrating Firebase AI Logic (Gemini API) into web applications. Covers setup, multimodal inference, structured output, and security."
+              },
+              {
+                "name": "firebase-app-hosting-basics",
+                "description": "Deploys and manages full-stack web applications (Next.js, Angular) with Server-Side Rendering (SSR) using Firebase App Hosting. Use when deploying Next.js/Angular apps, configuring apphosting.yaml or firebase.json apphosting blocks, managing secrets, setting up GitHub CI/CD, or configuring Blaze billing requirements. Don't use for classic static web hosting, Auth, Firestore, Crashlytics, or Xcode."
+              },
+              {
+                "name": "firebase-auth-basics",
+                "description": "Guide for setting up and using Firebase Authentication. Use this skill when the user's app requires user sign-in, user management, or secure data access using auth rules."
+              },
+              {
+                "name": "firebase-basics",
+                "description": "Provides foundational Firebase CLI setup, CLI installation, version checks (`firebase-tools@latest --version`), CLI login (including --no-localhost), project creation, project selection (`firebase use`), and app config file downloads (`google-services.json`, `GoogleService-Info.plist`). Use ONLY for CLI login, project creation/switching, or downloading app config files. Don't use for Firebase Hosting deploy, Firestore, Auth, App Hosting, Data Connect, Crashlytics, or Remote Config."
+              },
+              {
+                "name": "firebase-crashlytics",
+                "description": "Comprehensive guide for Firebase Crashlytics, including provisioning and SDK usage. Use this skill when the user needs help setting up Crashlytics, adding crash reporting, or using the Crashlytics SDK in their application."
+              },
+              {
+                "name": "firebase-data-connect",
+                "description": "Builds and deploys Firebase SQL Connect (aka Firebase Data Connect) backends with PostgreSQL securely. Use when designing schemas with tables and relations, writing authorized queries and mutations, configuring real-time data updates, or generating type-safe SDKs. Use when you need a relational database with Firebase, or when the user mentions SQL Connect or Data Connect."
+              },
+              {
+                "name": "firebase-firestore",
+                "description": "Sets up, manages, queries, and configures Cloud Firestore databases (Standard/Enterprise edition), including data modeling, security rules, indexes, and SDK integrations (Web, Python, iOS, Android, Flutter). Use when creating/listing Firestore databases, defining data models/indexes, writing SDK queries, or integrating Firestore SDKs. For authoring or modifying Firestore Security Rules (firestore.rules), delegate to the firestore-rules-author subagent if subagent delegation is available, or use firestore-rules-creation otherwise. Don't use for Firebase Hosting, Data Connect, Auth, Storage/GCS, Crashlytics, Functions, or BigQuery."
+              },
+              {
+                "name": "firebase-hosting-basics",
+                "description": "Deploys and configures classic Firebase Hosting for static websites, single-page apps (SPAs), and microservices. Use when deploying static sites/SPAs, setting up custom domains, configuring firebase.json hosting settings (redirects, rewrites, headers, multi-site), or managing preview channels. Don't use for Firebase App Hosting (Next.js/SSR), Auth, Firestore queries/rules, Data Connect, or Crashlytics."
+              },
+              {
+                "name": "firebase-remote-config-basics",
+                "description": "Manages Firebase Remote Config templates, feature flags, loading strategies, and SDKs (Android, iOS). Use when downloading/deploying remoteconfig JSON templates, managing version history/feature flags, setting in-app defaults, fetchAndActivate(), real-time listeners, or SDK setup. Don't use for Firebase Hosting, Auth, Firestore, Data Connect, Crashlytics, or App Hosting."
+              },
+              {
+                "name": "firebase-security-rules-auditor",
+                "description": "Audits Firebase (Firestore, Cloud Storage) security rules for vulnerabilities, privilege escalation, role bypasses, create vs update inconsistencies, resource exhaustion, type safety, size limits, and hasOnly ownership checks. Use when auditing/reviewing rules, running red-team rule assessments, or scoring against auditor checklists. Don't use for Firebase CLI (login, deploy), Auth, Crashlytics, Remote Config, or database queries."
+              },
+              {
+                "name": "firestore-rules-creation",
+                "description": "Designs, authors, refactors, and hardens production-grade Cloud Firestore Security Rules (firestore.rules). IMPORTANT: If subagent delegation AND the firestore-rules-author subagent are available in your environment, delegate authoring firestore.rules to the firestore-rules-author subagent. If subagent delegation is unavailable (e.g. not enabled in the IDE), firestore-rules-author is not installed, or you are running inside firestore-rules-author, follow this skill directly."
+              },
+              {
+                "name": "foldseek-structural-search",
+                "description": "Performs 3D structural searches of proteins against various databases (PDB, AlphaFold, CATH, MGnify, etc.) using the Foldseek API. Use ONLY when the user provides a physical 3D coordinate file (.cif, .mmcif, or .pdb) and wants to find structurally similar proteins. Do NOT use if the user only provides a protein sequence, gene name, or UniProt ID.\n"
+              },
+              {
+                "name": "gnomad-database",
+                "description": "Query the Genome Aggregation Database (gnomAD). Use when determining the rarity or allele frequency of specific genetic variants, retrieving gene constraint metrics (pLI, LOEUF) to assess loss-of-function intolerance, finding variants in a genomic region or gene, or querying structural variants. Don't use for analyzing individual patient genomes, tracking somatic mutations in cancer (use COSMIC), or requesting raw sequencing reads (use ENA).\n"
+              },
+              {
+                "name": "google-antigravity-sdk",
+                "description": "Design, implement, and debug autonomous AI agents and multi-agent systems using the Google Antigravity (AGY) SDK. ACTIVATE this skill when the user wants to create, configure, or orchestrate Google Antigravity agents."
+              },
+              {
+                "name": "gtex-database",
+                "description": "Use when you want to retrieve quantitative RNA expression data and variant eQTL information from the GTEx (Genotype-Tissue Expression) Project across 54 non-diseased tissue sites.\n"
+              },
+              {
+                "name": "human-protein-atlas-database",
+                "description": "Use when you want to retrieve semi-quantitative protein expression and spatial localisation data from the Human Protein Atlas (HPA).\n"
+              },
+              {
+                "name": "interpro-database",
+                "description": "Identify domains, families, and sites in proteins; find all proteins in a family or sharing a domain; explore species distribution for a domain; annotate genomes with protein families and GO terms. InterPro combines 14 databases (e.g., Pfam, CDD) into one searchable resource. InterPro-N significantly expands annotation and sequence coverage with deep learning. Includes domain architecture (IDA) search.\n"
+              },
+              {
+                "name": "jaspar-database",
+                "description": "Query the JASPAR database for Transcription Factor (TF) binding profiles. Use when retrieving Position Frequency Matrices (PFMs) or Position Weight Matrices (PWMs) for specific TFs, resolving gene symbols to JASPAR Matrix IDs, or getting TF metadata. Supports multiple output formats (MEME, TRANSFAC, PFM, JASPAR, YAML).\n"
+              },
+              {
+                "name": "literature-search-arxiv",
+                "description": "Search for scientific papers, preprints, and publications on arXiv. Extract metadata, abstracts, and download full-text PDFs or HTML versions of papers. Use when the user asks to find research papers, literature, or specific arXiv IDs.\n"
+              },
+              {
+                "name": "literature-search-biorxiv",
+                "description": "Browse, filter, and download life sciences, biology, and medical preprints from bioRxiv and medRxiv. Supports fetching paper metadata by DOI, and browsing by date range with category and keyword filters. Keyword filtering is local, so date ranges MUST be narrow (1-4 weeks) with a category to prevent timeouts.\n"
+              },
+              {
+                "name": "literature-search-europepmc",
+                "description": "Search Europe PMC for scientific literature and download open-access full texts and PDFs. Retrieve full-text XML/plain text by PMCID, get citation lists and bibliography.\n"
+              },
+              {
+                "name": "literature-search-openalex",
+                "description": "Query the OpenAlex scholarly database for research papers, authors, institutions, topics, sources, publishers, funders, geo-locations, and keywords. Use when searching academic papers, resolving DOIs, downloading open-access PDFs, finding an author's publications, aggregating bibliometric data (citation counts, h-index, impact factor), exploring the research taxonomies, or performing DOI lookups.\n"
+              },
+              {
+                "name": "memory-leak-debugging",
+                "description": "Diagnoses and resolves memory leaks in JavaScript/Node.js applications. Use when a user reports high memory usage, OOM errors, or wants to capture, compare, or inspect heap snapshots with Chrome DevTools MCP memory tools."
+              },
+              {
+                "name": "modern-web-guidance",
+                "description": "Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs evolve rapidly and training weights contain obsolete patterns.\nTrigger immediately for: modals/dialogs/popovers, tables, dark mode, anchor positioning, container queries, view transitions, scroll-driven animations, parallax/reveals, forms, validation, autofill, accessibility, custom selects, scrollbars, CWV (LCP, INP, CLS), content-visibility, fetch priority, image optimization, security, passkeys, HTML sanitization, web components, dates/timezones, built-in AI, WebAssembly, standard HTML/CSS/DOM in frameworks, etc.\nDO NOT trigger for: backend (SQL, ORMs, API routes), infra/scripts (CI/CD, Docker, Actions, Python/Go, Git), or tooling/trivial (Vite, tsconfig, ESLint, tests, copy/renames, 3P docs), etc."
+              },
+              {
+                "name": "ncbi-sequence-fetch",
+                "description": "Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fetch biological sequences by accession, gene name, locus tag, PubMed ID, or patent number.\n"
+              },
+              {
+                "name": "openfda-database",
+                "description": "Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and transparency data. Use for FDA adverse events, recalls, labeling, approvals, shortages, 510(k) clearances, NDC lookups, and any FDA safety or regulatory data query across all 28 API endpoints.\n"
+              },
+              {
+                "name": "opentargets-database",
+                "description": "Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, for therapeutic target identification.\n"
+              },
+              {
+                "name": "pdb-database",
+                "description": "Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports searching by sequence similarity, structure similarity, chemical and other attributes. Also use to get metadata about biomolecular structure experiments.\n"
+              },
+              {
+                "name": "performance-optimization",
+                "description": "Use when code is slow, resource-heavy, or needs optimization — before making any changes, after profiling reveals bottlenecks, or when designing performance-sensitive systems"
+              },
+              {
+                "name": "predictingthepast",
+                "description": "Ancient text restoration, attribution, dating, contextualization, and embedding via Aeneas (Latin) / Ithaca (Ancient Greek). Use when asked to \"restore\", \"attribute\", \"date\", \"contextualize\", \"find parallels\", \"where was it written\", \"when was it written\", \"embed\", or \"analyze\" an ancient text, inscription, or epigraphic document, or when the user mentions \"Aeneas\", or \"Ithaca\".\n"
+              },
+              {
+                "name": "protein-sequence-msa",
+                "description": "Performs multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or key residue conservation. Supports up to 4000 sequences and a maximum file size of 4 MB. Do not use to search for homologous proteins in a database (use MMseqs2, BLAST), align non-protein sequences (DNA, RNA), perform structural alignment (use Foldseek, PyMOL), or if you only have a single sequence.\n"
+              },
+              {
+                "name": "protein-sequence-similarity-search",
+                "description": "Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a protein sequence or FASTA file and asks to find homologues, sequence matches, or wants to infer protein function based on sequence similarity, but not when the user wants to infer protein function based on structural similarity.\n"
+              },
+              {
+                "name": "pubchem-database",
+                "description": "Query PubChem, search by name/CID/SMILES, retrieve properties, similarity/substructure searches, bioactivity, for cheminformatics. Use when a user asks about a specific chemical, drug, or molecule.\n"
+              },
+              {
+                "name": "pubmed-database",
+                "description": "Search PubMed for scientific literature, including published clinical trials. Fetch abstracts and full text. Link published research to biological databases (gene, protein, nucleotide, PubChem) to discover associations between papers and specific compounds or genes. Verify medical spelling, match raw citations, and cache result sets for bulk processing. Interfaces NCBI E-utilities and PMC BioC APIs."
+              },
+              {
+                "name": "pymol",
+                "description": "Visualize, analyze, and render protein and molecular structures using PyMOL. Use when the user wants to create images of protein structures, perform structural alignments or superposition, measure distances or contacts, highlight binding sites or active site residues, color by B-factor/pLDDT, or analyze protein-ligand interactions. Do not use for docking, molecular dynamics, or sequence-only analysis.\n"
+              },
+              {
+                "name": "quickgo-database",
+                "description": "Query the QuickGO and Evidence & Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components, find genes associated with a specific pathway/GO term, or explore the Gene Ontology hierarchy. Do not use for querying drug targets (use OpenTargets) or mechanistic signaling pathway diagrams (use KEGG).\n"
+              },
+              {
+                "name": "rdkit-general",
+                "description": "Generates 2D chemical structure depictions (PNG/SVG), interactive HTML compound grids, standalone chemical applications/visualizers, and ChemDraw (.cdxml/.cdx) documents using ACS 1996 publication styling; validates IUPAC/stereochemical nomenclature and provides shared RDKit version compatibility helpers."
+              },
+              {
+                "name": "reactome-database",
+                "description": "Query the Reactome database (Analysis and Content Services). Use when the user asks about pathway analysis, gene list enrichment, retrieving results by token, finding unmapped or not-found identifiers, mapping identifiers, reaction participants (inputs, outputs), pathway hierarchy (including top-level pathways), diagram export, cross-reference mapping, or searching the knowledgebase.\n"
+              },
+              {
+                "name": "receiving-code-review",
+                "description": "Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation"
+              },
+              {
+                "name": "requesting-code-review",
+                "description": "Use when completing tasks, implementing major features, or before merging to verify work meets requirements"
+              },
+              {
+                "name": "security-review",
+                "description": "Use when reviewing code for vulnerabilities, implementing authentication or authorization, handling user input, storing sensitive data, or before any feature that touches security boundaries goes to production"
+              },
+              {
+                "name": "string-database",
+                "description": "Query the STRING database for protein-protein interactions (PPIs), functional enrichment, and homology. Use when the user asks about interactions between specific proteins, interaction evidence, confidence scores, protein interaction partners, or pathway enrichments.\n"
+              },
+              {
+                "name": "subagent-driven-development",
+                "description": "Use when executing implementation plans with independent tasks in the current session"
+              },
+              {
+                "name": "swarm",
+                "description": "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work."
+              },
+              {
+                "name": "systematic-debugging",
+                "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes"
+              },
+              {
+                "name": "test-driven-development",
+                "description": "Use when implementing any feature or bugfix, before writing implementation code"
+              },
+              {
+                "name": "troubleshooting",
+                "description": "Uses Chrome DevTools MCP and documentation to troubleshoot connection and target issues. Trigger this skill when list_pages, new_page, or navigate_page fail, or when the server initialization fails."
+              },
+              {
+                "name": "ucsc-conservation-and-tfbs",
+                "description": "Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analyzing whether genomic variants or regions are evolutionarily conserved, functionally important, or bounded by TF regulators across major projects (ENCODE, JASPAR, ReMap).\n"
+              },
+              {
+                "name": "unibind-database",
+                "description": "Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction datasets, downloading binding site coordinates (BED/FASTA) for local analysis, or listing available datasets by species, cell line, or TF name. Don't use to query specific intervals, locations, genes, motif models or expression data."
+              },
+              {
+                "name": "uniprot-database",
+                "description": "Access protein metadata, function, taxonomy, and sequences across UniProtKB, UniParc, and UniRef. Use when searching for proteins, mapping identifiers, or retrieving functional annotations and publications. Don't use for sequence alignment, protein folding, or sequence similarity search (use specialized skills for those tasks)."
+              },
+              {
+                "name": "using-superantigravity",
+                "description": "Use when starting any conversation — establishes how to find and use skills, requiring skill check before ANY response including clarifying questions"
+              },
+              {
+                "name": "uv",
+                "description": "Checks whether the uv Python package manager is installed and installs it if missing. Ensures uv is on PATH. Use when another skill requires uv as a prerequisite."
+              },
+              {
+                "name": "verification-before-completion",
+                "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always"
+              },
+              {
+                "name": "workflow-skill-creator",
+                "description": "Distills a completed user workflow or interaction into a reusable agent skill. Use when the user asks to turn their workflow, interaction, or multi-step process into a skill, or when they say \"make this a skill\", \"create a skill from what we just did\", \"package this workflow\" or similar. Do not use for creating skills from scratch without an existing workflow (use a generic skill-creator for that).\n"
+              },
+              {
+                "name": "writing-plans",
+                "description": "Use when you have a spec or requirements for a multi-step task, before touching code"
+              },
+              {
+                "name": "writing-skills",
+                "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment"
+              },
+              {
+                "name": "xcode-project-setup",
+                "description": "Safely modifies Xcode projects (.pbxproj) to add Swift Packages and link files. Use this skill whenever an iOS project needs dependencies installed (e.g. Firebase, Alamofire)."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 4.0213,
+      "ts": "2026-11-13T10:26:36.391+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 0,
+            "size": 1048576
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 4.0228,
+      "ts": "2026-11-13T10:26:36.392+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "goal",
+                "description": "Run until the specified goal is completely finished."
+              },
+              {
+                "name": "compact",
+                "description": "Compact the conversation now (summarize history to free up the context window)."
+              },
+              {
+                "name": "schedule",
+                "description": "Run an instruction on a recurring schedule or as a one-time timer."
+              },
+              {
+                "name": "browser",
+                "description": "Invoke a browser agent for web tasks."
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before executing a task."
+              },
+              {
+                "name": "grill-me",
+                "description": "Interview me to align on a plan."
+              },
+              {
+                "name": "teamwork",
+                "description": "Invoke a team of agents to autonomously tackle large projects."
+              },
+              {
+                "name": "learn",
+                "description": "Reflect on recent successes or corrections to capture reusable skills or rules."
+              },
+              {
+                "name": "boost",
+                "description": "Invoke the Boost multi-agent orchestrator for complex tasks."
+              },
+              {
+                "name": "a11y-debugging",
+                "description": "Uses Chrome DevTools MCP for accessibility (a11y) debugging and auditing based on web.dev guidelines. Use when testing semantic HTML, ARIA labels, focus states, keyboard navigation, tap targets, and color contrast."
+              },
+              {
+                "name": "agy-customizations",
+                "description": "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guide the creation of skills, rules, plugins, hooks, and MCP servers."
+              },
+              {
+                "name": "alphafold-database-fetch-and-analyze",
+                "description": "Retrieve and analyze AlphaFold predicted structures for a protein. Use when the user provides a specific UniProt Accession ID and wants structural confidence metrics (pLDDT), domain boundary analysis, or disorder assessment. Do not use if the user only has a protein name, gene name, or amino acid sequence — ask for a UniProt ID first.\n"
+              },
+              {
+                "name": "alphagenome-atlas-website-links",
+                "description": "Constructs deep-links and URLs for the AlphaGenome Atlas website. Supports generating single-variant exploration links (1-based VCF-style coordinates), genomic locus views (1-based closed chr:start-end), candidate summary tables, and AlphaGenome reference vs. alternate predictions. Use when visualizing, exploring, charting, or linking genetic variants and genomic loci on the AlphaGenome Atlas, or when asked to inspect, view, or link predictions for a genomic variant. Don't use for computing raw AlphaGenome variant predictions directly without Atlas URLs (use alphagenome-single-variant-analysis or alphagenome-variant-impact-score)."
+              },
+              {
+                "name": "alphagenome-single-variant-analysis",
+                "description": "Analyzes genetic variant effects on gene expression (RNA-seq), chromatin accessibility (DNASE), histone marks (ChIP), and transcription factors using the AlphaGenome API. Use when the user asks about non-coding variant effects, pathogenicity, clinical significance, disease associations, functional effects, gene expression changes, splicing disruption, or regulatory effects in promoters and enhancers. Also use for resolving biological terms to tissue/cell-type ontologies (UBERON/CL) or analyzing variants in chr:pos:ref>alt format.\n"
+              },
+              {
+                "name": "alphagenome-variant-impact-score",
+                "description": "Score, annotate, and analyze the functional impact of genetic variants using AlphaGenome Variant Impact (AVI) scores. Query variants in chr:pos:ref>alt format, annotate VCF/tabular callsets, perform saturation mutagenesis window scans (1-based closed chr:start-end), and extract GENCODE v46 GTF gene/exon/junction coordinates all via the AlphaGenome Atlas API."
+              },
+              {
+                "name": "antigravity-guide",
+                "description": "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars). Activate this skill when the user asks questions about how to use, configure, or customize Antigravity, AGY, the agy CLI, the Antigravity IDE, or Antigravity 2.0."
+              },
+              {
+                "name": "architecture-design",
+                "description": "Use when designing new systems or significant features, evaluating architectural trade-offs, choosing between structural approaches, or when a task requires understanding system-wide design before writing code"
+              },
+              {
+                "name": "auto-review-gate",
+                "description": "Use when you have just generated a plan, task definition, or code changes — mandatory review gate that must execute before presenting any deliverable to the user"
+              },
+              {
+                "name": "biomolecular-structure-viewer",
+                "description": "Interactive 3D biomolecular structure viewer via Mol*. Renders 3D molecular structures from local workspace files (.cif, .mmcif, .pdb) or conversation artifacts, and manages user 3D annotations and highlighted residues. Use when the user asks to visualise a protein or nucleic acid, display a 3D structure, or asks about 3D biomolecular structure annotations and highlighted residues.\n"
+              },
+              {
+                "name": "brainstorming",
+                "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+              },
+              {
+                "name": "browser-agent",
+                "description": "Use when a task requires interacting with a web browser — testing UI flows, verifying web app behavior, clicking through screens, reading live web content, or automating browser workflows in Google Antigravity"
+              },
+              {
+                "name": "chembl-database",
+                "description": "Query the ChEMBL database for bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Use when the user asks about compounds, targets, IC50/Ki values, drug mechanisms, or structure searches.\n"
+              },
+              {
+                "name": "cheminformatics-cofolding",
+                "description": "Co-folds protein-ligand, protein-DNA/RNA, and covalent inhibitor complexes: prepares AlphaFold 3 JSON, Boltz-2 YAML, and Boltz API (boltz-2.1) inputs, extracts bound ligand poses from mmCIF/PDB, and computes 3D protein-ligand interaction fingerprints (PLIF) and pharmacophore overlaps."
+              },
+              {
+                "name": "cheminformatics-core",
+                "description": "Computes RDKit physicochemical descriptors (MW, cLogP, TPSA, CNS MPO, SA score), PAINS/Brenk structural alerts, pH 7.4 ionization, congeneric series curation, activity cliffs, combinatorial library enumeration, vendor pricing, and organometallic %V_bur sterics."
+              },
+              {
+                "name": "cheminformatics-doc2mol",
+                "description": "Extracts and curates validated chemical structures from patents, literature, synthesis procedures, and Markush core/R-group tables: resolves IUPAC names via OPSIN and PubChem, retrieves Google Patents full text and assay tables, and exports curated SDF/CSV."
+              },
+              {
+                "name": "cheminformatics-ml",
+                "description": "Trains, benchmarks, and evaluates predictive SAR and QSAR/ADMET models for chemical series: small-N regularized regressors, nested cross-validation, Tukey HSD model tiering, scaffold/temporal splitting, matched molecular pairs (MMPA), similarity attribution maps, model persistence, and candidate scoring."
+              },
+              {
+                "name": "cheminformatics-physics",
+                "description": "Simulates 3D molecular physics, conformer ensembles, and CADD workflows: pH-dependent ligand and receptor protonation, ETKDGv3 3D conformer generation, dihedral/relaxed PES torsion scans, AutoDock Vina/smina docking, conformational ligand strain energy, PROTAC/macrocycle 3D geometry, and OpenMM molecular dynamics."
+              },
+              {
+                "name": "cheminformatics-reactions",
+                "description": "Proposes and models organic reactions, retrosynthesis, multi-step synthesis routes, intramolecular cyclizations, and reaction SMARTS: checks experimental precedents first, validates atom conservation, prochirality (pro-R/pro-S, Re/Si), topicity, 1H/13C NMR equivalence, and stereogenesis, and renders 2D curved-arrow mechanisms."
+              },
+              {
+                "name": "chrome-devtools",
+                "description": "Uses Chrome DevTools via MCP for efficient debugging, troubleshooting and browser automation. Use when debugging web pages, automating browser interactions, analyzing performance, or inspecting network requests. This skill does not apply to `--slim` mode (MCP configuration)."
+              },
+              {
+                "name": "chrome-extensions",
+                "description": "Build and publish Chrome Extensions using Manifest V3 best practices. Use this skill whenever the user asks to create, modify, debug, or understand Chrome browser extensions, add-ons, or anything involving the Chrome Extensions API. Trigger on mentions of: 'Chrome extension', 'browser extension', 'manifest.json', 'content script', 'service worker' (in browser context), 'popup' (in browser extension context), 'side panel', 'chrome.* API', 'declarativeNetRequest', 'omnibox', 'context menu' (in extension context), 'userScripts', 'user script', 'script manager', or any request to build functionality that integrates with the Chrome browser UI. Also trigger for publishing to the Chrome Web Store: 'publish extension', preparing an extension for publishing, responding to a review rejection, writing permission justifications, or drafting a privacy policy."
+              },
+              {
+                "name": "clinical-trials-database",
+                "description": "Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details by NCT ID; check eligibility/inclusion criteria; count trials across conditions or time periods; identify a sponsor's trial portfolio; find recruiting trials for patient matching.\n"
+              },
+              {
+                "name": "clinvar-database",
+                "description": "Use when needing clinical significance, pathogenicity classifications (e.g., Pathogenic, Benign, VUS), clinical evidence rationales, or finding \"hard positive\" benchmark controls for human genomic variants.\n"
+              },
+              {
+                "name": "confidence-check",
+                "description": "Use before implementing a feature or making significant changes to verify you have enough context and understanding to proceed — prevents wasted effort from proceeding with wrong assumptions"
+              },
+              {
+                "name": "cookie-debugging",
+                "description": "Uses Chrome DevTools MCP for inspecting, debugging, and testing cookies, session state, authentication issues, and cookie consent compliance. Use when diagnosing 401/403 errors, authentication redirects, session expiration, Cookie/Set-Cookie header issues, cookie banner consent conformance, or third-party cookie/SameSite/Partitioned cookie warnings."
+              },
+              {
+                "name": "credentials",
+                "description": "Instructions for handling API keys and credentials safely, verifying their presence, and prompting the user to add them if missing using a safe protocol."
+              },
+              {
+                "name": "dbsnp-database",
+                "description": "Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates in VCF format, and HGVS strings. For an rsID, returns variant type, gene associations, clinical significance, allele frequencies, and genomic coordinates (GRCh38).\n"
+              },
+              {
+                "name": "debug-optimize-lcp",
+                "description": "Guides debugging and optimizing Largest Contentful Paint (LCP) using Chrome DevTools MCP tools. Use this skill whenever the user asks about LCP performance, slow page loads, Core Web Vitals optimization, or wants to understand why their page's main content takes too long to appear. Also use when the user mentions \"largest contentful paint\", \"page load speed\", \"CWV\", or wants to improve how fast their hero image or main content renders."
+              },
+              {
+                "name": "deep-research",
+                "description": "Use when a task requires gathering information from external sources, researching unfamiliar technologies, validating technical approaches, or answering questions that need current web knowledge before implementation"
+              },
+              {
+                "name": "dependency-management",
+                "description": "Use when adding new dependencies, deciding whether to update packages, running security audits on dependencies, evaluating library alternatives, or encountering outdated or vulnerable packages"
+              },
+              {
+                "name": "dispatching-parallel-agents",
+                "description": "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies"
+              },
+              {
+                "name": "embl-ebi-ols",
+                "description": "Query and search the EMBL-EBI Ontology Lookup Service (OLS) for biomedical ontology terms, definitions, and hierarchies across 250+ ontologies (e.g., GO, DOID, HP). Use when the user asks to search for terms, retrieve details, navigate hierarchies (parents, children, ancestors), look up properties and individuals, get autocomplete suggestions, or access ontology metadata and statistics.\n"
+              },
+              {
+                "name": "encode-ccres-database",
+                "description": "Query the ENCODE Registry of cis-Regulatory Elements (cCREs) via the SCREEN GraphQL API, or make custom queries to the ENCODE Portal REST API for experiments and files (ChIP-seq peaks, etc.). Use when you want to query regulatory annotations or raw experimental data across human cell types.\n"
+              },
+              {
+                "name": "ensembl-database",
+                "description": "Query the Ensembl database to resolve gene, transcript, and protein IDs, fetch genomic or protein sequences, retrieve gene structures (exons), and get variant consequence and effect predictions (VEP). Use this skill as a primary ID translator, genomic sequence database and variant effect prediction tool.\n"
+              },
+              {
+                "name": "executing-plans",
+                "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints"
+              },
+              {
+                "name": "extension-to-functions-codebase",
+                "description": "Skill for converting an installed Firebase Extension (or extension source) into a standalone Cloud Functions for Firebase codebase or publishable npm package, including V1 to V2 trigger upgrades, lifecycle hooks, and declarative security"
+              },
+              {
+                "name": "finishing-a-development-branch",
+                "description": "Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup"
+              },
+              {
+                "name": "firebase-ai-logic-basics",
+                "description": "Official skill for integrating Firebase AI Logic (Gemini API) into web applications. Covers setup, multimodal inference, structured output, and security."
+              },
+              {
+                "name": "firebase-app-hosting-basics",
+                "description": "Deploys and manages full-stack web applications (Next.js, Angular) with Server-Side Rendering (SSR) using Firebase App Hosting. Use when deploying Next.js/Angular apps, configuring apphosting.yaml or firebase.json apphosting blocks, managing secrets, setting up GitHub CI/CD, or configuring Blaze billing requirements. Don't use for classic static web hosting, Auth, Firestore, Crashlytics, or Xcode."
+              },
+              {
+                "name": "firebase-auth-basics",
+                "description": "Guide for setting up and using Firebase Authentication. Use this skill when the user's app requires user sign-in, user management, or secure data access using auth rules."
+              },
+              {
+                "name": "firebase-basics",
+                "description": "Provides foundational Firebase CLI setup, CLI installation, version checks (`firebase-tools@latest --version`), CLI login (including --no-localhost), project creation, project selection (`firebase use`), and app config file downloads (`google-services.json`, `GoogleService-Info.plist`). Use ONLY for CLI login, project creation/switching, or downloading app config files. Don't use for Firebase Hosting deploy, Firestore, Auth, App Hosting, Data Connect, Crashlytics, or Remote Config."
+              },
+              {
+                "name": "firebase-crashlytics",
+                "description": "Comprehensive guide for Firebase Crashlytics, including provisioning and SDK usage. Use this skill when the user needs help setting up Crashlytics, adding crash reporting, or using the Crashlytics SDK in their application."
+              },
+              {
+                "name": "firebase-data-connect",
+                "description": "Builds and deploys Firebase SQL Connect (aka Firebase Data Connect) backends with PostgreSQL securely. Use when designing schemas with tables and relations, writing authorized queries and mutations, configuring real-time data updates, or generating type-safe SDKs. Use when you need a relational database with Firebase, or when the user mentions SQL Connect or Data Connect."
+              },
+              {
+                "name": "firebase-firestore",
+                "description": "Sets up, manages, queries, and configures Cloud Firestore databases (Standard/Enterprise edition), including data modeling, security rules, indexes, and SDK integrations (Web, Python, iOS, Android, Flutter). Use when creating/listing Firestore databases, defining data models/indexes, writing SDK queries, or integrating Firestore SDKs. For authoring or modifying Firestore Security Rules (firestore.rules), delegate to the firestore-rules-author subagent if subagent delegation is available, or use firestore-rules-creation otherwise. Don't use for Firebase Hosting, Data Connect, Auth, Storage/GCS, Crashlytics, Functions, or BigQuery."
+              },
+              {
+                "name": "firebase-hosting-basics",
+                "description": "Deploys and configures classic Firebase Hosting for static websites, single-page apps (SPAs), and microservices. Use when deploying static sites/SPAs, setting up custom domains, configuring firebase.json hosting settings (redirects, rewrites, headers, multi-site), or managing preview channels. Don't use for Firebase App Hosting (Next.js/SSR), Auth, Firestore queries/rules, Data Connect, or Crashlytics."
+              },
+              {
+                "name": "firebase-remote-config-basics",
+                "description": "Manages Firebase Remote Config templates, feature flags, loading strategies, and SDKs (Android, iOS). Use when downloading/deploying remoteconfig JSON templates, managing version history/feature flags, setting in-app defaults, fetchAndActivate(), real-time listeners, or SDK setup. Don't use for Firebase Hosting, Auth, Firestore, Data Connect, Crashlytics, or App Hosting."
+              },
+              {
+                "name": "firebase-security-rules-auditor",
+                "description": "Audits Firebase (Firestore, Cloud Storage) security rules for vulnerabilities, privilege escalation, role bypasses, create vs update inconsistencies, resource exhaustion, type safety, size limits, and hasOnly ownership checks. Use when auditing/reviewing rules, running red-team rule assessments, or scoring against auditor checklists. Don't use for Firebase CLI (login, deploy), Auth, Crashlytics, Remote Config, or database queries."
+              },
+              {
+                "name": "firestore-rules-creation",
+                "description": "Designs, authors, refactors, and hardens production-grade Cloud Firestore Security Rules (firestore.rules). IMPORTANT: If subagent delegation AND the firestore-rules-author subagent are available in your environment, delegate authoring firestore.rules to the firestore-rules-author subagent. If subagent delegation is unavailable (e.g. not enabled in the IDE), firestore-rules-author is not installed, or you are running inside firestore-rules-author, follow this skill directly."
+              },
+              {
+                "name": "foldseek-structural-search",
+                "description": "Performs 3D structural searches of proteins against various databases (PDB, AlphaFold, CATH, MGnify, etc.) using the Foldseek API. Use ONLY when the user provides a physical 3D coordinate file (.cif, .mmcif, or .pdb) and wants to find structurally similar proteins. Do NOT use if the user only provides a protein sequence, gene name, or UniProt ID.\n"
+              },
+              {
+                "name": "gnomad-database",
+                "description": "Query the Genome Aggregation Database (gnomAD). Use when determining the rarity or allele frequency of specific genetic variants, retrieving gene constraint metrics (pLI, LOEUF) to assess loss-of-function intolerance, finding variants in a genomic region or gene, or querying structural variants. Don't use for analyzing individual patient genomes, tracking somatic mutations in cancer (use COSMIC), or requesting raw sequencing reads (use ENA).\n"
+              },
+              {
+                "name": "google-antigravity-sdk",
+                "description": "Design, implement, and debug autonomous AI agents and multi-agent systems using the Google Antigravity (AGY) SDK. ACTIVATE this skill when the user wants to create, configure, or orchestrate Google Antigravity agents."
+              },
+              {
+                "name": "gtex-database",
+                "description": "Use when you want to retrieve quantitative RNA expression data and variant eQTL information from the GTEx (Genotype-Tissue Expression) Project across 54 non-diseased tissue sites.\n"
+              },
+              {
+                "name": "human-protein-atlas-database",
+                "description": "Use when you want to retrieve semi-quantitative protein expression and spatial localisation data from the Human Protein Atlas (HPA).\n"
+              },
+              {
+                "name": "interpro-database",
+                "description": "Identify domains, families, and sites in proteins; find all proteins in a family or sharing a domain; explore species distribution for a domain; annotate genomes with protein families and GO terms. InterPro combines 14 databases (e.g., Pfam, CDD) into one searchable resource. InterPro-N significantly expands annotation and sequence coverage with deep learning. Includes domain architecture (IDA) search.\n"
+              },
+              {
+                "name": "jaspar-database",
+                "description": "Query the JASPAR database for Transcription Factor (TF) binding profiles. Use when retrieving Position Frequency Matrices (PFMs) or Position Weight Matrices (PWMs) for specific TFs, resolving gene symbols to JASPAR Matrix IDs, or getting TF metadata. Supports multiple output formats (MEME, TRANSFAC, PFM, JASPAR, YAML).\n"
+              },
+              {
+                "name": "literature-search-arxiv",
+                "description": "Search for scientific papers, preprints, and publications on arXiv. Extract metadata, abstracts, and download full-text PDFs or HTML versions of papers. Use when the user asks to find research papers, literature, or specific arXiv IDs.\n"
+              },
+              {
+                "name": "literature-search-biorxiv",
+                "description": "Browse, filter, and download life sciences, biology, and medical preprints from bioRxiv and medRxiv. Supports fetching paper metadata by DOI, and browsing by date range with category and keyword filters. Keyword filtering is local, so date ranges MUST be narrow (1-4 weeks) with a category to prevent timeouts.\n"
+              },
+              {
+                "name": "literature-search-europepmc",
+                "description": "Search Europe PMC for scientific literature and download open-access full texts and PDFs. Retrieve full-text XML/plain text by PMCID, get citation lists and bibliography.\n"
+              },
+              {
+                "name": "literature-search-openalex",
+                "description": "Query the OpenAlex scholarly database for research papers, authors, institutions, topics, sources, publishers, funders, geo-locations, and keywords. Use when searching academic papers, resolving DOIs, downloading open-access PDFs, finding an author's publications, aggregating bibliometric data (citation counts, h-index, impact factor), exploring the research taxonomies, or performing DOI lookups.\n"
+              },
+              {
+                "name": "memory-leak-debugging",
+                "description": "Diagnoses and resolves memory leaks in JavaScript/Node.js applications. Use when a user reports high memory usage, OOM errors, or wants to capture, compare, or inspect heap snapshots with Chrome DevTools MCP memory tools."
+              },
+              {
+                "name": "modern-web-guidance",
+                "description": "Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs evolve rapidly and training weights contain obsolete patterns.\nTrigger immediately for: modals/dialogs/popovers, tables, dark mode, anchor positioning, container queries, view transitions, scroll-driven animations, parallax/reveals, forms, validation, autofill, accessibility, custom selects, scrollbars, CWV (LCP, INP, CLS), content-visibility, fetch priority, image optimization, security, passkeys, HTML sanitization, web components, dates/timezones, built-in AI, WebAssembly, standard HTML/CSS/DOM in frameworks, etc.\nDO NOT trigger for: backend (SQL, ORMs, API routes), infra/scripts (CI/CD, Docker, Actions, Python/Go, Git), or tooling/trivial (Vite, tsconfig, ESLint, tests, copy/renames, 3P docs), etc."
+              },
+              {
+                "name": "ncbi-sequence-fetch",
+                "description": "Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fetch biological sequences by accession, gene name, locus tag, PubMed ID, or patent number.\n"
+              },
+              {
+                "name": "openfda-database",
+                "description": "Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and transparency data. Use for FDA adverse events, recalls, labeling, approvals, shortages, 510(k) clearances, NDC lookups, and any FDA safety or regulatory data query across all 28 API endpoints.\n"
+              },
+              {
+                "name": "opentargets-database",
+                "description": "Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, for therapeutic target identification.\n"
+              },
+              {
+                "name": "pdb-database",
+                "description": "Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports searching by sequence similarity, structure similarity, chemical and other attributes. Also use to get metadata about biomolecular structure experiments.\n"
+              },
+              {
+                "name": "performance-optimization",
+                "description": "Use when code is slow, resource-heavy, or needs optimization — before making any changes, after profiling reveals bottlenecks, or when designing performance-sensitive systems"
+              },
+              {
+                "name": "predictingthepast",
+                "description": "Ancient text restoration, attribution, dating, contextualization, and embedding via Aeneas (Latin) / Ithaca (Ancient Greek). Use when asked to \"restore\", \"attribute\", \"date\", \"contextualize\", \"find parallels\", \"where was it written\", \"when was it written\", \"embed\", or \"analyze\" an ancient text, inscription, or epigraphic document, or when the user mentions \"Aeneas\", or \"Ithaca\".\n"
+              },
+              {
+                "name": "protein-sequence-msa",
+                "description": "Performs multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or key residue conservation. Supports up to 4000 sequences and a maximum file size of 4 MB. Do not use to search for homologous proteins in a database (use MMseqs2, BLAST), align non-protein sequences (DNA, RNA), perform structural alignment (use Foldseek, PyMOL), or if you only have a single sequence.\n"
+              },
+              {
+                "name": "protein-sequence-similarity-search",
+                "description": "Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a protein sequence or FASTA file and asks to find homologues, sequence matches, or wants to infer protein function based on sequence similarity, but not when the user wants to infer protein function based on structural similarity.\n"
+              },
+              {
+                "name": "pubchem-database",
+                "description": "Query PubChem, search by name/CID/SMILES, retrieve properties, similarity/substructure searches, bioactivity, for cheminformatics. Use when a user asks about a specific chemical, drug, or molecule.\n"
+              },
+              {
+                "name": "pubmed-database",
+                "description": "Search PubMed for scientific literature, including published clinical trials. Fetch abstracts and full text. Link published research to biological databases (gene, protein, nucleotide, PubChem) to discover associations between papers and specific compounds or genes. Verify medical spelling, match raw citations, and cache result sets for bulk processing. Interfaces NCBI E-utilities and PMC BioC APIs."
+              },
+              {
+                "name": "pymol",
+                "description": "Visualize, analyze, and render protein and molecular structures using PyMOL. Use when the user wants to create images of protein structures, perform structural alignments or superposition, measure distances or contacts, highlight binding sites or active site residues, color by B-factor/pLDDT, or analyze protein-ligand interactions. Do not use for docking, molecular dynamics, or sequence-only analysis.\n"
+              },
+              {
+                "name": "quickgo-database",
+                "description": "Query the QuickGO and Evidence & Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components, find genes associated with a specific pathway/GO term, or explore the Gene Ontology hierarchy. Do not use for querying drug targets (use OpenTargets) or mechanistic signaling pathway diagrams (use KEGG).\n"
+              },
+              {
+                "name": "rdkit-general",
+                "description": "Generates 2D chemical structure depictions (PNG/SVG), interactive HTML compound grids, standalone chemical applications/visualizers, and ChemDraw (.cdxml/.cdx) documents using ACS 1996 publication styling; validates IUPAC/stereochemical nomenclature and provides shared RDKit version compatibility helpers."
+              },
+              {
+                "name": "reactome-database",
+                "description": "Query the Reactome database (Analysis and Content Services). Use when the user asks about pathway analysis, gene list enrichment, retrieving results by token, finding unmapped or not-found identifiers, mapping identifiers, reaction participants (inputs, outputs), pathway hierarchy (including top-level pathways), diagram export, cross-reference mapping, or searching the knowledgebase.\n"
+              },
+              {
+                "name": "receiving-code-review",
+                "description": "Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation"
+              },
+              {
+                "name": "requesting-code-review",
+                "description": "Use when completing tasks, implementing major features, or before merging to verify work meets requirements"
+              },
+              {
+                "name": "security-review",
+                "description": "Use when reviewing code for vulnerabilities, implementing authentication or authorization, handling user input, storing sensitive data, or before any feature that touches security boundaries goes to production"
+              },
+              {
+                "name": "string-database",
+                "description": "Query the STRING database for protein-protein interactions (PPIs), functional enrichment, and homology. Use when the user asks about interactions between specific proteins, interaction evidence, confidence scores, protein interaction partners, or pathway enrichments.\n"
+              },
+              {
+                "name": "subagent-driven-development",
+                "description": "Use when executing implementation plans with independent tasks in the current session"
+              },
+              {
+                "name": "swarm",
+                "description": "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work."
+              },
+              {
+                "name": "systematic-debugging",
+                "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes"
+              },
+              {
+                "name": "test-driven-development",
+                "description": "Use when implementing any feature or bugfix, before writing implementation code"
+              },
+              {
+                "name": "troubleshooting",
+                "description": "Uses Chrome DevTools MCP and documentation to troubleshoot connection and target issues. Trigger this skill when list_pages, new_page, or navigate_page fail, or when the server initialization fails."
+              },
+              {
+                "name": "ucsc-conservation-and-tfbs",
+                "description": "Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analyzing whether genomic variants or regions are evolutionarily conserved, functionally important, or bounded by TF regulators across major projects (ENCODE, JASPAR, ReMap).\n"
+              },
+              {
+                "name": "unibind-database",
+                "description": "Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction datasets, downloading binding site coordinates (BED/FASTA) for local analysis, or listing available datasets by species, cell line, or TF name. Don't use to query specific intervals, locations, genes, motif models or expression data."
+              },
+              {
+                "name": "uniprot-database",
+                "description": "Access protein metadata, function, taxonomy, and sequences across UniProtKB, UniParc, and UniRef. Use when searching for proteins, mapping identifiers, or retrieving functional annotations and publications. Don't use for sequence alignment, protein folding, or sequence similarity search (use specialized skills for those tasks)."
+              },
+              {
+                "name": "using-superantigravity",
+                "description": "Use when starting any conversation — establishes how to find and use skills, requiring skill check before ANY response including clarifying questions"
+              },
+              {
+                "name": "uv",
+                "description": "Checks whether the uv Python package manager is installed and installs it if missing. Ensures uv is on PATH. Use when another skill requires uv as a prerequisite."
+              },
+              {
+                "name": "verification-before-completion",
+                "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always"
+              },
+              {
+                "name": "workflow-skill-creator",
+                "description": "Distills a completed user workflow or interaction into a reusable agent skill. Use when the user asks to turn their workflow, interaction, or multi-step process into a skill, or when they say \"make this a skill\", \"create a skill from what we just did\", \"package this workflow\" or similar. Do not use for creating skills from scratch without an existing workflow (use a generic skill-creator for that).\n"
+              },
+              {
+                "name": "writing-plans",
+                "description": "Use when you have a spec or requirements for a multi-step task, before touching code"
+              },
+              {
+                "name": "writing-skills",
+                "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment"
+              },
+              {
+                "name": "xcode-project-setup",
+                "description": "Safely modifies Xcode projects (.pbxproj) to add Swift Packages and link files. Use this skill whenever an iOS project needs dependencies installed (e.g. Firebase, Alamofire)."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 4.0239,
+      "ts": "2026-11-13T10:26:36.393+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "goal",
+                "description": "Run until the specified goal is completely finished."
+              },
+              {
+                "name": "compact",
+                "description": "Compact the conversation now (summarize history to free up the context window)."
+              },
+              {
+                "name": "schedule",
+                "description": "Run an instruction on a recurring schedule or as a one-time timer."
+              },
+              {
+                "name": "browser",
+                "description": "Invoke a browser agent for web tasks."
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before executing a task."
+              },
+              {
+                "name": "grill-me",
+                "description": "Interview me to align on a plan."
+              },
+              {
+                "name": "teamwork",
+                "description": "Invoke a team of agents to autonomously tackle large projects."
+              },
+              {
+                "name": "learn",
+                "description": "Reflect on recent successes or corrections to capture reusable skills or rules."
+              },
+              {
+                "name": "boost",
+                "description": "Invoke the Boost multi-agent orchestrator for complex tasks."
+              },
+              {
+                "name": "a11y-debugging",
+                "description": "Uses Chrome DevTools MCP for accessibility (a11y) debugging and auditing based on web.dev guidelines. Use when testing semantic HTML, ARIA labels, focus states, keyboard navigation, tap targets, and color contrast."
+              },
+              {
+                "name": "agy-customizations",
+                "description": "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guide the creation of skills, rules, plugins, hooks, and MCP servers."
+              },
+              {
+                "name": "alphafold-database-fetch-and-analyze",
+                "description": "Retrieve and analyze AlphaFold predicted structures for a protein. Use when the user provides a specific UniProt Accession ID and wants structural confidence metrics (pLDDT), domain boundary analysis, or disorder assessment. Do not use if the user only has a protein name, gene name, or amino acid sequence — ask for a UniProt ID first.\n"
+              },
+              {
+                "name": "alphagenome-atlas-website-links",
+                "description": "Constructs deep-links and URLs for the AlphaGenome Atlas website. Supports generating single-variant exploration links (1-based VCF-style coordinates), genomic locus views (1-based closed chr:start-end), candidate summary tables, and AlphaGenome reference vs. alternate predictions. Use when visualizing, exploring, charting, or linking genetic variants and genomic loci on the AlphaGenome Atlas, or when asked to inspect, view, or link predictions for a genomic variant. Don't use for computing raw AlphaGenome variant predictions directly without Atlas URLs (use alphagenome-single-variant-analysis or alphagenome-variant-impact-score)."
+              },
+              {
+                "name": "alphagenome-single-variant-analysis",
+                "description": "Analyzes genetic variant effects on gene expression (RNA-seq), chromatin accessibility (DNASE), histone marks (ChIP), and transcription factors using the AlphaGenome API. Use when the user asks about non-coding variant effects, pathogenicity, clinical significance, disease associations, functional effects, gene expression changes, splicing disruption, or regulatory effects in promoters and enhancers. Also use for resolving biological terms to tissue/cell-type ontologies (UBERON/CL) or analyzing variants in chr:pos:ref>alt format.\n"
+              },
+              {
+                "name": "alphagenome-variant-impact-score",
+                "description": "Score, annotate, and analyze the functional impact of genetic variants using AlphaGenome Variant Impact (AVI) scores. Query variants in chr:pos:ref>alt format, annotate VCF/tabular callsets, perform saturation mutagenesis window scans (1-based closed chr:start-end), and extract GENCODE v46 GTF gene/exon/junction coordinates all via the AlphaGenome Atlas API."
+              },
+              {
+                "name": "antigravity-guide",
+                "description": "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars). Activate this skill when the user asks questions about how to use, configure, or customize Antigravity, AGY, the agy CLI, the Antigravity IDE, or Antigravity 2.0."
+              },
+              {
+                "name": "architecture-design",
+                "description": "Use when designing new systems or significant features, evaluating architectural trade-offs, choosing between structural approaches, or when a task requires understanding system-wide design before writing code"
+              },
+              {
+                "name": "auto-review-gate",
+                "description": "Use when you have just generated a plan, task definition, or code changes — mandatory review gate that must execute before presenting any deliverable to the user"
+              },
+              {
+                "name": "biomolecular-structure-viewer",
+                "description": "Interactive 3D biomolecular structure viewer via Mol*. Renders 3D molecular structures from local workspace files (.cif, .mmcif, .pdb) or conversation artifacts, and manages user 3D annotations and highlighted residues. Use when the user asks to visualise a protein or nucleic acid, display a 3D structure, or asks about 3D biomolecular structure annotations and highlighted residues.\n"
+              },
+              {
+                "name": "brainstorming",
+                "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+              },
+              {
+                "name": "browser-agent",
+                "description": "Use when a task requires interacting with a web browser — testing UI flows, verifying web app behavior, clicking through screens, reading live web content, or automating browser workflows in Google Antigravity"
+              },
+              {
+                "name": "chembl-database",
+                "description": "Query the ChEMBL database for bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Use when the user asks about compounds, targets, IC50/Ki values, drug mechanisms, or structure searches.\n"
+              },
+              {
+                "name": "cheminformatics-cofolding",
+                "description": "Co-folds protein-ligand, protein-DNA/RNA, and covalent inhibitor complexes: prepares AlphaFold 3 JSON, Boltz-2 YAML, and Boltz API (boltz-2.1) inputs, extracts bound ligand poses from mmCIF/PDB, and computes 3D protein-ligand interaction fingerprints (PLIF) and pharmacophore overlaps."
+              },
+              {
+                "name": "cheminformatics-core",
+                "description": "Computes RDKit physicochemical descriptors (MW, cLogP, TPSA, CNS MPO, SA score), PAINS/Brenk structural alerts, pH 7.4 ionization, congeneric series curation, activity cliffs, combinatorial library enumeration, vendor pricing, and organometallic %V_bur sterics."
+              },
+              {
+                "name": "cheminformatics-doc2mol",
+                "description": "Extracts and curates validated chemical structures from patents, literature, synthesis procedures, and Markush core/R-group tables: resolves IUPAC names via OPSIN and PubChem, retrieves Google Patents full text and assay tables, and exports curated SDF/CSV."
+              },
+              {
+                "name": "cheminformatics-ml",
+                "description": "Trains, benchmarks, and evaluates predictive SAR and QSAR/ADMET models for chemical series: small-N regularized regressors, nested cross-validation, Tukey HSD model tiering, scaffold/temporal splitting, matched molecular pairs (MMPA), similarity attribution maps, model persistence, and candidate scoring."
+              },
+              {
+                "name": "cheminformatics-physics",
+                "description": "Simulates 3D molecular physics, conformer ensembles, and CADD workflows: pH-dependent ligand and receptor protonation, ETKDGv3 3D conformer generation, dihedral/relaxed PES torsion scans, AutoDock Vina/smina docking, conformational ligand strain energy, PROTAC/macrocycle 3D geometry, and OpenMM molecular dynamics."
+              },
+              {
+                "name": "cheminformatics-reactions",
+                "description": "Proposes and models organic reactions, retrosynthesis, multi-step synthesis routes, intramolecular cyclizations, and reaction SMARTS: checks experimental precedents first, validates atom conservation, prochirality (pro-R/pro-S, Re/Si), topicity, 1H/13C NMR equivalence, and stereogenesis, and renders 2D curved-arrow mechanisms."
+              },
+              {
+                "name": "chrome-devtools",
+                "description": "Uses Chrome DevTools via MCP for efficient debugging, troubleshooting and browser automation. Use when debugging web pages, automating browser interactions, analyzing performance, or inspecting network requests. This skill does not apply to `--slim` mode (MCP configuration)."
+              },
+              {
+                "name": "chrome-extensions",
+                "description": "Build and publish Chrome Extensions using Manifest V3 best practices. Use this skill whenever the user asks to create, modify, debug, or understand Chrome browser extensions, add-ons, or anything involving the Chrome Extensions API. Trigger on mentions of: 'Chrome extension', 'browser extension', 'manifest.json', 'content script', 'service worker' (in browser context), 'popup' (in browser extension context), 'side panel', 'chrome.* API', 'declarativeNetRequest', 'omnibox', 'context menu' (in extension context), 'userScripts', 'user script', 'script manager', or any request to build functionality that integrates with the Chrome browser UI. Also trigger for publishing to the Chrome Web Store: 'publish extension', preparing an extension for publishing, responding to a review rejection, writing permission justifications, or drafting a privacy policy."
+              },
+              {
+                "name": "clinical-trials-database",
+                "description": "Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details by NCT ID; check eligibility/inclusion criteria; count trials across conditions or time periods; identify a sponsor's trial portfolio; find recruiting trials for patient matching.\n"
+              },
+              {
+                "name": "clinvar-database",
+                "description": "Use when needing clinical significance, pathogenicity classifications (e.g., Pathogenic, Benign, VUS), clinical evidence rationales, or finding \"hard positive\" benchmark controls for human genomic variants.\n"
+              },
+              {
+                "name": "confidence-check",
+                "description": "Use before implementing a feature or making significant changes to verify you have enough context and understanding to proceed — prevents wasted effort from proceeding with wrong assumptions"
+              },
+              {
+                "name": "cookie-debugging",
+                "description": "Uses Chrome DevTools MCP for inspecting, debugging, and testing cookies, session state, authentication issues, and cookie consent compliance. Use when diagnosing 401/403 errors, authentication redirects, session expiration, Cookie/Set-Cookie header issues, cookie banner consent conformance, or third-party cookie/SameSite/Partitioned cookie warnings."
+              },
+              {
+                "name": "credentials",
+                "description": "Instructions for handling API keys and credentials safely, verifying their presence, and prompting the user to add them if missing using a safe protocol."
+              },
+              {
+                "name": "dbsnp-database",
+                "description": "Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates in VCF format, and HGVS strings. For an rsID, returns variant type, gene associations, clinical significance, allele frequencies, and genomic coordinates (GRCh38).\n"
+              },
+              {
+                "name": "debug-optimize-lcp",
+                "description": "Guides debugging and optimizing Largest Contentful Paint (LCP) using Chrome DevTools MCP tools. Use this skill whenever the user asks about LCP performance, slow page loads, Core Web Vitals optimization, or wants to understand why their page's main content takes too long to appear. Also use when the user mentions \"largest contentful paint\", \"page load speed\", \"CWV\", or wants to improve how fast their hero image or main content renders."
+              },
+              {
+                "name": "deep-research",
+                "description": "Use when a task requires gathering information from external sources, researching unfamiliar technologies, validating technical approaches, or answering questions that need current web knowledge before implementation"
+              },
+              {
+                "name": "dependency-management",
+                "description": "Use when adding new dependencies, deciding whether to update packages, running security audits on dependencies, evaluating library alternatives, or encountering outdated or vulnerable packages"
+              },
+              {
+                "name": "dispatching-parallel-agents",
+                "description": "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies"
+              },
+              {
+                "name": "embl-ebi-ols",
+                "description": "Query and search the EMBL-EBI Ontology Lookup Service (OLS) for biomedical ontology terms, definitions, and hierarchies across 250+ ontologies (e.g., GO, DOID, HP). Use when the user asks to search for terms, retrieve details, navigate hierarchies (parents, children, ancestors), look up properties and individuals, get autocomplete suggestions, or access ontology metadata and statistics.\n"
+              },
+              {
+                "name": "encode-ccres-database",
+                "description": "Query the ENCODE Registry of cis-Regulatory Elements (cCREs) via the SCREEN GraphQL API, or make custom queries to the ENCODE Portal REST API for experiments and files (ChIP-seq peaks, etc.). Use when you want to query regulatory annotations or raw experimental data across human cell types.\n"
+              },
+              {
+                "name": "ensembl-database",
+                "description": "Query the Ensembl database to resolve gene, transcript, and protein IDs, fetch genomic or protein sequences, retrieve gene structures (exons), and get variant consequence and effect predictions (VEP). Use this skill as a primary ID translator, genomic sequence database and variant effect prediction tool.\n"
+              },
+              {
+                "name": "executing-plans",
+                "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints"
+              },
+              {
+                "name": "extension-to-functions-codebase",
+                "description": "Skill for converting an installed Firebase Extension (or extension source) into a standalone Cloud Functions for Firebase codebase or publishable npm package, including V1 to V2 trigger upgrades, lifecycle hooks, and declarative security"
+              },
+              {
+                "name": "finishing-a-development-branch",
+                "description": "Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup"
+              },
+              {
+                "name": "firebase-ai-logic-basics",
+                "description": "Official skill for integrating Firebase AI Logic (Gemini API) into web applications. Covers setup, multimodal inference, structured output, and security."
+              },
+              {
+                "name": "firebase-app-hosting-basics",
+                "description": "Deploys and manages full-stack web applications (Next.js, Angular) with Server-Side Rendering (SSR) using Firebase App Hosting. Use when deploying Next.js/Angular apps, configuring apphosting.yaml or firebase.json apphosting blocks, managing secrets, setting up GitHub CI/CD, or configuring Blaze billing requirements. Don't use for classic static web hosting, Auth, Firestore, Crashlytics, or Xcode."
+              },
+              {
+                "name": "firebase-auth-basics",
+                "description": "Guide for setting up and using Firebase Authentication. Use this skill when the user's app requires user sign-in, user management, or secure data access using auth rules."
+              },
+              {
+                "name": "firebase-basics",
+                "description": "Provides foundational Firebase CLI setup, CLI installation, version checks (`firebase-tools@latest --version`), CLI login (including --no-localhost), project creation, project selection (`firebase use`), and app config file downloads (`google-services.json`, `GoogleService-Info.plist`). Use ONLY for CLI login, project creation/switching, or downloading app config files. Don't use for Firebase Hosting deploy, Firestore, Auth, App Hosting, Data Connect, Crashlytics, or Remote Config."
+              },
+              {
+                "name": "firebase-crashlytics",
+                "description": "Comprehensive guide for Firebase Crashlytics, including provisioning and SDK usage. Use this skill when the user needs help setting up Crashlytics, adding crash reporting, or using the Crashlytics SDK in their application."
+              },
+              {
+                "name": "firebase-data-connect",
+                "description": "Builds and deploys Firebase SQL Connect (aka Firebase Data Connect) backends with PostgreSQL securely. Use when designing schemas with tables and relations, writing authorized queries and mutations, configuring real-time data updates, or generating type-safe SDKs. Use when you need a relational database with Firebase, or when the user mentions SQL Connect or Data Connect."
+              },
+              {
+                "name": "firebase-firestore",
+                "description": "Sets up, manages, queries, and configures Cloud Firestore databases (Standard/Enterprise edition), including data modeling, security rules, indexes, and SDK integrations (Web, Python, iOS, Android, Flutter). Use when creating/listing Firestore databases, defining data models/indexes, writing SDK queries, or integrating Firestore SDKs. For authoring or modifying Firestore Security Rules (firestore.rules), delegate to the firestore-rules-author subagent if subagent delegation is available, or use firestore-rules-creation otherwise. Don't use for Firebase Hosting, Data Connect, Auth, Storage/GCS, Crashlytics, Functions, or BigQuery."
+              },
+              {
+                "name": "firebase-hosting-basics",
+                "description": "Deploys and configures classic Firebase Hosting for static websites, single-page apps (SPAs), and microservices. Use when deploying static sites/SPAs, setting up custom domains, configuring firebase.json hosting settings (redirects, rewrites, headers, multi-site), or managing preview channels. Don't use for Firebase App Hosting (Next.js/SSR), Auth, Firestore queries/rules, Data Connect, or Crashlytics."
+              },
+              {
+                "name": "firebase-remote-config-basics",
+                "description": "Manages Firebase Remote Config templates, feature flags, loading strategies, and SDKs (Android, iOS). Use when downloading/deploying remoteconfig JSON templates, managing version history/feature flags, setting in-app defaults, fetchAndActivate(), real-time listeners, or SDK setup. Don't use for Firebase Hosting, Auth, Firestore, Data Connect, Crashlytics, or App Hosting."
+              },
+              {
+                "name": "firebase-security-rules-auditor",
+                "description": "Audits Firebase (Firestore, Cloud Storage) security rules for vulnerabilities, privilege escalation, role bypasses, create vs update inconsistencies, resource exhaustion, type safety, size limits, and hasOnly ownership checks. Use when auditing/reviewing rules, running red-team rule assessments, or scoring against auditor checklists. Don't use for Firebase CLI (login, deploy), Auth, Crashlytics, Remote Config, or database queries."
+              },
+              {
+                "name": "firestore-rules-creation",
+                "description": "Designs, authors, refactors, and hardens production-grade Cloud Firestore Security Rules (firestore.rules). IMPORTANT: If subagent delegation AND the firestore-rules-author subagent are available in your environment, delegate authoring firestore.rules to the firestore-rules-author subagent. If subagent delegation is unavailable (e.g. not enabled in the IDE), firestore-rules-author is not installed, or you are running inside firestore-rules-author, follow this skill directly."
+              },
+              {
+                "name": "foldseek-structural-search",
+                "description": "Performs 3D structural searches of proteins against various databases (PDB, AlphaFold, CATH, MGnify, etc.) using the Foldseek API. Use ONLY when the user provides a physical 3D coordinate file (.cif, .mmcif, or .pdb) and wants to find structurally similar proteins. Do NOT use if the user only provides a protein sequence, gene name, or UniProt ID.\n"
+              },
+              {
+                "name": "gnomad-database",
+                "description": "Query the Genome Aggregation Database (gnomAD). Use when determining the rarity or allele frequency of specific genetic variants, retrieving gene constraint metrics (pLI, LOEUF) to assess loss-of-function intolerance, finding variants in a genomic region or gene, or querying structural variants. Don't use for analyzing individual patient genomes, tracking somatic mutations in cancer (use COSMIC), or requesting raw sequencing reads (use ENA).\n"
+              },
+              {
+                "name": "google-antigravity-sdk",
+                "description": "Design, implement, and debug autonomous AI agents and multi-agent systems using the Google Antigravity (AGY) SDK. ACTIVATE this skill when the user wants to create, configure, or orchestrate Google Antigravity agents."
+              },
+              {
+                "name": "gtex-database",
+                "description": "Use when you want to retrieve quantitative RNA expression data and variant eQTL information from the GTEx (Genotype-Tissue Expression) Project across 54 non-diseased tissue sites.\n"
+              },
+              {
+                "name": "human-protein-atlas-database",
+                "description": "Use when you want to retrieve semi-quantitative protein expression and spatial localisation data from the Human Protein Atlas (HPA).\n"
+              },
+              {
+                "name": "interpro-database",
+                "description": "Identify domains, families, and sites in proteins; find all proteins in a family or sharing a domain; explore species distribution for a domain; annotate genomes with protein families and GO terms. InterPro combines 14 databases (e.g., Pfam, CDD) into one searchable resource. InterPro-N significantly expands annotation and sequence coverage with deep learning. Includes domain architecture (IDA) search.\n"
+              },
+              {
+                "name": "jaspar-database",
+                "description": "Query the JASPAR database for Transcription Factor (TF) binding profiles. Use when retrieving Position Frequency Matrices (PFMs) or Position Weight Matrices (PWMs) for specific TFs, resolving gene symbols to JASPAR Matrix IDs, or getting TF metadata. Supports multiple output formats (MEME, TRANSFAC, PFM, JASPAR, YAML).\n"
+              },
+              {
+                "name": "literature-search-arxiv",
+                "description": "Search for scientific papers, preprints, and publications on arXiv. Extract metadata, abstracts, and download full-text PDFs or HTML versions of papers. Use when the user asks to find research papers, literature, or specific arXiv IDs.\n"
+              },
+              {
+                "name": "literature-search-biorxiv",
+                "description": "Browse, filter, and download life sciences, biology, and medical preprints from bioRxiv and medRxiv. Supports fetching paper metadata by DOI, and browsing by date range with category and keyword filters. Keyword filtering is local, so date ranges MUST be narrow (1-4 weeks) with a category to prevent timeouts.\n"
+              },
+              {
+                "name": "literature-search-europepmc",
+                "description": "Search Europe PMC for scientific literature and download open-access full texts and PDFs. Retrieve full-text XML/plain text by PMCID, get citation lists and bibliography.\n"
+              },
+              {
+                "name": "literature-search-openalex",
+                "description": "Query the OpenAlex scholarly database for research papers, authors, institutions, topics, sources, publishers, funders, geo-locations, and keywords. Use when searching academic papers, resolving DOIs, downloading open-access PDFs, finding an author's publications, aggregating bibliometric data (citation counts, h-index, impact factor), exploring the research taxonomies, or performing DOI lookups.\n"
+              },
+              {
+                "name": "memory-leak-debugging",
+                "description": "Diagnoses and resolves memory leaks in JavaScript/Node.js applications. Use when a user reports high memory usage, OOM errors, or wants to capture, compare, or inspect heap snapshots with Chrome DevTools MCP memory tools."
+              },
+              {
+                "name": "modern-web-guidance",
+                "description": "Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs evolve rapidly and training weights contain obsolete patterns.\nTrigger immediately for: modals/dialogs/popovers, tables, dark mode, anchor positioning, container queries, view transitions, scroll-driven animations, parallax/reveals, forms, validation, autofill, accessibility, custom selects, scrollbars, CWV (LCP, INP, CLS), content-visibility, fetch priority, image optimization, security, passkeys, HTML sanitization, web components, dates/timezones, built-in AI, WebAssembly, standard HTML/CSS/DOM in frameworks, etc.\nDO NOT trigger for: backend (SQL, ORMs, API routes), infra/scripts (CI/CD, Docker, Actions, Python/Go, Git), or tooling/trivial (Vite, tsconfig, ESLint, tests, copy/renames, 3P docs), etc."
+              },
+              {
+                "name": "ncbi-sequence-fetch",
+                "description": "Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fetch biological sequences by accession, gene name, locus tag, PubMed ID, or patent number.\n"
+              },
+              {
+                "name": "openfda-database",
+                "description": "Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and transparency data. Use for FDA adverse events, recalls, labeling, approvals, shortages, 510(k) clearances, NDC lookups, and any FDA safety or regulatory data query across all 28 API endpoints.\n"
+              },
+              {
+                "name": "opentargets-database",
+                "description": "Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, for therapeutic target identification.\n"
+              },
+              {
+                "name": "pdb-database",
+                "description": "Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports searching by sequence similarity, structure similarity, chemical and other attributes. Also use to get metadata about biomolecular structure experiments.\n"
+              },
+              {
+                "name": "performance-optimization",
+                "description": "Use when code is slow, resource-heavy, or needs optimization — before making any changes, after profiling reveals bottlenecks, or when designing performance-sensitive systems"
+              },
+              {
+                "name": "predictingthepast",
+                "description": "Ancient text restoration, attribution, dating, contextualization, and embedding via Aeneas (Latin) / Ithaca (Ancient Greek). Use when asked to \"restore\", \"attribute\", \"date\", \"contextualize\", \"find parallels\", \"where was it written\", \"when was it written\", \"embed\", or \"analyze\" an ancient text, inscription, or epigraphic document, or when the user mentions \"Aeneas\", or \"Ithaca\".\n"
+              },
+              {
+                "name": "protein-sequence-msa",
+                "description": "Performs multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or key residue conservation. Supports up to 4000 sequences and a maximum file size of 4 MB. Do not use to search for homologous proteins in a database (use MMseqs2, BLAST), align non-protein sequences (DNA, RNA), perform structural alignment (use Foldseek, PyMOL), or if you only have a single sequence.\n"
+              },
+              {
+                "name": "protein-sequence-similarity-search",
+                "description": "Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a protein sequence or FASTA file and asks to find homologues, sequence matches, or wants to infer protein function based on sequence similarity, but not when the user wants to infer protein function based on structural similarity.\n"
+              },
+              {
+                "name": "pubchem-database",
+                "description": "Query PubChem, search by name/CID/SMILES, retrieve properties, similarity/substructure searches, bioactivity, for cheminformatics. Use when a user asks about a specific chemical, drug, or molecule.\n"
+              },
+              {
+                "name": "pubmed-database",
+                "description": "Search PubMed for scientific literature, including published clinical trials. Fetch abstracts and full text. Link published research to biological databases (gene, protein, nucleotide, PubChem) to discover associations between papers and specific compounds or genes. Verify medical spelling, match raw citations, and cache result sets for bulk processing. Interfaces NCBI E-utilities and PMC BioC APIs."
+              },
+              {
+                "name": "pymol",
+                "description": "Visualize, analyze, and render protein and molecular structures using PyMOL. Use when the user wants to create images of protein structures, perform structural alignments or superposition, measure distances or contacts, highlight binding sites or active site residues, color by B-factor/pLDDT, or analyze protein-ligand interactions. Do not use for docking, molecular dynamics, or sequence-only analysis.\n"
+              },
+              {
+                "name": "quickgo-database",
+                "description": "Query the QuickGO and Evidence & Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components, find genes associated with a specific pathway/GO term, or explore the Gene Ontology hierarchy. Do not use for querying drug targets (use OpenTargets) or mechanistic signaling pathway diagrams (use KEGG).\n"
+              },
+              {
+                "name": "rdkit-general",
+                "description": "Generates 2D chemical structure depictions (PNG/SVG), interactive HTML compound grids, standalone chemical applications/visualizers, and ChemDraw (.cdxml/.cdx) documents using ACS 1996 publication styling; validates IUPAC/stereochemical nomenclature and provides shared RDKit version compatibility helpers."
+              },
+              {
+                "name": "reactome-database",
+                "description": "Query the Reactome database (Analysis and Content Services). Use when the user asks about pathway analysis, gene list enrichment, retrieving results by token, finding unmapped or not-found identifiers, mapping identifiers, reaction participants (inputs, outputs), pathway hierarchy (including top-level pathways), diagram export, cross-reference mapping, or searching the knowledgebase.\n"
+              },
+              {
+                "name": "receiving-code-review",
+                "description": "Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation"
+              },
+              {
+                "name": "requesting-code-review",
+                "description": "Use when completing tasks, implementing major features, or before merging to verify work meets requirements"
+              },
+              {
+                "name": "security-review",
+                "description": "Use when reviewing code for vulnerabilities, implementing authentication or authorization, handling user input, storing sensitive data, or before any feature that touches security boundaries goes to production"
+              },
+              {
+                "name": "string-database",
+                "description": "Query the STRING database for protein-protein interactions (PPIs), functional enrichment, and homology. Use when the user asks about interactions between specific proteins, interaction evidence, confidence scores, protein interaction partners, or pathway enrichments.\n"
+              },
+              {
+                "name": "subagent-driven-development",
+                "description": "Use when executing implementation plans with independent tasks in the current session"
+              },
+              {
+                "name": "swarm",
+                "description": "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work."
+              },
+              {
+                "name": "systematic-debugging",
+                "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes"
+              },
+              {
+                "name": "test-driven-development",
+                "description": "Use when implementing any feature or bugfix, before writing implementation code"
+              },
+              {
+                "name": "troubleshooting",
+                "description": "Uses Chrome DevTools MCP and documentation to troubleshoot connection and target issues. Trigger this skill when list_pages, new_page, or navigate_page fail, or when the server initialization fails."
+              },
+              {
+                "name": "ucsc-conservation-and-tfbs",
+                "description": "Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analyzing whether genomic variants or regions are evolutionarily conserved, functionally important, or bounded by TF regulators across major projects (ENCODE, JASPAR, ReMap).\n"
+              },
+              {
+                "name": "unibind-database",
+                "description": "Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction datasets, downloading binding site coordinates (BED/FASTA) for local analysis, or listing available datasets by species, cell line, or TF name. Don't use to query specific intervals, locations, genes, motif models or expression data."
+              },
+              {
+                "name": "uniprot-database",
+                "description": "Access protein metadata, function, taxonomy, and sequences across UniProtKB, UniParc, and UniRef. Use when searching for proteins, mapping identifiers, or retrieving functional annotations and publications. Don't use for sequence alignment, protein folding, or sequence similarity search (use specialized skills for those tasks)."
+              },
+              {
+                "name": "using-superantigravity",
+                "description": "Use when starting any conversation — establishes how to find and use skills, requiring skill check before ANY response including clarifying questions"
+              },
+              {
+                "name": "uv",
+                "description": "Checks whether the uv Python package manager is installed and installs it if missing. Ensures uv is on PATH. Use when another skill requires uv as a prerequisite."
+              },
+              {
+                "name": "verification-before-completion",
+                "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always"
+              },
+              {
+                "name": "workflow-skill-creator",
+                "description": "Distills a completed user workflow or interaction into a reusable agent skill. Use when the user asks to turn their workflow, interaction, or multi-step process into a skill, or when they say \"make this a skill\", \"create a skill from what we just did\", \"package this workflow\" or similar. Do not use for creating skills from scratch without an existing workflow (use a generic skill-creator for that).\n"
+              },
+              {
+                "name": "writing-plans",
+                "description": "Use when you have a spec or requirements for a multi-step task, before touching code"
+              },
+              {
+                "name": "writing-skills",
+                "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment"
+              },
+              {
+                "name": "xcode-project-setup",
+                "description": "Safely modifies Xcode projects (.pbxproj) to add Swift Packages and link files. Use this skill whenever an iOS project needs dependencies installed (e.g. Firebase, Alamofire)."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 4.034,
+      "ts": "2026-11-13T10:26:36.403+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Reply with exactly: PROBE_OK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 6.06,
+      "ts": "2026-11-13T10:26:38.429+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "session_info_update",
+            "title": "System Probe Ok Test"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 6.5026,
+      "ts": "2026-11-13T10:26:38.872+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "PROBE_OK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 6.5623,
+      "ts": "2026-11-13T10:26:38.932+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "77c94c1a-809c-40e4-b503-67121ee79abf",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 18012,
+            "size": 1048576
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 6.5685,
+      "ts": "2026-11-13T10:26:38.938+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "result": {
+          "stopReason": "end_turn",
+          "usage": {
+            "inputTokens": 17977,
+            "outputTokens": 35,
+            "cachedReadTokens": 0,
+            "cachedWriteTokens": 0,
+            "thoughtTokens": 31,
+            "totalTokens": 18012
+          }
+        },
+        "id": 4
+      }
+    }
+  ],
+  "duration_s": 7.1419
+}

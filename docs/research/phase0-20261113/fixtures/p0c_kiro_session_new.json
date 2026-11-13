@@ -1,0 +1,4122 @@
+{
+  "probe": "p0c-kiro-session-new",
+  "transport": "acp",
+  "command": [
+    "kiro-cli",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-probe.mX7BSk",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:25:17.923+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 0.748,
+  "setup_duration_s": 1.8156,
+  "turn_duration_s": null,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "sessionCapabilities": {
+      "list": {},
+      "close": {},
+      "delete": {},
+      "fork": {
+        "_meta": {
+          "kiro": {
+            "messageId": true
+          }
+        }
+      }
+    },
+    "_meta": {
+      "kiro": {
+        "checkpoints": true,
+        "sessionList": true,
+        "policyNotifications": true,
+        "extensionMethods": [
+          "_kiro/knowledge",
+          "_kiro/memory/list",
+          "_kiro/memory/get",
+          "_kiro/memory/create",
+          "_kiro/memory/update",
+          "_kiro/memory/delete",
+          "_kiro/memory/import",
+          "_kiro/memory/export",
+          "_kiro/memory/getImportPrompt",
+          "_kiro/memory/getSyncStatus",
+          "_kiro/memory/sync",
+          "_kiro/codeIntelligence",
+          "_kiro/environment/start_ssh_session",
+          "_kiro/environment/get_network_configuration",
+          "_kiro/session/context",
+          "_kiro/session/compact",
+          "_kiro/session/export",
+          "_kiro/session/history",
+          "_kiro/session/delete",
+          "_kiro/session/rename",
+          "_kiro/job/cancel",
+          "_kiro/job/output",
+          "_kiro/config/template",
+          "_kiro/permissions/presets/list",
+          "_kiro/permissions/presets/add",
+          "_kiro/permissions/presets/remove",
+          "_kiro/configuration/getState",
+          "_kiro/configuration/set",
+          "_kiro/workflow/new",
+          "_kiro/workflow/invoke",
+          "_kiro/workflow/load",
+          "_kiro/workflow/inspect",
+          "_kiro/workflow/list",
+          "_kiro/workflow/pause",
+          "_kiro/workflow/cancel",
+          "_kiro/workflow/delete",
+          "_kiro/workflow/listRecipes",
+          "_kiro/workflow/listWatchHandlers",
+          "_kiro/workflow/resumeAll",
+          "_kiro/workflow/retry",
+          "_kiro/workflow/update",
+          "_kiro/workflow/resume",
+          "_kiro/sourceProviders/list",
+          "_kiro/sourceProviders/listResources"
+        ],
+        "sessionSources": [
+          "local",
+          "remote"
+        ],
+        "sessionListScopes": [
+          "workspace",
+          "user"
+        ],
+        "executionTargets": [
+          "local",
+          "cloud-sandbox"
+        ],
+        "sourceProviders": true,
+        "replayMarking": true,
+        "autoCompactionThreshold": {
+          "min": 0,
+          "max": 80,
+          "default": 80
+        },
+        "modelFallbackReporting": true,
+        "logging": {
+          "logDir": "<HOME>/.kiro/logs/20261113T102518633-69355",
+          "channels": [
+            {
+              "name": "kiro",
+              "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/kiro.log"
+            },
+            {
+              "name": "mcp",
+              "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/mcp.log"
+            },
+            {
+              "name": "powers",
+              "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/powers.log"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "agent_info": null,
+  "auth_methods": [
+    {
+      "id": "aws-builder-id",
+      "name": "AWS Builder ID"
+    },
+    {
+      "id": "aws-iam-identity-center",
+      "name": "AWS IAM Identity Center"
+    }
+  ],
+  "session_id": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+  "config_options": [
+    {
+      "type": "select",
+      "id": "mode",
+      "name": "Mode",
+      "category": "mode",
+      "currentValue": "vibe",
+      "options": [
+        {
+          "value": "vibe",
+          "name": "Default",
+          "description": "General coding assistance",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "spec",
+          "name": "Spec",
+          "description": "Structured feature development",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "quick-spec",
+          "name": "Quick Spec",
+          "description": "Fast spec workflow: clarify, then auto-generate requirements, design, and tasks",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "bug-fix",
+          "name": "Bug Fix",
+          "description": "Structured bug-fix workflow: investigate, diagnose, and resolve bugs",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Plan-only mode that helps break ideas down into an implementation plan without making any changes",
+          "_meta": {
+            "kiro": {
+              "welcomeMessage": "Transform any idea into fully working code. What do you want to build today?",
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "autonomous",
+          "name": "Autonomous",
+          "description": "Autonomous agent execution",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "value": "semantic_reviewer",
+          "name": "semantic_reviewer",
+          "description": "Behavioral, narrative code review of a local or PR diff. Writes a review document and a verdict.",
+          "_meta": {
+            "kiro": {
+              "source": "bundled",
+              "resource": {
+                "resourceType": "agent",
+                "source": {
+                  "origin": "bundled"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "currentValue": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "name": "auto",
+          "description": "Models chosen by task for optimal usage and consistent quality",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 1,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-opus-5.5",
+          "name": "claude-opus-5.5",
+          "description": "Claude Opus 5.5 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "medium",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-sonnet-5.5",
+          "name": "claude-sonnet-5.5",
+          "description": "Claude Sonnet 5.5 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 1.3,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-haiku-5.5",
+          "name": "claude-haiku-5.5",
+          "description": "Claude Haiku 5.5 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.06,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "medium",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "gpt-5.6-sol",
+          "name": "gpt-5.6-sol",
+          "description": "OpenAI GPT 5.6 Sol with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 4.4,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "reasoning",
+              "effortLevels": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "gpt-5.6-terra",
+          "name": "gpt-5.6-terra",
+          "description": "OpenAI GPT 5.6 Terra with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "reasoning",
+              "effortLevels": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "gpt-5.6-luna",
+          "name": "gpt-5.6-luna",
+          "description": "OpenAI GPT 5.6 Luna with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.6,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "reasoning",
+              "effortLevels": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "grok-4.7",
+          "name": "grok-4.7",
+          "description": "Experimental preview of xAI Grok 4.7",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.7,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "reasoning",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "kimi-k3",
+          "name": "kimi-k3",
+          "description": "Kimi K3 is a Kiro Excluded Model. For more info, see documentation.",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.4,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "reasoning",
+              "effortLevels": [
+                "low",
+                "high",
+                "max"
+              ],
+              "defaultEffortLevel": "max",
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-opus-5",
+          "name": "claude-opus-5",
+          "description": "Claude Opus 5 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-sonnet-5",
+          "name": "claude-sonnet-5",
+          "description": "Claude Sonnet 5 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 1.3,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-opus-4.8",
+          "name": "claude-opus-4.8",
+          "description": "Claude Opus 4.8 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-opus-4.7",
+          "name": "claude-opus-4.7",
+          "description": "Claude Opus 4.7 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "defaultEffortLevel": "xhigh",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-opus-4.6",
+          "name": "claude-opus-4.6",
+          "description": "Claude Opus 4.6 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-sonnet-4.6",
+          "name": "claude-sonnet-4.6",
+          "description": "Claude Sonnet 4.6 model with 1M context window",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 1.3,
+              "rateUnit": "Credit",
+              "hasEffort": true,
+              "effortSchemaPath": "output_config",
+              "effortLevels": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ],
+              "defaultEffortLevel": "high",
+              "thinkingToggleable": true,
+              "defaultThinkingEnabled": true
+            }
+          }
+        },
+        {
+          "value": "claude-opus-4.5",
+          "name": "claude-opus-4.5",
+          "description": "Claude Opus 4.5 model",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 2.2,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-sonnet-4.5",
+          "name": "claude-sonnet-4.5",
+          "description": "Claude Sonnet 4.5 model",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 1.3,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "claude-haiku-4.5",
+          "name": "claude-haiku-4.5",
+          "description": "The latest Claude Haiku model",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.4,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "deepseek-3.2",
+          "name": "deepseek-3.2",
+          "description": "Experimental preview of DeepSeek V3.2",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.25,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "minimax-m2.5",
+          "name": "minimax-m2.5",
+          "description": "MiniMax M2.5 model",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.25,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "minimax-m2.1",
+          "name": "minimax-m2.1",
+          "description": "Experimental preview of MiniMax M2.1",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.15,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "glm-5",
+          "name": "glm-5",
+          "description": "GLM-5 model",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.5,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        },
+        {
+          "value": "qwen3-coder-next",
+          "name": "qwen3-coder-next",
+          "description": "Experimental preview of Qwen3 Coder Next",
+          "_meta": {
+            "kiro": {
+              "rateMultiplier": 0.05,
+              "rateUnit": "Credit",
+              "hasEffort": false,
+              "thinkingToggleable": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "memoryReflection",
+      "name": "Memory reflection",
+      "description": "Allow this session to reflect on new memory",
+      "currentValue": "off",
+      "options": [
+        {
+          "value": "on",
+          "name": "On"
+        },
+        {
+          "value": "off",
+          "name": "Off"
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "autopilot",
+      "name": "Autopilot",
+      "currentValue": "on",
+      "options": [
+        {
+          "value": "on",
+          "name": "Autopilot",
+          "description": "Agent executes tools without confirmation"
+        },
+        {
+          "value": "off",
+          "name": "Supervised",
+          "description": "Agent asks for approval before file changes"
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "contentCollection",
+      "name": "Content Collection",
+      "currentValue": "enabled",
+      "options": [
+        {
+          "value": "enabled",
+          "name": "Enabled",
+          "description": "Allow content to be used for service improvement"
+        },
+        {
+          "value": "disabled",
+          "name": "Disabled",
+          "description": "Opt out of content collection"
+        }
+      ]
+    }
+  ],
+  "modes": {
+    "availableModes": [
+      {
+        "id": "vibe",
+        "name": "Default",
+        "description": "General coding assistance",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "spec",
+        "name": "Spec",
+        "description": "Structured feature development",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "quick-spec",
+        "name": "Quick Spec",
+        "description": "Fast spec workflow: clarify, then auto-generate requirements, design, and tasks",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "bug-fix",
+        "name": "Bug Fix",
+        "description": "Structured bug-fix workflow: investigate, diagnose, and resolve bugs",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "plan",
+        "name": "Plan",
+        "description": "Plan-only mode that helps break ideas down into an implementation plan without making any changes",
+        "_meta": {
+          "kiro": {
+            "welcomeMessage": "Transform any idea into fully working code. What do you want to build today?",
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "autonomous",
+        "name": "Autonomous",
+        "description": "Autonomous agent execution",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "semantic_reviewer",
+        "name": "semantic_reviewer",
+        "description": "Behavioral, narrative code review of a local or PR diff. Writes a review document and a verdict.",
+        "_meta": {
+          "kiro": {
+            "source": "bundled",
+            "resource": {
+              "resourceType": "agent",
+              "source": {
+                "origin": "bundled"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "currentModeId": "vibe"
+  },
+  "replayed_updates_count": 0,
+  "stop_reason": null,
+  "prompt_error": null,
+  "update_variants": {
+    "available_commands_update": 1,
+    "config_option_update": 1
+  },
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 0,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0027,
+      "ts": "2026-11-13T10:25:17.923+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.7505,
+      "ts": "2026-11-13T10:25:18.671+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "promptCapabilities": {
+              "image": true,
+              "embeddedContext": true
+            },
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "sessionCapabilities": {
+              "list": {},
+              "close": {},
+              "delete": {},
+              "fork": {
+                "_meta": {
+                  "kiro": {
+                    "messageId": true
+                  }
+                }
+              }
+            },
+            "_meta": {
+              "kiro": {
+                "checkpoints": true,
+                "sessionList": true,
+                "policyNotifications": true,
+                "extensionMethods": [
+                  "_kiro/knowledge",
+                  "_kiro/memory/list",
+                  "_kiro/memory/get",
+                  "_kiro/memory/create",
+                  "_kiro/memory/update",
+                  "_kiro/memory/delete",
+                  "_kiro/memory/import",
+                  "_kiro/memory/export",
+                  "_kiro/memory/getImportPrompt",
+                  "_kiro/memory/getSyncStatus",
+                  "_kiro/memory/sync",
+                  "_kiro/codeIntelligence",
+                  "_kiro/environment/start_ssh_session",
+                  "_kiro/environment/get_network_configuration",
+                  "_kiro/session/context",
+                  "_kiro/session/compact",
+                  "_kiro/session/export",
+                  "_kiro/session/history",
+                  "_kiro/session/delete",
+                  "_kiro/session/rename",
+                  "_kiro/job/cancel",
+                  "_kiro/job/output",
+                  "_kiro/config/template",
+                  "_kiro/permissions/presets/list",
+                  "_kiro/permissions/presets/add",
+                  "_kiro/permissions/presets/remove",
+                  "_kiro/configuration/getState",
+                  "_kiro/configuration/set",
+                  "_kiro/workflow/new",
+                  "_kiro/workflow/invoke",
+                  "_kiro/workflow/load",
+                  "_kiro/workflow/inspect",
+                  "_kiro/workflow/list",
+                  "_kiro/workflow/pause",
+                  "_kiro/workflow/cancel",
+                  "_kiro/workflow/delete",
+                  "_kiro/workflow/listRecipes",
+                  "_kiro/workflow/listWatchHandlers",
+                  "_kiro/workflow/resumeAll",
+                  "_kiro/workflow/retry",
+                  "_kiro/workflow/update",
+                  "_kiro/workflow/resume",
+                  "_kiro/sourceProviders/list",
+                  "_kiro/sourceProviders/listResources"
+                ],
+                "sessionSources": [
+                  "local",
+                  "remote"
+                ],
+                "sessionListScopes": [
+                  "workspace",
+                  "user"
+                ],
+                "executionTargets": [
+                  "local",
+                  "cloud-sandbox"
+                ],
+                "sourceProviders": true,
+                "replayMarking": true,
+                "autoCompactionThreshold": {
+                  "min": 0,
+                  "max": 80,
+                  "default": 80
+                },
+                "modelFallbackReporting": true,
+                "logging": {
+                  "logDir": "<HOME>/.kiro/logs/20261113T102518633-69355",
+                  "channels": [
+                    {
+                      "name": "kiro",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/kiro.log"
+                    },
+                    {
+                      "name": "mcp",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/mcp.log"
+                    },
+                    {
+                      "name": "powers",
+                      "filePath": "<HOME>/.kiro/logs/20261113T102518633-69355/powers.log"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "authMethods": [
+            {
+              "id": "aws-builder-id",
+              "name": "AWS Builder ID"
+            },
+            {
+              "id": "aws-iam-identity-center",
+              "name": "AWS IAM Identity Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.7506,
+      "ts": "2026-11-13T10:25:18.671+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/new",
+        "params": {
+          "cwd": "/tmp/phase0-probe.mX7BSk",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.7509,
+      "ts": "2026-11-13T10:25:18.672+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/memory/syncStatus",
+        "params": {
+          "state": "notStarted"
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.7779,
+      "ts": "2026-11-13T10:25:18.698+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/memory/syncStatus",
+        "params": {
+          "state": "resolving"
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5342,
+      "ts": "2026-11-13T10:25:20.455+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/mcp/status",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "servers": [
+            {
+              "name": "power-context7-context7",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/power-context7-context7",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "power-exa-exa",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/power-exa-exa",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "fetch",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/fetch",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "chrome-devtools",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/chrome-devtools",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "filesystem",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/filesystem",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "perplexity",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/perplexity",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "docker",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/docker",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/docker/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "git",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/git",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/git/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "sequential-thinking",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/sequential-thinking",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5345,
+      "ts": "2026-11-13T10:25:20.455+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/tools/didChange",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "tags": [
+            {
+              "source": "builtin",
+              "tag": "read",
+              "description": "read-file, diagnostics, search tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "write",
+              "description": "write-file tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "shell",
+              "description": "run-commands tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "web",
+              "description": "web search tools"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5345,
+      "ts": "2026-11-13T10:25:20.455+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/governance/state",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "isEnterprise": false,
+          "features": {
+            "mcpEnabled": true,
+            "webToolsEnabled": true,
+            "usageAnalytics": false,
+            "contentCollection": true,
+            "promptLogging": false,
+            "codeReferenceTracker": false,
+            "autonomousAgents": true
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5348,
+      "ts": "2026-11-13T10:25:20.455+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/mcp/status",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "servers": [
+            {
+              "name": "power-context7-context7",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/power-context7-context7",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "power-exa-exa",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/power-exa-exa",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "fetch",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/fetch",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "chrome-devtools",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/chrome-devtools",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "filesystem",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/filesystem",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "perplexity",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/perplexity",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "docker",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/docker",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/docker/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "git",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/git",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/git/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "sequential-thinking",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/sequential-thinking",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5518,
+      "ts": "2026-11-13T10:25:20.472+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/steering/documents_changed",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "status": "success",
+          "documents": [
+            {
+              "name": "agent-rule",
+              "type": "steering",
+              "scope": "global",
+              "uri": "file://<HOME>/.kiro/steering/agent-rule.md",
+              "inclusion": "always",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "steering",
+                    "source": {
+                      "origin": "user"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "python-coding-standards",
+              "type": "steering",
+              "scope": "global",
+              "uri": "file://<HOME>/.kiro/steering/python-coding-standards.md",
+              "inclusion": "always",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "steering",
+                    "source": {
+                      "origin": "user"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "architecture-selection",
+              "type": "steering",
+              "scope": "global",
+              "uri": "builtin:architecture-selection",
+              "inclusion": "manual",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "steering",
+                    "source": {
+                      "origin": "bundled"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "quick-spec",
+              "type": "steering",
+              "scope": "global",
+              "uri": "builtin:quick-spec",
+              "inclusion": "manual",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "steering",
+                    "source": {
+                      "origin": "bundled"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "bug-fix",
+              "type": "steering",
+              "scope": "global",
+              "uri": "builtin:bug-fix",
+              "inclusion": "manual",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "steering",
+                    "source": {
+                      "origin": "bundled"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5537,
+      "ts": "2026-11-13T10:25:20.474+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "general-task-execution",
+                "description": "General-purpose sub-agent with access to all tools for executing arbitrary tasks",
+                "input": {
+                  "hint": "task to delegate"
+                },
+                "_meta": {
+                  "kiro": {
+                    "type": "custom-agent",
+                    "commandId": "general-task-execution",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    },
+                    "originalName": "general-task-execution"
+                  }
+                }
+              },
+              {
+                "name": "context-gatherer",
+                "description": "Investigates the codebase to answer a specific question about it. Deeply analyzes existing code by tracing execution paths, mapping architecture and abstraction layers, understanding patterns, and documenting dependencies, returning a thorough, direct written analysis that explains how the relevant code works and points to the specific files and lines involved. Use it to understand code before you change it: before designing or implementing a change to code you don't already fully understand, start with context-gatherer so your edits are grounded in how the code actually works. When a task requires understanding code you don't already know, dispatch context-gatherer to do that exploration before running your own searches or reads. Rules: 1. Provide a clear, specific prompt that includes your intent: a detailed task description of the context you need and what you're trying to accomplish. 2. The subagent explores the codebase and returns an analysis of your query 3. Trust the returned results. You may still inspect additional code yourself when you need context beyond what was returned. 4. Reuse existing context-gatherer output for related follow-up questions; do not re-invoke on the same question with different phrasing. 5. For multiple distinct questions, dispatch several context-gatherers in parallel, each targeting a different aspect of the codebase.",
+                "input": {
+                  "hint": "task to delegate"
+                },
+                "_meta": {
+                  "kiro": {
+                    "type": "custom-agent",
+                    "commandId": "context-gatherer",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    },
+                    "originalName": "context-gatherer"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5629,
+      "ts": "2026-11-13T10:25:20.484+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/mcp/status",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "servers": [
+            {
+              "name": "power-context7-context7",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "power",
+                      "power": {
+                        "name": "context7",
+                        "source": {
+                          "origin": "user"
+                        }
+                      }
+                    },
+                    "krn": "krn:user-local:power/context7:mcp-server/settings/mcp.json#powers.mcpServers/power-context7-context7",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "power-exa-exa",
+              "authType": "oauth",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "power",
+                      "power": {
+                        "name": "exa",
+                        "source": {
+                          "origin": "user"
+                        }
+                      }
+                    },
+                    "krn": "krn:user-local:power/exa:mcp-server/settings/mcp.json#powers.mcpServers/power-exa-exa",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "fetch",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/fetch",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "chrome-devtools",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/chrome-devtools",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "filesystem",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/filesystem",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "perplexity",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/perplexity",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "docker",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/docker",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/docker/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "git",
+              "status": "disabled",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/git",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "disabled",
+                      "setting": "krn:::setting/mcp-server/krn%3Auser-local%3A%3Amcp-server/settings/mcp.json#powers.mcpServers/git/enabled",
+                      "decidedBy": "user-local"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "sequential-thinking",
+              "status": "connecting",
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "mcpServer",
+                    "source": {
+                      "origin": "user"
+                    },
+                    "krn": "krn:user-local::mcp-server/settings/mcp.json#powers.mcpServers/sequential-thinking",
+                    "layer": "user-local",
+                    "standing": {
+                      "kind": "active"
+                    },
+                    "readFrom": {
+                      "krn": "krn:user-local::file/settings/mcp.json",
+                      "uri": "file://<HOME>/.kiro/settings/mcp.json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.565,
+      "ts": "2026-11-13T10:25:20.486+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/powers/items_changed",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "status": "success",
+          "powers": [
+            {
+              "name": "context7",
+              "description": "Find up-to-date documentation, API references, and code examples for libraries, frameworks, SDKs, and developer tools using Context7.",
+              "displayName": "Context7",
+              "keywords": [
+                "context7",
+                "library docs",
+                "framework docs",
+                "sdk docs",
+                "api reference",
+                "code examples",
+                "package docs"
+              ],
+              "mcpServerNames": [
+                "context7"
+              ],
+              "mcpServers": [
+                {
+                  "name": "context7",
+                  "mcpStatusName": "power-context7-context7",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "mcpServer",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "context7",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "hasSteeringFiles": false,
+              "isAgentPlugin": false,
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "power",
+                    "source": {
+                      "origin": "user"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "exa",
+              "description": "Give Kiro agents a high-quality search, crawl, and research layer over the live web. Find current docs, code examples, companies, and people; extract clean markdown from any URL.",
+              "displayName": "Exa Web Search & Research",
+              "keywords": [
+                "search",
+                "find",
+                "web",
+                "research",
+                "deep dive",
+                "look up",
+                "crawl",
+                "code-search",
+                "rag",
+                "documentation",
+                "competitive analysis",
+                "who is",
+                "what is",
+                "exa",
+                "web-search",
+                "company-research",
+                "linkedin",
+                "crawling"
+              ],
+              "mcpServerNames": [
+                "exa"
+              ],
+              "mcpServers": [
+                {
+                  "name": "exa",
+                  "mcpStatusName": "power-exa-exa",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "mcpServer",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "hasSteeringFiles": true,
+              "steeringFiles": [
+                {
+                  "name": "extraction.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/extraction.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "filtering.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/filtering.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-code.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-code.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-companies.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-companies.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-news.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-news.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-papers.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-papers.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-people.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-people.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "patterns-relationships.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/patterns-relationships.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "searching.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/searching.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "source-quality.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/source-quality.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "synthesis.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/exa/steering/synthesis.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "exa",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "isAgentPlugin": false,
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "power",
+                    "source": {
+                      "origin": "user"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "ltm-power",
+              "description": "Project-local long-term memory and recall for Kiro. Scaffolds an ltm/ recall layer, captures state after meaningful work, enables cheap recall for resume-style tasks, and supports selective or full memory reset, validation, repair, and in-place updates.",
+              "displayName": "Local Long-Term Memory",
+              "keywords": [
+                "memory",
+                "long term memory",
+                "ltm",
+                "remember this project",
+                "resume work",
+                "pick up where we left off",
+                "project recall",
+                "last session",
+                "continue previous work",
+                "purge memory",
+                "reset memory",
+                "forget",
+                "what do you remember",
+                "update ltm",
+                "update memory"
+              ],
+              "hasSteeringFiles": true,
+              "steeringFiles": [
+                {
+                  "name": "ltm-bootstrap.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-bootstrap.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-capture-policy.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-capture-policy.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-failure-recovery.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-failure-recovery.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-purge-and-reset.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-purge-and-reset.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-recall-workflow.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-recall-workflow.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-script-source.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-script-source.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-update.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-update.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "ltm-validation-policy.md",
+                  "uri": "file://<HOME>/.kiro/powers/installed/ltm-power/steering/ltm-validation-policy.md",
+                  "_meta": {
+                    "kiro": {
+                      "resource": {
+                        "resourceType": "steering",
+                        "source": {
+                          "origin": "power",
+                          "power": {
+                            "name": "ltm-power",
+                            "source": {
+                              "origin": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "isAgentPlugin": false,
+              "_meta": {
+                "kiro": {
+                  "resource": {
+                    "resourceType": "power",
+                    "source": {
+                      "origin": "user"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5657,
+      "ts": "2026-11-13T10:25:20.486+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/tools/didChange",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "tags": [
+            {
+              "source": "builtin",
+              "tag": "read",
+              "description": "read-file, diagnostics, search tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "write",
+              "description": "write-file tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "shell",
+              "description": "run-commands tools"
+            },
+            {
+              "source": "builtin",
+              "tag": "web",
+              "description": "web search tools"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5658,
+      "ts": "2026-11-13T10:25:20.486+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "_kiro/sessions/changed",
+        "params": {
+          "upserted": [
+            {
+              "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+              "source": "local",
+              "executionTarget": {
+                "kind": "local"
+              },
+              "cwd": "/tmp/phase0-probe.mX7BSk",
+              "title": "New Session",
+              "updatedAt": "2026-11-13T10:25:20.415Z",
+              "status": "idle"
+            }
+          ],
+          "deleted": []
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5659,
+      "ts": "2026-11-13T10:25:20.487+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "update": {
+            "sessionUpdate": "config_option_update",
+            "configOptions": [
+              {
+                "type": "select",
+                "id": "mode",
+                "name": "Mode",
+                "category": "mode",
+                "currentValue": "vibe",
+                "options": [
+                  {
+                    "value": "vibe",
+                    "name": "Default",
+                    "description": "General coding assistance",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "spec",
+                    "name": "Spec",
+                    "description": "Structured feature development",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "quick-spec",
+                    "name": "Quick Spec",
+                    "description": "Fast spec workflow: clarify, then auto-generate requirements, design, and tasks",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "bug-fix",
+                    "name": "Bug Fix",
+                    "description": "Structured bug-fix workflow: investigate, diagnose, and resolve bugs",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "plan",
+                    "name": "Plan",
+                    "description": "Plan-only mode that helps break ideas down into an implementation plan without making any changes",
+                    "_meta": {
+                      "kiro": {
+                        "welcomeMessage": "Transform any idea into fully working code. What do you want to build today?",
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "autonomous",
+                    "name": "Autonomous",
+                    "description": "Autonomous agent execution",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "value": "semantic_reviewer",
+                    "name": "semantic_reviewer",
+                    "description": "Behavioral, narrative code review of a local or PR diff. Writes a review document and a verdict.",
+                    "_meta": {
+                      "kiro": {
+                        "source": "bundled",
+                        "resource": {
+                          "resourceType": "agent",
+                          "source": {
+                            "origin": "bundled"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "select",
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "currentValue": "auto",
+                "options": [
+                  {
+                    "value": "auto",
+                    "name": "auto",
+                    "description": "Models chosen by task for optimal usage and consistent quality",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 1,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-5.5",
+                    "name": "claude-opus-5.5",
+                    "description": "Claude Opus 5.5 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "medium",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-sonnet-5.5",
+                    "name": "claude-sonnet-5.5",
+                    "description": "Claude Sonnet 5.5 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 1.3,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-haiku-5.5",
+                    "name": "claude-haiku-5.5",
+                    "description": "Claude Haiku 5.5 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.06,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "medium",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "gpt-5.6-sol",
+                    "name": "gpt-5.6-sol",
+                    "description": "OpenAI GPT 5.6 Sol with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 4.4,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "reasoning",
+                        "effortLevels": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "gpt-5.6-terra",
+                    "name": "gpt-5.6-terra",
+                    "description": "OpenAI GPT 5.6 Terra with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "reasoning",
+                        "effortLevels": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "gpt-5.6-luna",
+                    "name": "gpt-5.6-luna",
+                    "description": "OpenAI GPT 5.6 Luna with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.6,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "reasoning",
+                        "effortLevels": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "grok-4.7",
+                    "name": "grok-4.7",
+                    "description": "Experimental preview of xAI Grok 4.7",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.7,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "reasoning",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "kimi-k3",
+                    "name": "kimi-k3",
+                    "description": "Kimi K3 is a Kiro Excluded Model. For more info, see documentation.",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.4,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "reasoning",
+                        "effortLevels": [
+                          "low",
+                          "high",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "max",
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-5",
+                    "name": "claude-opus-5",
+                    "description": "Claude Opus 5 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-sonnet-5",
+                    "name": "claude-sonnet-5",
+                    "description": "Claude Sonnet 5 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 1.3,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-4.8",
+                    "name": "claude-opus-4.8",
+                    "description": "Claude Opus 4.8 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-4.7",
+                    "name": "claude-opus-4.7",
+                    "description": "Claude Opus 4.7 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "xhigh",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-4.6",
+                    "name": "claude-opus-4.6",
+                    "description": "Claude Opus 4.6 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-sonnet-4.6",
+                    "name": "claude-sonnet-4.6",
+                    "description": "Claude Sonnet 4.6 model with 1M context window",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 1.3,
+                        "rateUnit": "Credit",
+                        "hasEffort": true,
+                        "effortSchemaPath": "output_config",
+                        "effortLevels": [
+                          "low",
+                          "medium",
+                          "high",
+                          "max"
+                        ],
+                        "defaultEffortLevel": "high",
+                        "thinkingToggleable": true,
+                        "defaultThinkingEnabled": true
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-opus-4.5",
+                    "name": "claude-opus-4.5",
+                    "description": "Claude Opus 4.5 model",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 2.2,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-sonnet-4.5",
+                    "name": "claude-sonnet-4.5",
+                    "description": "Claude Sonnet 4.5 model",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 1.3,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "claude-haiku-4.5",
+                    "name": "claude-haiku-4.5",
+                    "description": "The latest Claude Haiku model",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.4,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "deepseek-3.2",
+                    "name": "deepseek-3.2",
+                    "description": "Experimental preview of DeepSeek V3.2",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.25,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "minimax-m2.5",
+                    "name": "minimax-m2.5",
+                    "description": "MiniMax M2.5 model",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.25,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "minimax-m2.1",
+                    "name": "minimax-m2.1",
+                    "description": "Experimental preview of MiniMax M2.1",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.15,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "glm-5",
+                    "name": "glm-5",
+                    "description": "GLM-5 model",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.5,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  },
+                  {
+                    "value": "qwen3-coder-next",
+                    "name": "qwen3-coder-next",
+                    "description": "Experimental preview of Qwen3 Coder Next",
+                    "_meta": {
+                      "kiro": {
+                        "rateMultiplier": 0.05,
+                        "rateUnit": "Credit",
+                        "hasEffort": false,
+                        "thinkingToggleable": false
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "select",
+                "id": "memoryReflection",
+                "name": "Memory reflection",
+                "description": "Allow this session to reflect on new memory",
+                "currentValue": "off",
+                "options": [
+                  {
+                    "value": "on",
+                    "name": "On"
+                  },
+                  {
+                    "value": "off",
+                    "name": "Off"
+                  }
+                ]
+              },
+              {
+                "type": "select",
+                "id": "autopilot",
+                "name": "Autopilot",
+                "currentValue": "on",
+                "options": [
+                  {
+                    "value": "on",
+                    "name": "Autopilot",
+                    "description": "Agent executes tools without confirmation"
+                  },
+                  {
+                    "value": "off",
+                    "name": "Supervised",
+                    "description": "Agent asks for approval before file changes"
+                  }
+                ]
+              },
+              {
+                "type": "select",
+                "id": "contentCollection",
+                "name": "Content Collection",
+                "currentValue": "enabled",
+                "options": [
+                  {
+                    "value": "enabled",
+                    "name": "Enabled",
+                    "description": "Allow content to be used for service improvement"
+                  },
+                  {
+                    "value": "disabled",
+                    "name": "Disabled",
+                    "description": "Opt out of content collection"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5661,
+      "ts": "2026-11-13T10:25:20.487+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "_meta": {
+            "schemaVersion": "1.0.0",
+            "id": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+            "title": "New Session",
+            "agentMode": "vibe",
+            "workspacePaths": [
+              "/tmp/phase0-probe.mX7BSk"
+            ],
+            "createdAt": "2026-11-13T10:25:20.415Z",
+            "lastModifiedAt": "2026-11-13T10:25:20.415Z",
+            "semanticReviewEnabled": true,
+            "memoryConfig": {
+              "mode": "disabled",
+              "reflection": false
+            },
+            "disableAutoCompaction": false,
+            "ftaEnabled": false,
+            "workflowsEnabled": false,
+            "specPlanEnabled": false,
+            "specWorkflow": "quick",
+            "specSkipClarificationEnabled": true,
+            "_meta": {
+              "kiro": {}
+            },
+            "source": "local",
+            "policyErrors": [
+              {
+                "scope": "user",
+                "source": "<HOME>/.kiro/settings/permissions.yaml",
+                "message": "Failed to load policy: A block sequence may not be used as an implicit map key at line 79, column 1:\n\n      - semantic_reviewer\n# >>> kiro-manager-lite:shell-auto-approve\n^\n",
+                "fatal": true,
+                "content": "rules:\n  - capability: shell\n    match:\n      - pip *\n      - \"*\"\n      - grep *\n      - D=docs/plans/2026-07-27-trace-completion-observability-design.md; *\n    effect: allow\n  - capability: web_fetch\n    effect: allow\n  - capability: web_search\n    effect: allow\n  - capability: mcp\n    match:\n      - power-context7-context7/resolve-library-id\n      - power-context7-context7/query-docs\n    effect: allow\n  - capability: mcp\n    match:\n      - power-exa-exa/web_search_exa\n    effect: allow\n  - capability: mcp\n    match:\n      - fetch/fetch\n    effect: allow\n  - capability: mcp\n    match:\n      - chrome-devtools/list_pages\n      - chrome-devtools/new_page\n      - chrome-devtools/select_page\n      - chrome-devtools/take_snapshot\n      - chrome-devtools/fill\n      - chrome-devtools/evaluate_script\n      - chrome-devtools/wait_for\n      - chrome-devtools/navigate_page\n      - chrome-devtools/click\n      - chrome-devtools/take_screenshot\n      - chrome-devtools/list_console_messages\n      - chrome-devtools/resize_page\n      - chrome-devtools/list_network_requests\n      - chrome-devtools/fill_form\n    effect: allow\n  - capability: mcp\n    match:\n      - filesystem/read_file\n      - filesystem/read_multiple_files\n      - filesystem/write_file\n      - filesystem/edit_file\n      - filesystem/create_directory\n      - filesystem/list_directory\n      - filesystem/directory_tree\n      - filesystem/move_file\n      - filesystem/search_files\n      - filesystem/get_file_info\n      - filesystem/list_allowed_directories\n      - filesystem/read_text_file\n    effect: allow\n  - capability: mcp\n    match:\n      - perplexity/perplexity_research\n      - perplexity/perplexity_ask\n    effect: allow\n  - capability: mcp\n    match:\n      - sequential-thinking/sequentialthinking\n    effect: allow\n  - capability: fs_write\n    effect: allow\n    match:\n      - \"**\"\n  - capability: fs_read\n    effect: allow\n    match:\n      - /private/tmp\n  - capability: subagent\n    effect: allow\n    match:\n      - semantic_reviewer\n# >>> kiro-manager-lite:shell-auto-approve\n# 由 Kiro Manager Lite 添加：不带 match 即无条件放行对应能力。\n# 关闭「自动同意」开关会移除本段，请勿手动编辑。\n- capability: shell\n  effect: allow\n- capability: fs_read\n  effect: allow\n- capability: fs_write\n  effect: allow\n- capability: web_fetch\n  effect: allow\n- capability: web_search\n  effect: allow\n# <<< kiro-manager-lite:shell-auto-approve\n"
+              }
+            ],
+            "kiro": {
+              "presetStores": [
+                {
+                  "scope": "user",
+                  "file": "<HOME>/.kiro/settings/permissions.yaml",
+                  "read": {
+                    "ok": false,
+                    "error": "Failed to load policy: A block sequence may not be used as an implicit map key at line 79, column 1:\n\n      - semantic_reviewer\n# >>> kiro-manager-lite:shell-auto-approve\n^\n"
+                  }
+                },
+                {
+                  "scope": "workspace",
+                  "workspaceRoot": "/tmp/phase0-probe.mX7BSk",
+                  "file": "<HOME>/.kiro/workspace-roots/c66e5c9ad7ce4817/permissions.yaml",
+                  "read": {
+                    "ok": true,
+                    "presets": []
+                  }
+                }
+              ]
+            }
+          },
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "modes": {
+            "availableModes": [
+              {
+                "id": "vibe",
+                "name": "Default",
+                "description": "General coding assistance",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "spec",
+                "name": "Spec",
+                "description": "Structured feature development",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "quick-spec",
+                "name": "Quick Spec",
+                "description": "Fast spec workflow: clarify, then auto-generate requirements, design, and tasks",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "bug-fix",
+                "name": "Bug Fix",
+                "description": "Structured bug-fix workflow: investigate, diagnose, and resolve bugs",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "plan",
+                "name": "Plan",
+                "description": "Plan-only mode that helps break ideas down into an implementation plan without making any changes",
+                "_meta": {
+                  "kiro": {
+                    "welcomeMessage": "Transform any idea into fully working code. What do you want to build today?",
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "autonomous",
+                "name": "Autonomous",
+                "description": "Autonomous agent execution",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "semantic_reviewer",
+                "name": "semantic_reviewer",
+                "description": "Behavioral, narrative code review of a local or PR diff. Writes a review document and a verdict.",
+                "_meta": {
+                  "kiro": {
+                    "source": "bundled",
+                    "resource": {
+                      "resourceType": "agent",
+                      "source": {
+                        "origin": "bundled"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "currentModeId": "vibe"
+          },
+          "configOptions": [
+            {
+              "type": "select",
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "currentValue": "vibe",
+              "options": [
+                {
+                  "value": "vibe",
+                  "name": "Default",
+                  "description": "General coding assistance",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "spec",
+                  "name": "Spec",
+                  "description": "Structured feature development",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "quick-spec",
+                  "name": "Quick Spec",
+                  "description": "Fast spec workflow: clarify, then auto-generate requirements, design, and tasks",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "bug-fix",
+                  "name": "Bug Fix",
+                  "description": "Structured bug-fix workflow: investigate, diagnose, and resolve bugs",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan-only mode that helps break ideas down into an implementation plan without making any changes",
+                  "_meta": {
+                    "kiro": {
+                      "welcomeMessage": "Transform any idea into fully working code. What do you want to build today?",
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "autonomous",
+                  "name": "Autonomous",
+                  "description": "Autonomous agent execution",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "value": "semantic_reviewer",
+                  "name": "semantic_reviewer",
+                  "description": "Behavioral, narrative code review of a local or PR diff. Writes a review document and a verdict.",
+                  "_meta": {
+                    "kiro": {
+                      "source": "bundled",
+                      "resource": {
+                        "resourceType": "agent",
+                        "source": {
+                          "origin": "bundled"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "currentValue": "auto",
+              "options": [
+                {
+                  "value": "auto",
+                  "name": "auto",
+                  "description": "Models chosen by task for optimal usage and consistent quality",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 1,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-5.5",
+                  "name": "claude-opus-5.5",
+                  "description": "Claude Opus 5.5 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "medium",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-sonnet-5.5",
+                  "name": "claude-sonnet-5.5",
+                  "description": "Claude Sonnet 5.5 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 1.3,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-haiku-5.5",
+                  "name": "claude-haiku-5.5",
+                  "description": "Claude Haiku 5.5 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.06,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "medium",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "gpt-5.6-sol",
+                  "name": "gpt-5.6-sol",
+                  "description": "OpenAI GPT 5.6 Sol with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 4.4,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "reasoning",
+                      "effortLevels": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "gpt-5.6-terra",
+                  "name": "gpt-5.6-terra",
+                  "description": "OpenAI GPT 5.6 Terra with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "reasoning",
+                      "effortLevels": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "gpt-5.6-luna",
+                  "name": "gpt-5.6-luna",
+                  "description": "OpenAI GPT 5.6 Luna with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.6,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "reasoning",
+                      "effortLevels": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "grok-4.7",
+                  "name": "grok-4.7",
+                  "description": "Experimental preview of xAI Grok 4.7",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.7,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "reasoning",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "kimi-k3",
+                  "name": "kimi-k3",
+                  "description": "Kimi K3 is a Kiro Excluded Model. For more info, see documentation.",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.4,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "reasoning",
+                      "effortLevels": [
+                        "low",
+                        "high",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "max",
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-5",
+                  "name": "claude-opus-5",
+                  "description": "Claude Opus 5 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-sonnet-5",
+                  "name": "claude-sonnet-5",
+                  "description": "Claude Sonnet 5 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 1.3,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-4.8",
+                  "name": "claude-opus-4.8",
+                  "description": "Claude Opus 4.8 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-4.7",
+                  "name": "claude-opus-4.7",
+                  "description": "Claude Opus 4.7 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "xhigh",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-4.6",
+                  "name": "claude-opus-4.6",
+                  "description": "Claude Opus 4.6 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-sonnet-4.6",
+                  "name": "claude-sonnet-4.6",
+                  "description": "Claude Sonnet 4.6 model with 1M context window",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 1.3,
+                      "rateUnit": "Credit",
+                      "hasEffort": true,
+                      "effortSchemaPath": "output_config",
+                      "effortLevels": [
+                        "low",
+                        "medium",
+                        "high",
+                        "max"
+                      ],
+                      "defaultEffortLevel": "high",
+                      "thinkingToggleable": true,
+                      "defaultThinkingEnabled": true
+                    }
+                  }
+                },
+                {
+                  "value": "claude-opus-4.5",
+                  "name": "claude-opus-4.5",
+                  "description": "Claude Opus 4.5 model",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 2.2,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-sonnet-4.5",
+                  "name": "claude-sonnet-4.5",
+                  "description": "Claude Sonnet 4.5 model",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 1.3,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "claude-haiku-4.5",
+                  "name": "claude-haiku-4.5",
+                  "description": "The latest Claude Haiku model",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.4,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "deepseek-3.2",
+                  "name": "deepseek-3.2",
+                  "description": "Experimental preview of DeepSeek V3.2",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.25,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "minimax-m2.5",
+                  "name": "minimax-m2.5",
+                  "description": "MiniMax M2.5 model",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.25,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "minimax-m2.1",
+                  "name": "minimax-m2.1",
+                  "description": "Experimental preview of MiniMax M2.1",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.15,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "glm-5",
+                  "name": "glm-5",
+                  "description": "GLM-5 model",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.5,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                },
+                {
+                  "value": "qwen3-coder-next",
+                  "name": "qwen3-coder-next",
+                  "description": "Experimental preview of Qwen3 Coder Next",
+                  "_meta": {
+                    "kiro": {
+                      "rateMultiplier": 0.05,
+                      "rateUnit": "Credit",
+                      "hasEffort": false,
+                      "thinkingToggleable": false
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "memoryReflection",
+              "name": "Memory reflection",
+              "description": "Allow this session to reflect on new memory",
+              "currentValue": "off",
+              "options": [
+                {
+                  "value": "on",
+                  "name": "On"
+                },
+                {
+                  "value": "off",
+                  "name": "Off"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "autopilot",
+              "name": "Autopilot",
+              "currentValue": "on",
+              "options": [
+                {
+                  "value": "on",
+                  "name": "Autopilot",
+                  "description": "Agent executes tools without confirmation"
+                },
+                {
+                  "value": "off",
+                  "name": "Supervised",
+                  "description": "Agent asks for approval before file changes"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "contentCollection",
+              "name": "Content Collection",
+              "currentValue": "enabled",
+              "options": [
+                {
+                  "value": "enabled",
+                  "name": "Enabled",
+                  "description": "Allow content to be used for service improvement"
+                },
+                {
+                  "value": "disabled",
+                  "name": "Disabled",
+                  "description": "Opt out of content collection"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "t_rel_s": 2.5784,
+      "ts": "2026-11-13T10:25:20.499+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "sess_5442da29-8e9d-4c2d-bf6f-26aa2554e4bf",
+          "update": {
+            "sessionUpdate": "session_info_update",
+            "_meta": {
+              "kiro": {
+                "contextUsage": {
+                  "usagePercentage": 1.3,
+                  "summarizationThreshold": 80
+                },
+                "breakdown": {
+                  "contextFiles": {
+                    "tokens": 3970,
+                    "percent": 0.4,
+                    "items": [
+                      {
+                        "name": "~/.kiro/steering/agent-rule.md",
+                        "uri": "file://<HOME>/.kiro/steering/agent-rule.md",
+                        "tokens": 2809,
+                        "matched": true,
+                        "percent": 0.3,
+                        "progressivelyLoaded": false
+                      },
+                      {
+                        "name": "~/.kiro/steering/python-coding-standards.md",
+                        "uri": "file://<HOME>/.kiro/steering/python-coding-standards.md",
+                        "tokens": 1161,
+                        "matched": true,
+                        "percent": 0.1,
+                        "progressivelyLoaded": false
+                      }
+                    ]
+                  },
+                  "tools": {
+                    "tokens": 4876,
+                    "percent": 0.5,
+                    "mcp": {
+                      "tokens": 0,
+                      "percent": 0
+                    },
+                    "builtin": {
+                      "tokens": 4876,
+                      "percent": 0.5
+                    }
+                  },
+                  "memory": {
+                    "tokens": 0,
+                    "percent": 0
+                  },
+                  "kiroResponses": {
+                    "tokens": 0,
+                    "percent": 0
+                  },
+                  "yourPrompts": {
+                    "tokens": 4291,
+                    "percent": 0.4
+                  },
+                  "sessionFiles": {
+                    "tokens": 0,
+                    "percent": 0,
+                    "items": []
+                  }
+                },
+                "kind": "context_usage",
+                "usagePercentage": 1.3,
+                "summarizationThreshold": 80
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "duration_s": 5.3879
+}

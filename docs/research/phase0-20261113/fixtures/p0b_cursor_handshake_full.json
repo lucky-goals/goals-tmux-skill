@@ -1,0 +1,117 @@
+{
+  "probe": "p0b-cursor-full",
+  "transport": "acp",
+  "command": [
+    "agent",
+    "acp"
+  ],
+  "cwd": "/tmp/phase0-probe.mX7BSk",
+  "env_mode": "full",
+  "env_keys": [
+    "<FULL_ENV:121_VARS>"
+  ],
+  "started_at": "2026-11-13T10:24:59.144+00:00",
+  "timed_out": false,
+  "timeout_phase": null,
+  "handshake_duration_s": 0.4357,
+  "setup_duration_s": null,
+  "turn_duration_s": null,
+  "cancel_ack_duration_s": null,
+  "protocol_version": 1,
+  "agent_capabilities": {
+    "loadSession": true,
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "promptCapabilities": {
+      "audio": false,
+      "embeddedContext": false,
+      "image": true
+    },
+    "sessionCapabilities": {
+      "list": {}
+    }
+  },
+  "agent_info": null,
+  "auth_methods": [
+    {
+      "id": "cursor_login",
+      "name": "Cursor Login",
+      "description": "Authenticate using existing Cursor login credentials. Run 'agent login' first if not logged in."
+    }
+  ],
+  "session_id": "",
+  "config_options": null,
+  "modes": null,
+  "replayed_updates_count": 0,
+  "stop_reason": null,
+  "prompt_error": null,
+  "update_variants": {},
+  "unknown_variants": [],
+  "permission_requests": [],
+  "exit_code": 0,
+  "signal": null,
+  "stderr_lines": [],
+  "frames": [
+    {
+      "t_rel_s": 0.0033,
+      "ts": "2026-11-13T10:24:59.145+00:00",
+      "dir": "tx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false
+          },
+          "clientInfo": {
+            "name": "goals-tmux-acp-probe",
+            "version": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "t_rel_s": 0.4388,
+      "ts": "2026-11-13T10:24:59.580+00:00",
+      "dir": "rx",
+      "data": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "promptCapabilities": {
+              "audio": false,
+              "embeddedContext": false,
+              "image": true
+            },
+            "sessionCapabilities": {
+              "list": {}
+            }
+          },
+          "authMethods": [
+            {
+              "id": "cursor_login",
+              "name": "Cursor Login",
+              "description": "Authenticate using existing Cursor login credentials. Run 'agent login' first if not logged in."
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "duration_s": 2.4147
+}

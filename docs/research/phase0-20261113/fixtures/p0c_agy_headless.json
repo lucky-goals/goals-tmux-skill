@@ -1,0 +1,46 @@
+{
+  "probe": "p0c-agy-headless",
+  "transport": "headless",
+  "command": [
+    "agy",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--model",
+    "gemini-3.8-flash-low",
+    "Reply with exactly: PROBE_OK"
+  ],
+  "cwd": "/tmp/phase0-cwd-agy",
+  "env_mode": "sanitized",
+  "env_keys": [
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER"
+  ],
+  "started_at": "2026-11-13T10:27:09.678+00:00",
+  "duration_s": 0.0545,
+  "timed_out": false,
+  "exit_code": 2,
+  "signal": null,
+  "stdout_line_count": 0,
+  "stderr_line_count": 2,
+  "frames": [
+    {
+      "t_rel_s": 0.0528,
+      "ts": "2026-11-13T10:27:09.677+00:00",
+      "dir": "stderr",
+      "data": "Error: -p took \"--output-format\" as its prompt, so the intended prompt was left as an argument and ignored."
+    },
+    {
+      "t_rel_s": 0.053,
+      "ts": "2026-11-13T10:27:09.677+00:00",
+      "dir": "stderr",
+      "data": "Attach the prompt to the flag (-p='your prompt') and move --output-format elsewhere on the command line."
+    }
+  ]
+}
