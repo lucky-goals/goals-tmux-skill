@@ -41,7 +41,7 @@ arbitrary shell scripts into YAML or treat YAML prose as an enforcement engine.
 
 ## Example files and migration decisions
 
-- [字段、枚举与填写指南（中文）](workflow-fields.zh-CN.md): allowed values,
+- [Field, enum, and authoring guide](workflow-fields.md): allowed values,
   fixed contract values, dynamic CLI capabilities and task authorization fields.
 - [Full workflow example](workflow.example.yaml): the supplied rules normalized
   into execution policy, inline scenario targets, scenario routes and lifecycle rules.
@@ -144,13 +144,13 @@ or an equivalent disabling overlay must be rejected.
 Illustrative reply, not evidence of files currently loaded:
 
 ```text
-本次使用的 YAML 配置（后者覆盖前者）：
-- 用户：/Users/example/.config/goals-tmux-skill/workflow.yaml
-- 宿主：/Users/example/.config/goals-tmux-skill/hosts/trae-cn.yaml
-- 项目：/work/example/.goals-tmux.yaml
-- 任务覆盖：无
-场景：design；目标：codex/gpt-6-astra/high。
-应用方式：runner 已解析并校验；配置摘要：<实际摘要>。
+Active YAML configuration (later layers override earlier ones):
+- User: /Users/example/.config/goals-tmux-skill/workflow.yaml
+- Host: /Users/example/.config/goals-tmux-skill/hosts/trae-cn.yaml
+- Project: /work/example/.goals-tmux.yaml
+- Task overlay: none
+Scenario: design; Target: codex/gpt-6-astra/high.
+Application mode: resolved and validated by runner; Config digest: <actual digest>.
 ```
 
 If no YAML was loaded, explicitly say so and name the actual fallback sources

@@ -1,5 +1,5 @@
 # PROPOSAL ONLY: an illustration of a private, task-bound authorization record.
-# Field types and authorization semantics: ./workflow-fields.zh-CN.md
+# Field types and authorization semantics: ./workflow-fields.md
 # This file is not an active grant and must not be copied into global defaults.
 schema_version: 2
 kind: goals-tmux-task-overlay

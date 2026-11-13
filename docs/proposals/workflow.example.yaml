@@ -1,5 +1,5 @@
 # PROPOSAL ONLY: the current runner does not load this format.
-# Field types, allowed values and examples: ./workflow-fields.zh-CN.md
+# Field types, allowed values and examples: ./workflow-fields.md
 # permission_mode: default | bypass (bypass requires current-task authorization).
 # User-supplied model names are preferences, not availability claims.
 # Validate them against the installed CLI/account before any launch.
@@ -41,7 +41,7 @@ tui:
 
 scenarios:
   research:
-    label: 需求调研
+    label: Requirements Research
     permission_mode: default
     target: agy/gemini-3.8-flash-high/high
     fallbacks:
@@ -49,26 +49,26 @@ scenarios:
       - codex/gpt-6.1-sol/xhigh
     allow_fallback: true
   design:
-    label: 需求设计
+    label: Solution Design
     permission_mode: default
     target: codex/gpt-6-astra/high
     fallbacks:
       - agy/gemini-4-argon-high/high
     allow_fallback: true
   test_design:
-    label: 测试设计
+    label: Test Design
     permission_mode: default
     target: agy/gemini-4-argon-high/high
     fallbacks: []
     allow_fallback: false
   implementation:
-    label: 需求实现
+    label: Implementation
     permission_mode: default
     target: agy/gemini-3.8-flash-high/high
     fallbacks: []
     allow_fallback: false
   testing:
-    label: 需求测试
+    label: Testing
     permission_mode: default
     target: agy/gemini-3.8-flash-high/high
     fallbacks: []
@@ -76,31 +76,31 @@ scenarios:
   # Reserved UI routes: configure target before using these scenarios.
   # null means unconfigured, not inheritance or automatic use of "other".
   ui_prototype_html:
-    label: UI 原型设计（HTML）
+    label: UI Prototype (HTML)
     permission_mode: default
     target: null
     fallbacks: []
     allow_fallback: false
   ui_implementation:
-    label: UI 实现
+    label: UI Implementation
     permission_mode: default
     target: null
     fallbacks: []
     allow_fallback: false
   ui_automation:
-    label: UI 自动化
+    label: UI Automation
     permission_mode: default
     target: null
     fallbacks: []
     allow_fallback: false
   review:
-    label: 需求 Review
+    label: Code & Spec Review
     permission_mode: default
     target: codex/gpt-6-astra/high
     fallbacks: []
     allow_fallback: false
   other:
-    label: 其他场景
+    label: Other Scenarios
     permission_mode: default
     target: codex/gpt-6-astra/low
     fallbacks:
