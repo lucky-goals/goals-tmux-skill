@@ -4,11 +4,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from support import ROOT, make_config, raw_config, stage
 
 from cli_platform.errors import PlatformError
+from cli_platform.events import read_stream
 from cli_platform.limiter import LeaseRequest, Limiter
+from cli_platform.supervisor import Platform, SessionRequest
+from cli_platform.variants import VariantRegistry
 
 
 class FakeClock:
@@ -297,6 +301,125 @@ class LimiterTest(unittest.TestCase):
         self.assertEqual((root / "state.json").stat().st_mode & 0o777, 0o600)
         kinds = [json.loads(line)["type"] for line in (root / "journal.jsonl").read_text().splitlines()]
         self.assertEqual(kinds, ["lease_granted", "lease_released"])
+
+    # -- D07 journal/snapshot parity and lease event fields --------------------
+
+    def test_fold_limits_matches_limits_state_json_across_queue_grant_release_reap_and_rate_limit(self):
+        from cli_platform.limiter import fold_limits
+
+        limiter = self.limiter()
+        self.alive[77] = "start-77"
+        first = limiter.acquire(self.request(account="acct-a", stage="development", pid=1))
+        second = limiter.acquire(self.request(account="acct-a", stage="development", pid=77))
+        self.assertTrue(first.granted and second.granted)
+        queued = limiter.acquire(self.request(account="acct-a", stage="development", pid=1))
+        self.assertEqual(queued.status, "queued")
+
+        self.clock.now += 10
+        limiter.release(first.lease_id)
+        polled = limiter.poll(queued.ticket_id)
+        self.assertTrue(polled.granted)
+
+        self.clock.now += 65
+        del self.alive[77]
+        third = limiter.acquire(self.request(account="acct-b", stage="development", pid=1))
+        fourth = limiter.acquire(self.request(account="acct-a", stage="development", pid=1))
+        self.assertTrue(third.granted and fourth.granted)
+        waiting = limiter.acquire(self.request(account="acct-a", stage="development", pid=1))
+        self.assertEqual(waiting.status, "queued")
+        limiter.report_rate_limit("acct-b")
+
+        root = Path(self._tmp.name) / "state" / "limits"
+        events = read_stream(root / "journal.jsonl").events
+        self.assertEqual(
+            {event["type"] for event in events},
+            {"lease_queued", "lease_granted", "lease_released", "lease_reaped", "rate_limited"},
+        )
+        state = json.loads((root / "state.json").read_text())
+        self.assertEqual(fold_limits(events), state)
+
+    def test_limits_state_as_of_seq_equals_journal_last_seq_and_run_lease_granted_ref_names_it(self):
+        config = make_config(Path(self._tmp.name))
+        registry = VariantRegistry(config, which=lambda binary: f"/bin/{binary}")
+        platform = Platform(config, registry=registry)
+        plan = platform.open_session(
+            SessionRequest(task_id="T1", run_id="run-0001", stage="design", cwd=self._tmp.name))
+        self.assertTrue(plan.lease.granted)
+
+        limits_root = config.state_dir / "limits"
+        journal = read_stream(limits_root / "journal.jsonl")
+        state = json.loads((limits_root / "state.json").read_text())
+        self.assertIsInstance(state["as_of_seq"], int)
+        self.assertGreaterEqual(state["as_of_seq"], 1)
+        self.assertEqual(state["as_of_seq"], journal.last_seq)
+
+        run_events = read_stream(plan.run_dir / "events.jsonl").events
+        granted = next(event for event in run_events if event["type"] == "lease_granted")
+        self.assertEqual(granted["payload"]["ref"], f"limits:{journal.last_seq}")
+        self.assertEqual(plan.lease.ref, f"limits:{journal.last_seq}")
+
+        platform.finish_turn(plan)
+        journal_after = read_stream(limits_root / "journal.jsonl")
+        state_after = json.loads((limits_root / "state.json").read_text())
+        self.assertEqual(state_after["as_of_seq"], journal_after.last_seq)
+
+    def test_lease_events_carry_scopes_holder_timeout_seconds_and_held_seconds(self):
+        limiter = self.limiter()
+        self.alive[77] = "start-77"
+        held = limiter.acquire(LeaseRequest(
+            "run-001", "nick1", "acct-a", "development", holder="human", pid=1, variant="alpha"))
+        limiter.acquire(LeaseRequest(
+            "run-002", "nick2", "acct-a", "development", holder="runner", pid=77, variant="alpha"))
+        queued = limiter.acquire(LeaseRequest(
+            "run-003", "nick3", "acct-a", "development", holder="runner", pid=1, variant="alpha"))
+        self.assertEqual(queued.status, "queued")
+
+        self.clock.now += 12.5
+        limiter.release(held.lease_id)
+
+        self.clock.now += 65.0
+        del self.alive[77]
+        limiter.acquire(LeaseRequest(
+            "run-004", "nick4", "acct-b", "design", holder="runner", pid=1, variant="beta"))
+
+        events = read_stream(Path(self._tmp.name) / "state" / "limits" / "journal.jsonl").events
+        by_type: dict[str, list[dict]] = {}
+        for event in events:
+            by_type.setdefault(event["type"], []).append(event["payload"])
+
+        self.assertEqual(
+            set(by_type),
+            {"lease_granted", "lease_queued", "lease_released", "lease_reaped"},
+        )
+        for kind, payloads in by_type.items():
+            for payload in payloads:
+                self.assertIn("scopes", payload, f"missing scopes in {kind}")
+                self.assertTrue(payload["scopes"])
+                self.assertIn("holder", payload, f"missing holder in {kind}")
+
+        self.assertEqual(by_type["lease_granted"][0]["holder"], "human")
+        self.assertEqual(by_type["lease_queued"][0]["holder"], "runner")
+        self.assertEqual(by_type["lease_queued"][0]["timeout_seconds"], 100)
+        self.assertEqual(by_type["lease_released"][0]["holder"], "human")
+        self.assertAlmostEqual(by_type["lease_released"][0]["held_seconds"], 12.5, places=3)
+        self.assertEqual(by_type["lease_reaped"][0]["holder"], "runner")
+
+    def test_journal_append_failure_leaves_limits_state_unchanged(self):
+        limiter = self.limiter()
+        first = limiter.acquire(self.request(account="acct-a"))
+        self.assertTrue(first.granted)
+        state_path = Path(self._tmp.name) / "state" / "limits" / "state.json"
+        before_bytes = state_path.read_bytes()
+
+        with mock.patch("cli_platform.events.os.fsync", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                limiter.acquire(self.request(account="acct-a"))
+        self.assertEqual(state_path.read_bytes(), before_bytes)
+
+        with mock.patch("cli_platform.events.os.fsync", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                limiter.release(first.lease_id)
+        self.assertEqual(state_path.read_bytes(), before_bytes)
 
 
 _CHILD = """

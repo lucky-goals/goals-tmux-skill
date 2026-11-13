@@ -27,7 +27,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from . import errors
 from .config import PlatformConfig
@@ -74,6 +74,66 @@ class Outcome:
     @property
     def granted(self) -> bool:
         return self.status == "granted"
+
+
+def _fold_entry(payload: dict) -> dict:
+    return {
+        "session_id": payload["session_id"],
+        "nickname": payload["nickname"],
+        "account": payload["account"],
+        "stage": payload["stage"],
+        "holder": payload.get("holder", "runner"),
+        "variant": payload.get("variant", ""),
+        "pid": payload.get("pid"),
+        "pid_started": payload.get("pid_started"),
+    }
+
+
+def fold_limits(events: Iterable[dict]) -> dict:
+    """Fold ``limits`` journal events into the equivalent ``limits/state.json`` snapshot."""
+    state: dict[str, object] = empty_limits()
+    as_of_seq = 0
+    leases: dict[str, dict] = state["leases"]  # type: ignore[assignment]
+    queue: list[dict] = state["queue"]        # type: ignore[assignment]
+    accounts: dict[str, dict] = state["accounts"]  # type: ignore[assignment]
+
+    for event in events:
+        seq = event.get("seq")
+        if isinstance(seq, int):
+            as_of_seq = seq
+        kind = event.get("type")
+        payload = event.get("payload") or {}
+        if kind == "lease_queued":
+            ticket_id = payload["ticket_id"]
+            queue[:] = [ticket for ticket in queue if ticket["ticket_id"] != ticket_id]
+            queue.append({
+                **_fold_entry(payload),
+                "ticket_id": ticket_id,
+                "enqueued_at": payload.get("enqueued_at", payload.get("at")),
+                "last_seen_at": payload.get("last_seen_at", payload.get("at")),
+            })
+        elif kind == "lease_granted":
+            lease_id = payload["lease_id"]
+            queue[:] = [ticket for ticket in queue if ticket["session_id"] != payload["session_id"]]
+            leases[lease_id] = {
+                **_fold_entry(payload),
+                "lease_id": lease_id,
+                "acquired_at": payload.get("acquired_at", payload.get("at")),
+                "expires_at": payload.get("expires_at"),
+                "ref": event.get("event_id", f"limits:{as_of_seq}"),
+            }
+        elif kind in ("lease_released", "lease_reaped"):
+            leases.pop(payload["lease_id"], None)
+        elif kind == "rate_limited":
+            accounts[payload["account"]] = {
+                "effective_cap": payload["effective_cap"],
+                "cooldown_until": payload["cooldown_until"],
+                "strikes": payload["strikes"],
+                "successes": 0,
+            }
+
+    state["as_of_seq"] = as_of_seq
+    return state
 
 
 class Limiter:
@@ -128,7 +188,18 @@ class Limiter:
             ticket = dict(entry, ticket_id=f"tkt-{uuid.uuid4().hex[:12]}",
                           enqueued_at=now, last_seen_at=now)
             state["queue"].append(ticket)
-            self._journal("lease_queued", ticket, now, blocked_on=list(blocked))
+            self._journal(
+                "lease_queued",
+                ticket,
+                now,
+                state=state,
+                blocked_on=list(blocked),
+                timeout_seconds=self._config.concurrency.queue_timeout_seconds,
+                pid=ticket["pid"],
+                pid_started=ticket["pid_started"],
+                enqueued_at=ticket["enqueued_at"],
+                last_seen_at=ticket["last_seen_at"],
+            )
             return Outcome("queued", ticket_id=ticket["ticket_id"],
                            position=len(state["queue"]), blocked_on=blocked)
 
@@ -157,7 +228,9 @@ class Limiter:
         with self._state() as state:
             lease = state["leases"].pop(lease_id, None)
             if lease is not None:
-                self._journal("lease_released", lease, self._clock())
+                now = self._clock()
+                self._journal("lease_released", lease, now, state=state,
+                              held_seconds=self._held_seconds(lease, now))
 
     # -- rate limits ----------------------------------------------------------
 
@@ -185,7 +258,9 @@ class Limiter:
         """Record a clean turn; enough of them restore the cap one slot at a time."""
         policy = self._config.concurrency.rate_limit
         with self._state() as state:
-            record = self._account(state, account)
+            record = state["accounts"].get(account)
+            if record is None:
+                return
             configured = self._config.accounts[account].max_parallel
             if record["effective_cap"] >= configured:
                 record["strikes"] = 0
@@ -220,11 +295,52 @@ class Limiter:
             "cooldown_until": 0.0, "strikes": 0, "successes": 0,
         })
 
+    def _account_view(self, state: dict, account: str) -> dict:
+        """Read an account's rate-limit state without mutating ``state['accounts']``."""
+        existing = state["accounts"].get(account)
+        if existing is not None:
+            return existing
+        account_cfg = self._config.accounts.get(account)
+        return {
+            "effective_cap": account_cfg.max_parallel if account_cfg else 0,
+            "cooldown_until": 0.0, "strikes": 0, "successes": 0,
+        }
+
+    @staticmethod
+    def _held_seconds(lease: dict, now: float) -> float:
+        return round(max(0.0, now - float(lease.get("acquired_at", now))), 3)
+
     @staticmethod
     def _scopes(entry: dict) -> tuple[str, ...]:
         scopes = (f"account:{entry['account']}", f"stage:{entry['stage']}")
         # Leases written before variant caps existed carry no variant.
         return scopes + ((f"variant:{entry['variant']}",) if entry.get("variant") else ())
+
+    def _scope_counts(self, state: dict, subject: dict) -> dict[str, dict[str, int | None]]:
+        """In-use and effective cap counts for each scope touched by ``subject``."""
+        usage = self._usage(state)
+        account = subject["account"]
+        stage = subject["stage"]
+        record = self._account_view(state, account)
+        account_cfg = self._config.accounts.get(account)
+        account_cap = min(record["effective_cap"], account_cfg.max_parallel) if account_cfg else record["effective_cap"]
+        scopes: dict[str, dict[str, int | None]] = {
+            "global": {"in_use": usage["global"], "cap": self._config.concurrency.global_max_parallel},
+            f"account:{account}": {"in_use": usage.get(f"account:{account}", 0), "cap": account_cap},
+        }
+        stage_config = self._config.stages.get(stage)
+        scopes[f"stage:{stage}"] = {
+            "in_use": usage.get(f"stage:{stage}", 0),
+            "cap": stage_config.max_parallel if stage_config else None,
+        }
+        variant_id = subject.get("variant") or ""
+        if variant_id:
+            variant = self._config.variants.get(variant_id)
+            scopes[f"variant:{variant_id}"] = {
+                "in_use": usage.get(f"variant:{variant_id}", 0),
+                "cap": variant.max_parallel if variant else None,
+            }
+        return scopes
 
     def _usage(self, state: dict) -> dict[str, int]:
         usage: dict[str, int] = {"global": 0}
@@ -236,7 +352,7 @@ class Limiter:
 
     def _blocked(self, usage: dict[str, int], state: dict, entry: dict, now: float) -> tuple[str, ...]:
         account, stage = entry["account"], entry["stage"]
-        record = self._account(state, account)
+        record = self._account_view(state, account)
         blocked = []
         if usage["global"] >= self._config.concurrency.global_max_parallel:
             blocked.append("global")
@@ -294,7 +410,17 @@ class Limiter:
         state["leases"][lease_id] = lease
         # The limits stream is authoritative for leases; a run stream's
         # lease_granted carries this reference instead of a copy.
-        lease["ref"] = self._journal("lease_granted", lease, now, waited=round(waited, 3))
+        lease["ref"] = self._journal(
+            "lease_granted",
+            lease,
+            now,
+            state=state,
+            waited=round(waited, 3),
+            acquired_at=lease["acquired_at"],
+            expires_at=lease["expires_at"],
+            pid=lease["pid"],
+            pid_started=lease["pid_started"],
+        )
         return lease_id
 
     def _reap(self, state: dict, now: float, keep_ticket: str | None = None) -> None:
@@ -306,7 +432,8 @@ class Limiter:
                 continue
             if self._identity(lease["pid"]) != lease["pid_started"] or lease["pid_started"] is None:
                 del state["leases"][lease_id]
-                self._journal("lease_reaped", lease, now)
+                self._journal("lease_reaped", lease, now, state=state,
+                              held_seconds=self._held_seconds(lease, now))
         ttl = self._config.concurrency.lease_ttl_seconds
         state["queue"] = [ticket for ticket in state["queue"]
                           if ticket["ticket_id"] == keep_ticket or now - ticket["last_seen_at"] <= ttl]
@@ -330,6 +457,8 @@ class Limiter:
                 # before it are kept. Any other exception discards the state.
                 refusal = exc
             if write:
+                log = StreamLog(self._root / "journal.jsonl", stream="limits")
+                state["as_of_seq"] = log.last_seq
                 temporary = self._root / f"state.json.tmp-{os.getpid()}"
                 out = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
                 with os.fdopen(out, "w") as handle:
@@ -342,7 +471,8 @@ class Limiter:
         finally:
             os.close(fd)
 
-    def _journal(self, kind: str, subject: dict, now: float, **extra: object) -> str:
+    def _journal(self, kind: str, subject: dict, now: float, *,
+                 state: dict | None = None, **extra: object) -> str:
         """Append to the ``limits`` stream and return ``limits:<seq>``.
 
         Called with the state lock held, so the stream has one writer at a time.
@@ -352,6 +482,10 @@ class Limiter:
                     "holder"):
             if key in subject:
                 payload[key] = subject[key]
+        if kind in ("lease_queued", "lease_granted", "lease_released", "lease_reaped"):
+            payload.setdefault("holder", "runner")
+            if state is not None:
+                payload["scopes"] = self._scope_counts(state, subject)
         event = StreamLog(self._root / "journal.jsonl", stream="limits").append(
             kind, payload, source="limiter")
         return event["event_id"]
