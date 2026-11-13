@@ -35,7 +35,7 @@ _DISPATCH_STATUSES = frozenset(
     {"prepared", "input_pending", "input_sent", "submitting", "submitted", "observed", "unknown"}
 )
 _FORWARD_TRANSITIONS = {
-    "prepared": frozenset({"input_pending", "unknown"}),
+    "prepared": frozenset({"input_pending", "submitted", "unknown"}),
     "input_pending": frozenset({"input_sent", "unknown"}),
     "input_sent": frozenset({"submitting", "unknown"}),
     "submitting": frozenset({"submitted", "unknown"}),

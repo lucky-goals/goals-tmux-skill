@@ -29,11 +29,26 @@ _ENDPOINT_FIELDS = frozenset(
         "allow_view",
         "allow_capture",
         "allow_monitor",
+        "allow_run",
+        "allow_run_cancel",
     }
 )
+_OPTIONAL_BOOLEAN_DEFAULTS = ("allow_monitor", "allow_run", "allow_run_cancel")
 _BOOLEAN_FIELDS = _ENDPOINT_FIELDS - {"pane_ids"}
 _READ_OPERATIONS = frozenset(
-    {"list_resources", "inspect_panes", "read_screen", "read_history", "inspect_recovery", "watch", "read_events"}
+    {
+        "list_resources",
+        "inspect_panes",
+        "read_screen",
+        "read_history",
+        "inspect_recovery",
+        "watch",
+        "read_events",
+        "run_wait",
+        "run_status",
+        "run_events",
+        "run_list",
+    }
 )
 _CREATE_OPERATIONS = frozenset({"create_session", "create_window", "launch_cli", "restore_cli"})
 _CLOSE_OPERATIONS = frozenset({"close_pane", "close_window", "close_session"})
@@ -41,6 +56,8 @@ _LAYOUT_OPERATIONS = frozenset({"resize_pane", "set_layout", "move_pane"})
 _VIEW_OPERATIONS = frozenset({"show_tui", "hide_tui"})
 _CAPTURE_OPERATIONS = frozenset({"start_capture", "stop_capture"})
 _INTERRUPT_OPERATIONS = frozenset({"interrupt", "interrupt_foreground"})
+_RUN_OPERATIONS = frozenset({"run_create", "run_send", "run_close"})
+_RUN_CANCEL_OPERATIONS = frozenset({"run_cancel"})
 _GENERIC_WRITES = frozenset(
     {
         "send_text",
@@ -60,6 +77,8 @@ _ALL_POLICY_OPERATIONS = (
     | _VIEW_OPERATIONS
     | _CAPTURE_OPERATIONS
     | _INTERRUPT_OPERATIONS
+    | _RUN_OPERATIONS
+    | _RUN_CANCEL_OPERATIONS
     | _GENERIC_WRITES
     | {"split_pane"}
     | {"wait_state"}
@@ -115,8 +134,10 @@ def _validate(value: Any) -> dict[str, Any]:
         canonical = _socket_path(socket_path)
         if canonical != socket_path:
             _fail("POLICY_INVALID", f"endpoint socket path is not canonical: {socket_path}")
-        if isinstance(endpoint, dict) and set(endpoint) == _ENDPOINT_FIELDS - {"allow_monitor"}:
-            endpoint = {**endpoint, "allow_monitor": False}
+        if isinstance(endpoint, dict) and not (set(endpoint) - _ENDPOINT_FIELDS):
+            for field in _OPTIONAL_BOOLEAN_DEFAULTS:
+                if field not in endpoint:
+                    endpoint = {**endpoint, field: False}
         if not isinstance(endpoint, dict) or set(endpoint) != _ENDPOINT_FIELDS:
             _fail("POLICY_INVALID", f"endpoint policy for {socket_path} has unknown or missing fields")
         for field in _BOOLEAN_FIELDS:
@@ -154,6 +175,8 @@ class Policy:
         allow_view: bool = False,
         allow_capture: bool = False,
         allow_monitor: bool = False,
+        allow_run: bool = False,
+        allow_run_cancel: bool = False,
     ) -> dict[str, Any]:
         canonical_socket = _socket_path(socket_path)
         bools = {
@@ -165,6 +188,8 @@ class Policy:
             "allow_view": allow_view,
             "allow_capture": allow_capture,
             "allow_monitor": allow_monitor,
+            "allow_run": allow_run,
+            "allow_run_cancel": allow_run_cancel,
         }
         for field, value in bools.items():
             if type(value) is not bool:
@@ -255,13 +280,19 @@ class Policy:
         elif operation in _INTERRUPT_OPERATIONS:
             if not endpoint["allow_interrupt"]:
                 _fail("INTERRUPT_NOT_ALLOWED", "endpoint policy does not allow process interruption")
+        elif operation in _RUN_OPERATIONS:
+            if not endpoint["allow_run"]:
+                _fail("RUN_NOT_ALLOWED", "endpoint policy does not allow run operations")
+        elif operation in _RUN_CANCEL_OPERATIONS:
+            if not endpoint["allow_run_cancel"]:
+                _fail("RUN_CANCEL_NOT_ALLOWED", "endpoint policy does not allow cancelling runs")
         elif operation not in _GENERIC_WRITES:
             _fail("OPERATION_NOT_ALLOWED", f"unsupported policy operation: {operation!r}")
 
-        # Creation operations may have no existing pane target. Viewer actions
+        # Creation and run operations do not target tmux panes. Viewer actions
         # still inherit the pane allowlist so an attach cannot expose panes
         # outside the endpoint's configured scope.
-        pane_scoped = operation not in _CREATE_OPERATIONS
+        pane_scoped = operation not in (_CREATE_OPERATIONS | _RUN_OPERATIONS | _RUN_CANCEL_OPERATIONS)
         if not pane_scoped:
             return
         if not targets:

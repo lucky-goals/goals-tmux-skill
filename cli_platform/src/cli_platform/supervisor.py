@@ -724,7 +724,7 @@ class RunService:
         return resolved_request_id, turns, None
 
     def _send_sync(self, ref: str, instruction: str, *, request_id: str | None = None,
-                   on_ready: Callable[[_Run, str, int], None] | None = None) -> dict:
+                   on_ready: Callable[[_Run, str, int, dict[str, object] | None], None] | None = None) -> dict:
         handle = self.find(ref)
         with handle.lock():
             run = _Run(handle)
@@ -734,20 +734,21 @@ class RunService:
                 return duplicate
             handle.clear_cancel()
             turn_id = f"t{turns + 1:04d}"
-            selection, account = self._route(run, turn_id)
+            selection, account, disclosure = self._route(run, turn_id)
             ready_called = False
 
             def notify_ready() -> None:
                 nonlocal ready_called
                 if on_ready is not None and not ready_called:
                     ready_called = True
-                    on_ready(run, turn_id, before_seq)
+                    on_ready(run, turn_id, before_seq, disclosure)
 
             lease = self._lease(run, turn_id, selection, account, on_state_change=notify_ready)
             if lease is None:
-                return self._summary(run, turn_id, request_id)
+                return self._summary(run, turn_id, request_id, disclosure=disclosure)
             try:
-                return self._turn(run, turn_id, request_id, instruction, selection, account, lease)
+                return self._turn(run, turn_id, request_id, instruction, selection, account, lease,
+                                  disclosure=disclosure)
             finally:
                 handle.clear_cancel()
 
@@ -852,21 +853,22 @@ class RunService:
             ready_sent = True
             write_worker_ready(ready_fd, payload)
 
-        def on_ready(run: _Run, turn_id: str, before_seq: int) -> None:
-            send_ready({
-                "ok": True,
-                "result": {
-                    "run_id": run.run["run_id"],
-                    "nickname": run.run["nickname"],
-                    "turn_id": turn_id,
-                    "state": run.state["state"],
-                    "after_seq": before_seq,
-                    "supervisor": {
-                        "pid": os.getpid(),
-                        "started_at": _now(),
-                    },
+        def on_ready(run: _Run, turn_id: str, before_seq: int,
+                     disclosure: dict[str, object] | None = None) -> None:
+            result_payload: dict[str, object] = {
+                "run_id": run.run["run_id"],
+                "nickname": run.run["nickname"],
+                "turn_id": turn_id,
+                "state": run.state["state"],
+                "after_seq": before_seq,
+                "supervisor": {
+                    "pid": os.getpid(),
+                    "started_at": _now(),
                 },
-            })
+            }
+            if disclosure is not None:
+                result_payload["disclosure"] = disclosure
+            send_ready({"ok": True, "result": result_payload})
 
         try:
             result = self._send_sync(ref, instruction, request_id=request_id, on_ready=on_ready)
@@ -891,7 +893,7 @@ class RunService:
                 return {"request_id": request_id, "turn_id": event["turn_id"]}
         return None
 
-    def _route(self, run: _Run, turn_id: str) -> tuple[Candidate, str]:
+    def _route(self, run: _Run, turn_id: str) -> tuple[Candidate, str, dict[str, object] | None]:
         platform, stage_id = self.platform, run.run["stage"]
         stage = platform.config.stages.get(stage_id)
         if stage is None:
@@ -907,14 +909,16 @@ class RunService:
                     raise PlatformError(errors.NO_ROUTE, f"{selection.variant} is unavailable",
                                         reasons=list(state.reasons))
                 account = state.variant.account
+                disclosure: dict[str, object] | None = None
                 payload = {"stage": stage_id, "action": "run", "selected": selection.label(),
                            "source": "run", "account": account, "fallback_used": False,
-                           "permission_profile": stage.permission_profile, "steps": []}
+                           "permission_profile": stage.permission_profile, "disclosure": None, "steps": []}
             else:
                 pin = Candidate(**run.run["pin"]) if run.run.get("pin") else None
                 resolution = platform.router.resolve(RouteRequest(
                     stage=stage_id, pin=pin, allow_fallback=bool(run.run.get("allow_fallback"))))
                 selection, account, payload = resolution.selected, resolution.account, resolution.to_dict()
+                disclosure = resolution.disclosure
         except PlatformError as exc:
             run.append("error", {"code": exc.code, "message": exc.message, "retryable": False,
                                  "phase": "routing", "explain": exc.details.get("explain", [])},
@@ -922,7 +926,7 @@ class RunService:
             run.save()
             raise
         run.append("route_resolved", payload, turn_id=turn_id)
-        return selection, account
+        return selection, account, disclosure
 
     def _lease(self, run: _Run, turn_id: str, selection: Candidate, account: str,
                *, on_state_change: Callable[[], None] | None = None) -> Outcome | None:
@@ -964,7 +968,8 @@ class RunService:
     # -- the turn -----------------------------------------------------------------------
 
     def _turn(self, run: _Run, turn_id: str, request_id: str, instruction: str,
-              selection: Candidate, account: str, lease: Outcome) -> dict:
+              selection: Candidate, account: str, lease: Outcome,
+              *, disclosure: dict[str, object] | None = None) -> dict:
         platform, config = self.platform, self.platform.config
         stage = config.stages[run.run["stage"]]
         variant = platform.registry.get(selection.variant)
@@ -991,7 +996,7 @@ class RunService:
                                  "details": _jsonable(exc.details)}, turn_id=turn_id)
             self._release(run, turn_id, lease, "binding_failed")
             run.transition("failed", exc.code, turn_id=turn_id)
-            return self._summary(run, turn_id, request_id, error=exc.code)
+            return self._summary(run, turn_id, request_id, error=exc.code, disclosure=disclosure)
 
         # The commit point. Nothing reached a model before this line is on disk.
         try:
@@ -1010,7 +1015,10 @@ class RunService:
             run.save()
             _append_runs_index(run.handle.dir.parent, run.run, run.state)
             raise PlatformError(errors.EVENT_APPEND_FAILED, f"turn_started not written: {exc}") from exc
-        run.state.setdefault("requests", {})[request_id] = {"turn_id": turn_id}
+        req_entry: dict[str, object] = {"turn_id": turn_id}
+        if disclosure is not None:
+            req_entry["disclosure"] = disclosure
+        run.state.setdefault("requests", {})[request_id] = req_entry
         run.state.update(turns=int(run.state.get("turns", 0)) + 1, last_turn=turn_id,
                          transport=bound.launch.transport, selection=selection.__dict__)
         run.transition("running", "turn_started", turn_id=turn_id)
@@ -1024,7 +1032,7 @@ class RunService:
                                 "stderr_tail": list(info.stderr_tail[-5:])}, turn_id=turn_id)
         self._after_turn(run, turn_id, bound, ctx, account, lease, outcome)
         return self._summary(run, turn_id, request_id, error=outcome.error, result=outcome.result,
-                             fallback=bound.fallback)
+                             fallback=bound.fallback, disclosure=disclosure)
 
     def _drive(self, run: _Run, turn_id: str, instruction: str, bound: Bound, profile: str,
                lease: Outcome, outcome: "_TurnOutcome") -> None:

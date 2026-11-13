@@ -71,6 +71,7 @@ class Resolution:
     blocked_on: tuple[str, ...]
     steps: tuple[Step, ...]
     permission_profile: str = ""
+    disclosure: dict[str, object] | None = None
 
     def explain(self) -> list[str]:
         head = (f"stage={self.stage} action={self.action} selected={self.selected.label()} "
@@ -84,6 +85,7 @@ class Resolution:
                 "requested": self.requested.label(), "source": self.source, "account": self.account,
                 "fallback_used": self.fallback_used, "blocked_on": list(self.blocked_on),
                 "permission_profile": self.permission_profile,
+                "disclosure": self.disclosure,
                 "steps": [step.to_dict() for step in self.steps]}
 
 
@@ -203,11 +205,33 @@ class Router:
                 blocked: tuple[str, ...]) -> Resolution:
         chosen = steps[-1] if steps[-1].outcome != "skipped" else next(
             step for step in steps if step.outcome == "queued")
+        fallback_used = chosen.order > 1 or bool(chosen.adjustments)
+        disclosure = _build_disclosure(steps, chosen, effective) if (
+            fallback_used or effective != chosen.candidate or bool(chosen.adjustments)
+        ) else None
         return Resolution(
             stage=stage.id, action=action, selected=effective, requested=chosen.candidate,
             source=chosen.source, account=self._registry.get(effective.variant).account,
-            fallback_used=chosen.order > 1 or bool(chosen.adjustments),
-            blocked_on=blocked, steps=tuple(steps), permission_profile=stage.permission_profile)
+            fallback_used=fallback_used,
+            blocked_on=blocked, steps=tuple(steps), permission_profile=stage.permission_profile,
+            disclosure=disclosure)
+
+
+def _build_disclosure(steps: list[Step], chosen: Step, effective: Candidate) -> dict[str, object]:
+    """Summarize candidate fallback or adjustment for user-visible disclosure."""
+    requested = steps[0].candidate if chosen.order > 1 and steps else chosen.candidate
+    reasons: list[str] = []
+    for step in steps:
+        if step.order <= chosen.order:
+            for reason in step.reasons:
+                if reason not in reasons:
+                    reasons.append(reason)
+    return {
+        "requested": requested.label(),
+        "selected": effective.label(),
+        "reasons": reasons,
+        "adjustments": list(chosen.adjustments),
+    }
 
 
 def _busy_code(scope: str) -> str:

@@ -273,6 +273,39 @@ class RouterTest(unittest.TestCase):
             router.resolve(RouteRequest(stage="ui_design"))
         self.assertEqual(caught.exception.code, "STAGE_UNKNOWN")
 
+    # -- disclosure ----------------------------------------------------------------
+
+    def test_resolution_disclosure_populated_on_fallback_and_none_on_primary(self):
+        primary = self.resolve("design")
+        self.assertFalse(primary.fallback_used)
+        self.assertEqual(primary.selected, primary.requested)
+        self.assertIsNone(primary.disclosure)
+        self.assertIsNone(primary.to_dict().get("disclosure"))
+
+        # Candidate fallback: primary binary missing, falls back to beta/quick/high.
+        self.installed.discard("alpha-bin")
+        fallback = self.resolve("design")
+        self.assertTrue(fallback.fallback_used)
+        self.assertIsInstance(fallback.disclosure, dict)
+        for key in ("requested", "selected", "reasons", "adjustments"):
+            self.assertIn(key, fallback.disclosure)
+        self.assertEqual(fallback.disclosure["selected"], "beta/quick/high")
+        self.assertIn("BINARY_NOT_FOUND", fallback.disclosure["reasons"])
+        self.assertEqual(fallback.to_dict().get("disclosure"), fallback.disclosure)
+
+        # Effort downgrade: primary candidate exists, effort lowered max -> medium.
+        self.installed.add("alpha-bin")
+        downgraded = self.resolve("testing")
+        self.assertTrue(downgraded.fallback_used)
+        self.assertNotEqual(downgraded.selected, downgraded.requested)
+        self.assertIsInstance(downgraded.disclosure, dict)
+        for key in ("requested", "selected", "reasons", "adjustments"):
+            self.assertIn(key, downgraded.disclosure)
+        self.assertEqual(downgraded.disclosure["requested"], "alpha/small/max")
+        self.assertEqual(downgraded.disclosure["selected"], "alpha/small/medium")
+        self.assertIn("EFFORT_LOWERED:max->medium", downgraded.disclosure["adjustments"])
+        self.assertEqual(downgraded.to_dict().get("disclosure"), downgraded.disclosure)
+
 
 if __name__ == "__main__":
     unittest.main()

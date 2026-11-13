@@ -11,12 +11,17 @@ from .errors import DomainError
 MAX_REQUEST_BYTES = 256 * 1024
 READ_OPERATIONS = frozenset({
     "list_resources", "inspect_panes", "read_screen", "read_history", "inspect_recovery",
+    "run_wait", "run_status", "run_events", "run_list",
 })
 CREATE_OPERATIONS = frozenset({
     "create_session", "create_window", "split_pane", "launch_cli", "restore_cli",
 })
 CLOSE_OPERATIONS = frozenset({"close_pane", "close_window", "close_session"})
 LAYOUT_OPERATIONS = frozenset({"resize_pane", "set_layout", "move_pane"})
+RUN_OPERATIONS = frozenset({
+    "run_create", "run_send", "run_wait", "run_cancel", "run_close",
+    "run_status", "run_events", "run_list",
+})
 
 # allowed and required argument names; semantic validation follows in service.
 SCHEMAS = {
@@ -47,6 +52,29 @@ SCHEMAS = {
     "hide_tui": ({"viewer_record_id"}, {"viewer_record_id"}),
     "start_capture": ({"max_bytes"}, set()),
     "stop_capture": (set(), set()),
+    "run_create": (
+        {
+            "stage", "cwd", "task_id", "coordinator_id", "pin", "allow_fallback",
+            "run_id", "worktree", "allow_shared_cwd", "platform_config",
+        },
+        {"stage", "cwd"},
+    ),
+    "run_send": (
+        {
+            "run_ref", "task_id", "coordinator_id", "dispatch_id", "instructions",
+            "generation", "request_id", "detach", "platform_config",
+        },
+        {"run_ref", "task_id"},
+    ),
+    "run_wait": ({"run_ref", "timeout_seconds", "until", "platform_config"}, {"run_ref"}),
+    "run_cancel": ({"run_ref", "reason", "task_id", "coordinator_id", "platform_config"}, {"run_ref"}),
+    "run_close": (
+        {"run_ref", "task_id", "coordinator_id", "remove_worktree", "force", "platform_config"},
+        {"run_ref"},
+    ),
+    "run_status": ({"run_ref", "platform_config"}, {"run_ref"}),
+    "run_events": ({"run_ref", "after_seq", "platform_config"}, {"run_ref"}),
+    "run_list": ({"task_id", "platform_config"}, set()),
 }
 ALL_OPERATIONS = frozenset(SCHEMAS)
 
@@ -131,7 +159,17 @@ def validate_request(value):
     for field in ("endpoint_id", "server_instance_id"):
         if field in target:
             string(target[field], field, max_bytes=1024)
-    for field in ("dry_run", "force", "input_verified", "exit_intent"):
+    for field in (
+        "dry_run",
+        "force",
+        "input_verified",
+        "exit_intent",
+        "allow_fallback",
+        "worktree",
+        "allow_shared_cwd",
+        "detach",
+        "remove_worktree",
+    ):
         if field in args and type(args[field]) is not bool:
             _invalid(f"{field} must be a boolean")
     # Reject nonfinite programmatic inputs as well as decoded JSON.

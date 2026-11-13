@@ -61,7 +61,7 @@ def parser():
     ids = edit.add_mutually_exclusive_group()
     ids.add_argument("--all-panes", action="store_true")
     ids.add_argument("--pane-id", action="append", default=[])
-    for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor"):
+    for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor", "run", "run-cancel"):
         edit.add_argument("--allow-" + flag, action="store_true")
     q = sub.add_parser("task")
     qs = q.add_subparsers(dest="action", required=True)
@@ -133,6 +133,57 @@ def parser():
     q.add_argument("--field", required=True)
     q.add_argument("--timeout", type=float, default=30)
     q.add_argument("--json", action="store_true")
+    q = sub.add_parser("run", help="Manage cli_platform runs bound to tasks")
+    rs = q.add_subparsers(dest="action", required=True)
+    rc = rs.add_parser("create")
+    rc.add_argument("--task-id", default="adhoc")
+    rc.add_argument("--stage", required=True)
+    rc.add_argument("--cwd", required=True)
+    rc.add_argument("--coordinator-id")
+    rc.add_argument("--pin")
+    rc.add_argument("--allow-fallback", action="store_true")
+    rc.add_argument("--run-id")
+    rc.add_argument("--worktree", action="store_true")
+    rc.add_argument("--allow-shared-cwd", action="store_true")
+    rc.add_argument("--platform-config", type=Path)
+    rsend = rs.add_parser("send")
+    rsend.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    rsend.add_argument("--task-id", required=True)
+    rsend.add_argument("--coordinator-id")
+    rsend.add_argument("--dispatch-id")
+    rsend.add_argument("--instructions")
+    rsend.add_argument("--generation", type=int, default=1)
+    rsend.add_argument("--request-id")
+    rsend.add_argument("--detach", action="store_true")
+    rsend.add_argument("--platform-config", type=Path)
+    rwait = rs.add_parser("wait")
+    rwait.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    rwait.add_argument("--timeout", type=float, default=300.0)
+    rwait.add_argument("--until", nargs="+")
+    rwait.add_argument("--platform-config", type=Path)
+    rcancel = rs.add_parser("cancel")
+    rcancel.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    rcancel.add_argument("--reason", default="requested")
+    rcancel.add_argument("--task-id")
+    rcancel.add_argument("--coordinator-id")
+    rcancel.add_argument("--platform-config", type=Path)
+    rclose = rs.add_parser("close")
+    rclose.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    rclose.add_argument("--task-id")
+    rclose.add_argument("--coordinator-id")
+    rclose.add_argument("--remove-worktree", action="store_true")
+    rclose.add_argument("--force", action="store_true")
+    rclose.add_argument("--platform-config", type=Path)
+    rstatus = rs.add_parser("status")
+    rstatus.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    rstatus.add_argument("--platform-config", type=Path)
+    revents = rs.add_parser("events")
+    revents.add_argument("--run", "--run-id", dest="run_ref", required=True)
+    revents.add_argument("--after-seq", type=int, default=0)
+    revents.add_argument("--platform-config", type=Path)
+    rlist = rs.add_parser("list")
+    rlist.add_argument("--task-id")
+    rlist.add_argument("--platform-config", type=Path)
     return p
 
 
@@ -191,8 +242,8 @@ def run(args):
             contract.exact_id(pane_id, "%")
         data = policy.configure(socket, read_only=not args.allow_writes,
                                 pane_ids=None if args.all_panes else args.pane_id,
-                                **{"allow_" + flag: getattr(args, "allow_" + flag)
-                                   for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor")})
+                                **{"allow_" + flag.replace("-", "_"): getattr(args, "allow_" + flag.replace("-", "_"))
+                                   for flag in ("create", "close", "layout", "interrupt", "view", "capture", "monitor", "run", "run-cancel")})
         return contract.result(None, data=data, side_effects="confirmed")
     if args.command == "operation-status":
         return contract.result(args.request_id, data=OperationStore(root).status(args.request_id))
@@ -208,7 +259,7 @@ def run(args):
                                     coordinator_id=args.coordinator_id, timezone=args.timezone,
                                     acceptance=args.acceptance)
             elif args.action == "accept":
-                if not args.monitor_stopped:
+                if not args.monitor_stopped and registry.list(task_id=args.task_id):
                     raise DomainError("MONITOR_STOP_REQUIRED", "stop the task's writing monitor and pass --monitor-stopped")
                 data = tasks.accept(args.task_id, evidence=args.evidence)
                 resources = _transition_task_records(
@@ -237,6 +288,78 @@ def run(args):
             else:
                 data = tasks.event(args.task_id, args.kind, contract.decode_json(args.details.encode()))
         return contract.result(None, data=data, side_effects="confirmed")
+    if args.command == "run":
+        from . import run_bridge
+
+        common = {
+            "state_dir": root,
+            "platform_config": args.platform_config,
+            "socket_path": socket,
+        }
+        if args.action == "create":
+            data = run_bridge.run_create(
+                **common,
+                task_id=args.task_id,
+                stage=args.stage,
+                cwd=args.cwd,
+                coordinator_id=args.coordinator_id,
+                pin=args.pin,
+                allow_fallback=args.allow_fallback,
+                run_id=args.run_id,
+                worktree=args.worktree,
+                allow_shared_cwd=args.allow_shared_cwd,
+            )
+            return contract.result(None, data=data, side_effects="confirmed")
+        if args.action == "send":
+            data = run_bridge.run_send(
+                **common,
+                run_ref=args.run_ref,
+                task_id=args.task_id,
+                coordinator_id=args.coordinator_id,
+                dispatch_id=args.dispatch_id,
+                instructions=args.instructions,
+                generation=args.generation,
+                request_id=args.request_id,
+                detach=args.detach,
+            )
+            return contract.result(None, data=data, side_effects="confirmed")
+        if args.action == "wait":
+            data = run_bridge.run_wait(
+                **common,
+                run_ref=args.run_ref,
+                timeout_seconds=args.timeout,
+                until=args.until,
+            )
+            return contract.result(None, data=data)
+        if args.action == "cancel":
+            data = run_bridge.run_cancel(
+                **common,
+                run_ref=args.run_ref,
+                reason=args.reason,
+                task_id=args.task_id,
+                coordinator_id=args.coordinator_id,
+            )
+            effects = "confirmed" if data.get("requested", True) else "none"
+            return contract.result(None, data=data, side_effects=effects)
+        if args.action == "close":
+            data = run_bridge.run_close(
+                **common,
+                run_ref=args.run_ref,
+                task_id=args.task_id,
+                coordinator_id=args.coordinator_id,
+                remove_worktree=args.remove_worktree,
+                force=args.force,
+            )
+            return contract.result(None, data=data, side_effects="confirmed")
+        if args.action == "status":
+            return contract.result(None, data=run_bridge.run_status(**common, run_ref=args.run_ref))
+        if args.action == "events":
+            return contract.result(
+                None, data=run_bridge.run_events(**common, run_ref=args.run_ref, after_seq=args.after_seq)
+            )
+        if args.action == "list":
+            return contract.result(None, data=run_bridge.run_list(**common, task_id=args.task_id))
+        raise DomainError("UNKNOWN_COMMAND", args.action)
     service = Service(socket, state_dir=root, config_path=args.config, tmux_binary=args.tmux_binary,
                       endpoint_namespace=namespace)
     if args.command == "invoke":

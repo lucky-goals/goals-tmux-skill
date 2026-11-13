@@ -71,9 +71,44 @@ class Service:
         request_id = raw.get("request_id") if isinstance(raw, dict) else None
         try:
             request = contract.validate_request(raw)
+            op = request["operation"]
             target = request.get("target", {})
             if target.get("endpoint_id", self.endpoint_id) != self.endpoint_id:
                 raise DomainError("ENDPOINT_CHANGED", "request endpoint differs from the configured socket")
+            if op in contract.RUN_OPERATIONS:
+                from . import run_bridge
+                run_bridge.ensure_available()
+                if not contract.is_mutation(request):
+                    return contract.result(request_id, data=self._run_op(request))
+                with self.store.operation_lock():
+                    fingerprint = self._request_fingerprint(request)
+                    if self.store.status(request_id) is not None:
+                        reserved = self.store.reserve(request_id, fingerprint, op)
+                        if reserved.disposition == "completed":
+                            return reserved.result
+                        return contract.result(request_id, "unknown", "OUTCOME_UNKNOWN",
+                                               {"reconcile": "Use operation-status and fresh observations; do not replay."},
+                                               side_effects="unknown")
+                    self.store.reserve(request_id, fingerprint, op)
+                    self._confirmed_effects = False
+                    try:
+                        data = self._run_op(request)
+                        self._confirmed_effects = True
+                        payload = contract.result(request_id, data=data, side_effects="confirmed")
+                    except DomainError as exc:
+                        payload = exc.as_result(request_id)
+                        if self._confirmed_effects and payload["side_effects"] == "none":
+                            payload["status"] = "partial"
+                            payload["side_effects"] = "confirmed"
+                    except Exception as exc:
+                        payload = contract.result(request_id, "unknown", "OPERATION_FAILED",
+                                                  {"error_type": type(exc).__name__}, side_effects="unknown")
+                    try:
+                        self.store.finish(request_id, payload)
+                    except Exception:
+                        return contract.result(request_id, "unknown", "RESULT_PERSISTENCE_FAILED",
+                                               side_effects="unknown")
+                    return payload
             if not contract.is_mutation(request):
                 snap = self._snapshot()
                 affected = self._affected(request, snap)
@@ -318,12 +353,17 @@ class Service:
         pending_viewers = [item for item in viewers
                            if item["cleanup"].get("status") not in {"closed", "not_open", "retained", "exited"}]
         report["pending_viewers"] = pending_viewers
+        runs = self._task_runs(task_id)
+        report["runs"] = runs
+        pending_runs = [item for item in runs if item.get("state") != "closed"]
+        report["pending_runs"] = pending_runs
         registered_count = report["counts"]["total"]
         outstanding = list(report.get("outstanding", []))
         outstanding.extend({"kind": "pending_creation", **item} for item in pending)
         outstanding.extend({"kind": "pending_state_monitor", **item} for item in monitors)
         outstanding.extend({"kind": "pending_viewer", **item} for item in pending_viewers)
-        count = registered_count + len(pending) + len(monitors) + len(viewers)
+        outstanding.extend({"kind": "run", **item} for item in pending_runs)
+        count = registered_count + len(pending) + len(monitors) + len(viewers) + len(runs)
         unsettled_count = len(outstanding)
         report["count"] = count
         report["unsettled_count"] = unsettled_count
@@ -335,8 +375,114 @@ class Service:
         report["counts"]["pending_creations"] = len(pending)
         report["counts"]["pending_state_monitors"] = len(monitors)
         report["counts"]["viewers"] = len(viewers)
+        report["counts"]["runs"] = len(runs)
         report["settled"] = bool(count) and unsettled_count == 0
         return report
+
+    def _task_runs(self, task_id=None):
+        """Read cli_platform run metadata and state from ``<state_dir>/runs``."""
+        runs_dir = self.state_dir / "runs"
+        if not runs_dir.is_dir():
+            return []
+        runs = []
+        for run_dir in sorted(runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            run_data = read_json(run_dir / "run.json", default=None)
+            if not isinstance(run_data, dict):
+                continue
+            if task_id is not None and run_data.get("task_id") != task_id:
+                continue
+            state_data = read_json(run_dir / "state.json", default=None)
+            run_state = (
+                state_data.get("state")
+                if isinstance(state_data, dict) and isinstance(state_data.get("state"), str)
+                else "unknown"
+            )
+            runs.append(
+                {
+                    "run_id": run_data.get("run_id"),
+                    "nickname": run_data.get("nickname"),
+                    "ref": run_data.get("ref"),
+                    "task_id": run_data.get("task_id"),
+                    "stage": run_data.get("stage"),
+                    "state": run_state,
+                    "turns": state_data.get("turns", 0) if isinstance(state_data, dict) else 0,
+                    "transport": state_data.get("transport") if isinstance(state_data, dict) else None,
+                    "run_dir": str(run_dir),
+                }
+            )
+        return runs
+
+    def _run_op(self, request):
+        from . import run_bridge
+
+        op = request["operation"]
+        args = request["arguments"]
+        ctx = request.get("task_context") or {}
+        common = {
+            "state_dir": self.state_dir,
+            "platform_config": args.get("platform_config"),
+            "socket_path": self.socket_path,
+        }
+        if op == "run_create":
+            return run_bridge.run_create(
+                **common,
+                task_id=args.get("task_id") or ctx.get("task_id") or "adhoc",
+                stage=args["stage"],
+                cwd=args["cwd"],
+                coordinator_id=args.get("coordinator_id") or ctx.get("coordinator_id"),
+                pin=args.get("pin"),
+                allow_fallback=args.get("allow_fallback", False),
+                run_id=args.get("run_id"),
+                worktree=args.get("worktree", False),
+                allow_shared_cwd=args.get("allow_shared_cwd", False),
+            )
+        if op == "run_send":
+            return run_bridge.run_send(
+                **common,
+                run_ref=args["run_ref"],
+                task_id=args.get("task_id") or ctx.get("task_id") or "",
+                coordinator_id=args.get("coordinator_id") or ctx.get("coordinator_id"),
+                dispatch_id=args.get("dispatch_id"),
+                instructions=args.get("instructions"),
+                generation=args.get("generation", 1),
+                request_id=args.get("request_id"),
+                detach=args.get("detach", False),
+            )
+        if op == "run_wait":
+            return run_bridge.run_wait(
+                **common,
+                run_ref=args["run_ref"],
+                timeout_seconds=args.get("timeout_seconds", 300.0),
+                until=args.get("until"),
+            )
+        if op == "run_cancel":
+            return run_bridge.run_cancel(
+                **common,
+                run_ref=args["run_ref"],
+                reason=args.get("reason", "requested"),
+                task_id=args.get("task_id") or ctx.get("task_id"),
+                coordinator_id=args.get("coordinator_id") or ctx.get("coordinator_id"),
+            )
+        if op == "run_close":
+            return run_bridge.run_close(
+                **common,
+                run_ref=args["run_ref"],
+                task_id=args.get("task_id") or ctx.get("task_id"),
+                coordinator_id=args.get("coordinator_id") or ctx.get("coordinator_id"),
+                remove_worktree=args.get("remove_worktree", False),
+                force=args.get("force", False),
+            )
+        if op == "run_status":
+            return run_bridge.run_status(**common, run_ref=args["run_ref"])
+        if op == "run_events":
+            return run_bridge.run_events(
+                **common, run_ref=args["run_ref"], after_seq=args.get("after_seq", 0)
+            )
+        if op == "run_list":
+            return run_bridge.run_list(**common, task_id=args.get("task_id"))
+        raise DomainError("INVALID_REQUEST", f"unsupported run operation {op!r}")
 
     def _task_viewer_receipts(self, task_id=None):
         """One resource per owned viewer, even when show_tui reused it."""
