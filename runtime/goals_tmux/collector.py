@@ -460,6 +460,7 @@ def watch(
                 env=_clean_environment(),
                 shell=False,
                 bufsize=0,
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise DomainError("TMUX_BINARY_UNAVAILABLE", "The tmux executable could not be started") from exc
@@ -571,10 +572,10 @@ def watch(
         else:
             raise DomainError("CONTROL_MODE_ATTACH_FAILED", "The Control Mode client closed during setup") from exc
     finally:
-        if client is not None and process is not None:
+        if process is not None:
             # Detach only the verified current client. On a failed identity
             # check, terminating this child tears down only our connection.
-            if verified_pid is not None and process.poll() is None:
+            if client is not None and verified_pid is not None and process.poll() is None:
                 try:
                     if accumulator.paused:
                         accumulator.gap = True
@@ -626,21 +627,13 @@ def watch(
                     process.wait(timeout=0.5)
                 except subprocess.TimeoutExpired:
                     pass
-            if process.stdin is not None:
-                try:
-                    process.stdin.close()
-                except OSError:
-                    pass
-            if process.stdout is not None:
-                try:
-                    process.stdout.close()
-                except OSError:
-                    pass
-            if process.stderr is not None:
-                try:
-                    process.stderr.close()
-                except OSError:
-                    pass
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+        if client is not None:
             client.close()
 
     return _make_result(

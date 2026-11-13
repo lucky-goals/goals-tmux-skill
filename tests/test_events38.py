@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from unittest.mock import patch
 
+from runtime.goals_tmux import collector
 from runtime.goals_tmux.coordination import TaskStore
 from runtime.goals_tmux.errors import DomainError
 from runtime.goals_tmux.events38 import (
@@ -595,6 +598,115 @@ class Tmux38IntegrationTests(unittest.TestCase):
         self.assertEqual("TASK_FINALIZING", finalizing.exception.code)
         self.assertEqual([], self._run("show-hooks", "-B", "-p", "-t", pane_id).stdout.decode().splitlines())
         self.assertEqual([], report_state_receipts(self.state_dir, task_id=self.task_id)["pending"])
+
+
+def _write_fake_control_tmux(directory: Path) -> Path:
+    """Create a deterministic fake tmux executable speaking minimal Control Mode."""
+    script = directory / "fake_tmux.py"
+    script.write_text(
+        f"""#!{sys.executable}
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+if args == ["-V"]:
+    sys.stdout.write("tmux 3.6a\\n")
+    sys.exit(0)
+
+socket_path = args[args.index("-S") + 1] if "-S" in args else ""
+if "-C" not in args:
+    if "display-message" in args and "#{{version}}" in args:
+        sys.stdout.write("3.6a\\n")
+        sys.exit(0)
+    if "list-commands" in args and "refresh-client" in args:
+        sys.stdout.write("refresh-client [-B name:what:format] [-A pane:state]\\n")
+        sys.exit(0)
+    if "display-message" in args and "#{{session_id}}" in args:
+        sys.stdout.write("$0\\n")
+        sys.exit(0)
+    if "list-panes" in args:
+        sys.stdout.write("%0\\n")
+        sys.exit(0)
+    sys.exit(1)
+
+pid = os.getpid()
+sid = os.getsid(0)
+with open(socket_path + ".json", "w", encoding="utf-8") as fh:
+    json.dump({{"pid": pid, "sid": sid}}, fh)
+
+
+def emit(text: str) -> None:
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
+cmd_num = 1
+emit(f"%begin 1 {{cmd_num}} 0\\n%end 1 {{cmd_num}} 0\\n")
+seen_subscriptions = 0
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    cmd = line.strip()
+    cmd_num += 1
+    if cmd.startswith("display-message"):
+        emit(f"%begin 1 {{cmd_num}} 0\\n{{pid}} $0\\n%end 1 {{cmd_num}} 0\\n")
+    elif cmd.startswith("refresh-client"):
+        emit(f"%begin 1 {{cmd_num}} 0\\n%end 1 {{cmd_num}} 0\\n")
+        if " -B " in cmd:
+            seen_subscriptions += 1
+            if seen_subscriptions >= 3 and "eof" in os.path.basename(socket_path):
+                break
+    elif cmd == "detach-client":
+        emit(f"%begin 1 {{cmd_num}} 0\\n%end 1 {{cmd_num}} 0\\n%exit\\n")
+        break
+    else:
+        emit(f"%begin 1 {{cmd_num}} 0\\n%end 1 {{cmd_num}} 0\\n")
+""",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+class CollectorSessionIsolationTests(unittest.TestCase):
+    def test_watch_spawns_control_client_in_new_session(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            fake_tmux = _write_fake_control_tmux(tmp)
+            socket_path = str(tmp / "eof.sock")
+
+            result = collector.watch(socket_path, "$0", tmux_binary=str(fake_tmux), timeout=2.0)
+            meta = json.loads((tmp / "eof.sock.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(result["attached"])
+        parent_sid = os.getsid(os.getpid())
+        child_pid = meta["pid"]
+        child_sid = meta["sid"]
+        if child_sid == parent_sid:
+            self.fail("child_sid == parent_sid")
+        self.assertEqual(child_pid, child_sid)
+
+    def test_watch_timeout_and_eof_reap_detached_child_without_zombie(self):
+        cases = (
+            ("timeout", "timeout.sock", 0.5, "timeout", True),
+            ("eof", "eof.sock", 2.0, "connection_closed", False),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            fake_tmux = _write_fake_control_tmux(tmp)
+            for mode, sock_name, timeout, expected_reason, expected_timed_out in cases:
+                with self.subTest(mode=mode):
+                    socket_path = str(tmp / sock_name)
+                    result = collector.watch(socket_path, "$0", tmux_binary=str(fake_tmux), timeout=timeout)
+                    meta = json.loads(Path(socket_path + ".json").read_text(encoding="utf-8"))
+
+                    self.assertTrue(result["attached"])
+                    self.assertEqual(expected_reason, result["reason"])
+                    self.assertIs(result["timeout"], expected_timed_out)
+                    with self.assertRaises(ChildProcessError):
+                        os.waitpid(meta["pid"], os.WNOHANG)
 
 
 if __name__ == "__main__":
