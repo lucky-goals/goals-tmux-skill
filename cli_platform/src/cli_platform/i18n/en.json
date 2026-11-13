@@ -309,6 +309,8 @@
   "error.WORKTREE_CONFLICT": "Another active bypass run already uses this working directory.",
   "error.WORKTREE_DIRTY": "The worktree has uncommitted changes.",
   "error.WORKTREE_FAILED": "The git worktree operation failed.",
+  "error.TASK_SCOPE_VIOLATION": "This run belongs to a different task than the MCP server scope.",
+  "error.MCP_PROTOCOL_ERROR": "The MCP JSON-RPC message is invalid.",
 
   "reason.unknown": "Reason {code}",
   "reason.VARIANT_UNKNOWN": "variant not configured",

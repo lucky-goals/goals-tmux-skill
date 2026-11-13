@@ -30,7 +30,7 @@ from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
-from .scanner import publish_environment_snapshots, scan_all
+from .scanner import ADAPTER_PROBES, publish_environment_snapshots, scan_adapter, scan_all
 from .supervisor import (Platform, RunService, SessionRequest, publish_config_applied,
                          publish_config_rejected, write_worker_ready)
 
@@ -122,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
     run_turn.add_argument("--request-id")
     run_turn.add_argument("--ready-fd", type=int)
     run_turn.add_argument("--poll-seconds", type=float, default=2.0)
+    mcp_serve = commands.add_parser("mcp-serve", help="run the stdio JSON-RPC 2.0 MCP server")
+    mcp_serve.add_argument("--task-scope", help="restrict mutating run operations to runs owned by TASK_ID")
     args = parser.parse_args(argv)
     if args.locale and normalize(args.locale) is None:
         parser.error(f"--locale {args.locale!r} is not supported; use one of {', '.join(SUPPORTED)}")
@@ -142,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         publish_dir = (
             state_dir
             if state_dir is not None
-            else (config.state_dir if args.command in ("run", "scan", "_run-turn")
+            else (config.state_dir if args.command in ("run", "scan", "_run-turn", "mcp-serve")
                   or (args.command == "plan" and args.commit) else None)
         )
         if publish_dir is not None:
@@ -169,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
             return _run(args, config)
         if args.command == "_run-turn":
             return _run_turn(args, config, state_dir)
+        if args.command == "mcp-serve":
+            from .adapters.mcp import serve_stdio
+            return serve_stdio(config, state_dir=state_dir, task_scope=args.task_scope)
         scans = scan_all()
         if args.command == "plan" and not args.commit:
             with tempfile.TemporaryDirectory(prefix="cli-platform-plan-") as scratch:
@@ -267,8 +272,10 @@ def _run_turn(args: argparse.Namespace, config, state_dir: Path | None) -> int:
             args.instruction_file.unlink()
         except FileNotFoundError:
             pass
+    configured_adapters = {variant.adapter for variant in config.variants.values()}
+    scans = [scan_adapter(probe) for probe in ADAPTER_PROBES if probe.adapter in configured_adapters]
     service = RunService(
-        Platform(config, scan_all(), state_dir=state_dir),
+        Platform(config, scans, state_dir=state_dir),
         poll_seconds=args.poll_seconds,
     )
     service.run_turn_worker(
