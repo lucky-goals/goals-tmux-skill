@@ -281,6 +281,8 @@
   "error.RUN_UNKNOWN": "沒有此 ID 或暱稱的執行。",
   "error.RUN_BUSY": "另一個監督程序正在處理此執行。",
   "error.RUN_STATE_INVALID": "執行目前的狀態不允許此操作。",
+  "error.RUN_HANDED_OFF": "此執行已交接給人員；送出回合前請先釋放。",
+  "error.TAKEOVER_NOT_SUPPORTED": "此執行或變體不支援人工接管。",
   "error.LEASE_LOST": "回合失去了並行槽位。",
   "error.ADAPTER_ERROR": "CLI 回報了錯誤。",
   "error.TURN_TIMEOUT": "CLI 太久沒有輸出。",
@@ -362,6 +364,8 @@
   "event.config_rejected": "已拒絕組態",
   "event.worktree_prepared": "已準備 worktree",
   "event.worktree_cleaned": "已清理 worktree",
+  "event.takeover_started": "已開始人工接管",
+  "event.takeover_released": "已釋放人工接管",
 
   "incident.unknown": "異常事件 {code}",
   "incident.rate_limited": "速率限制",

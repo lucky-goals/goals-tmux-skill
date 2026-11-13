@@ -281,6 +281,8 @@
   "error.RUN_UNKNOWN": "No run has this id or nickname.",
   "error.RUN_BUSY": "Another supervisor is working on this run.",
   "error.RUN_STATE_INVALID": "The run is not in a state that allows this.",
+  "error.RUN_HANDED_OFF": "The run is handed off to a human; release it before sending a turn.",
+  "error.TAKEOVER_NOT_SUPPORTED": "This run or variant does not support human takeover.",
   "error.LEASE_LOST": "The turn lost its concurrency slot.",
   "error.ADAPTER_ERROR": "The CLI reported an error.",
   "error.TURN_TIMEOUT": "The CLI produced no output for too long.",
@@ -362,6 +364,8 @@
   "event.config_rejected": "Configuration rejected",
   "event.worktree_prepared": "Worktree prepared",
   "event.worktree_cleaned": "Worktree cleaned",
+  "event.takeover_started": "Human takeover started",
+  "event.takeover_released": "Human takeover released",
 
   "incident.unknown": "Incident {code}",
   "incident.rate_limited": "Rate limited",

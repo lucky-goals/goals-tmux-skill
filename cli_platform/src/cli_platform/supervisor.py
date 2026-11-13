@@ -63,8 +63,8 @@ from .redact import scrub_raw_line
 from .router import Resolution, Router, RouteRequest
 from .scanner import CliScan
 from .transport import Bound, Breaker, TransportBinder, TransportFactory, TurnContext
-from .variants import LaunchSpec, VariantRegistry, build_launch
-from .worktree import (creation_lock, ensure_cwd_available, prepare_worktree,
+from .variants import LaunchSpec, VariantRegistry, build_launch, build_resume
+from .worktree import (_GIT_ENV_STRIP, creation_lock, ensure_cwd_available, prepare_worktree,
                        remove_worktree as cleanup_worktree, verify_git_repo)
 
 # Run states of the gateway proposal (section 6.1) plus ``queued``: a turn was
@@ -715,6 +715,9 @@ class RunService:
         earlier = self._committed(run, resolved_request_id)
         if earlier is not None:
             return resolved_request_id, turns, dict(earlier, duplicate=True, state=run.state["state"])
+        if run.state["state"] == "handed_off":
+            raise PlatformError(errors.RUN_HANDED_OFF,
+                                "run is handed off to a human; release it before sending")
         if run.state["state"] not in ("created", "idle", "failed"):
             raise PlatformError(errors.RUN_STATE_INVALID,
                                 f"run is {run.state['state']}; a turn needs created, idle or failed")
@@ -1276,6 +1279,105 @@ class RunService:
             run.transition("closed", "close")
         return self.status(run.run["run_id"])
 
+    @staticmethod
+    def _validate_takeover_state(state: dict) -> str:
+        current = state["state"]
+        resume_id = state.get("resume_id")
+        if current == "created" and not resume_id:
+            raise PlatformError(
+                errors.TAKEOVER_NOT_SUPPORTED,
+                "cannot take over a run that has no resumable session yet",
+            )
+        if current != "idle":
+            raise PlatformError(
+                errors.RUN_STATE_INVALID,
+                f"cannot take over a {current} run; takeover requires idle",
+            )
+        if not isinstance(resume_id, str) or not resume_id.strip():
+            raise PlatformError(
+                errors.TAKEOVER_NOT_SUPPORTED,
+                "cannot take over a run without a resumable session id",
+            )
+        return resume_id
+
+    def takeover(self, ref: str) -> dict:
+        """Hand an ``idle`` run with a known ``resume_id`` over to a human."""
+        handle = self.find(ref)
+        self._validate_takeover_state(handle.read_state())
+        with handle.lock():
+            run = _Run(handle)
+            resume_id = self._validate_takeover_state(run.state)
+            selection = run.state.get("selection")
+            variant_id = selection.get("variant") if isinstance(selection, dict) else None
+            if not isinstance(variant_id, str) or not variant_id:
+                raise PlatformError(
+                    errors.TAKEOVER_NOT_SUPPORTED,
+                    "cannot take over a run without a selected variant",
+                )
+            variant = self.platform.registry.get(variant_id)
+            binary_path = self.platform.registry.state(variant_id).binary_path
+            takeover_spec = build_resume(variant, resume_id, binary_path=binary_path)
+            try:
+                fork_spec = build_resume(variant, resume_id, fork=True, binary_path=binary_path)
+                fork_argv: list[str] | None = list(fork_spec.argv)
+                fork_loggable: list[str] | None = list(fork_spec.loggable_argv)
+            except PlatformError as exc:
+                if exc.code != errors.TAKEOVER_NOT_SUPPORTED:
+                    raise
+                fork_argv = None
+                fork_loggable = None
+
+            pre_head = _git_head(run.run["cwd"])
+            run.state["lease"] = {"holder": "human"}
+            run.state["takeover_argv"] = list(takeover_spec.argv)
+            run.state["fork_argv"] = fork_argv
+            run.state["takeover_pre_head"] = pre_head
+            run.transition("handed_off", "takeover")
+            run.append("takeover_started", {
+                "pre_head": pre_head,
+                "takeover_argv": list(takeover_spec.loggable_argv),
+                "fork_argv": fork_loggable,
+                "resume_id": resume_id,
+                "variant": variant_id,
+            })
+            run.save()
+        return self.status(run.run["run_id"])
+
+    def release(self, ref: str) -> dict:
+        """Release a ``handed_off`` run back to ``idle`` and audit git changes."""
+        handle = self.find(ref)
+        with handle.lock():
+            run = _Run(handle)
+            current = run.state["state"]
+            if current != "handed_off":
+                raise PlatformError(
+                    errors.RUN_STATE_INVALID,
+                    f"cannot release a {current} run; release requires handed_off",
+                )
+            pre_head = run.state.pop("takeover_pre_head", None)
+            if pre_head is None:
+                for event in reversed(list(read_events(run.handle.events_path))):
+                    if event["type"] == "takeover_started":
+                        pre_head = event["payload"].get("pre_head")
+                        break
+            cwd = run.run["cwd"]
+            post_head = _git_head(cwd)
+            dirty = _git_dirty(cwd)
+            diff_stat = _git_diff_stat(cwd, pre_head, post_head, dirty=dirty)
+
+            run.state.pop("lease", None)
+            run.state["takeover_argv"] = None
+            run.state["fork_argv"] = None
+            run.transition("idle", "takeover_released")
+            run.append("takeover_released", {
+                "pre_head": pre_head,
+                "post_head": post_head,
+                "dirty": dirty,
+                "diff_stat": diff_stat,
+            })
+            run.save()
+        return self.status(run.run["run_id"])
+
     def reconcile(self, ref: str, resolve: str | None = None) -> dict:
         """Report a run whose supervisor is gone as ``lost`` (lease kept), or
         resolve a ``lost`` run to ``idle`` or ``failed`` (lease released)."""
@@ -1443,6 +1545,42 @@ class _TurnOutcome:
 
 def _jsonable(value: object) -> object:
     return json.loads(json.dumps(value, default=str))
+
+
+def _git_output(cwd: str | Path, *args: str) -> str | None:
+    """Run a read-only git query in ``cwd`` without inherited GIT_* overrides."""
+    env = {key: value for key, value in os.environ.items() if key not in _GIT_ENV_STRIP}
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def _git_head(cwd: str | Path) -> str | None:
+    return _git_output(cwd, "rev-parse", "--verify", "HEAD")
+
+
+def _git_dirty(cwd: str | Path) -> bool:
+    status = _git_output(cwd, "status", "--porcelain")
+    return bool(status)
+
+
+def _git_diff_stat(cwd: str | Path, pre_head: str | None, post_head: str | None,
+                   *, dirty: bool) -> str:
+    base = pre_head or post_head
+    stat = _git_output(cwd, "diff", "--stat", base) if base else None
+    if not stat and dirty:
+        stat = _git_output(cwd, "status", "--short")
+    return stat or ""
 
 
 _DETACHED_PROCS: list[subprocess.Popen] = []

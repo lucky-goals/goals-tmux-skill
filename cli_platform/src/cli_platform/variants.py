@@ -120,9 +120,20 @@ class VariantRegistry:
         return [self.state(variant_id) for variant_id in self._config.variants]
 
 
-def build_launch(variant: Variant, model_id: str, effort: str = "", *,
-                 binary_path: str | None = None) -> LaunchSpec:
-    """Render binary, settings and model selection into argv and environment."""
+_RESUME_FLAGS: dict[str, Callable[[str], list[str]]] = {
+    "claude": lambda resume_id: ["--resume", resume_id],
+    "cursor": lambda resume_id: ["--resume", resume_id],
+    "kiro": lambda resume_id: ["--resume-id", resume_id],
+    "agy": lambda resume_id: [f"--conversation={resume_id}"],
+    "codex": lambda resume_id: ["resume", resume_id],
+}
+_FORK_FLAGS: dict[str, tuple[str, ...]] = {
+    "claude": ("--fork-session",),
+}
+
+
+def _argv_prefix(variant: Variant, *, binary_path: str | None = None) -> tuple[list[str], list[str]]:
+    """Build the common binary, subcommand, and validated ``--settings`` prefix."""
     binary = binary_path or variant.binary
     argv: list[str] = [binary]
     loggable: list[str] = [binary]
@@ -135,6 +146,19 @@ def build_launch(variant: Variant, model_id: str, effort: str = "", *,
                                 f"settings file of variant {variant.id} failed its permission check")
         argv += ["--settings", str(variant.settings_file)]
         loggable += ["--settings", f"<settings:{variant.id}>"]
+    return argv, loggable
+
+
+def _finish_launch(variant: Variant, argv: list[str], loggable: list[str],
+                   tail: list[str]) -> LaunchSpec:
+    return LaunchSpec(argv=tuple(argv + tail), env_set=dict(variant.env),
+                      env_unset=variant.env_unset, loggable_argv=tuple(loggable + tail))
+
+
+def build_launch(variant: Variant, model_id: str, effort: str = "", *,
+                 binary_path: str | None = None) -> LaunchSpec:
+    """Render binary, settings and model selection into argv and environment."""
+    argv, loggable = _argv_prefix(variant, binary_path=binary_path)
     selection: list[str] = []
     named = model_id != DEFAULT_MODEL_ID
     if variant.adapter == "codex":
@@ -149,5 +173,25 @@ def build_launch(variant: Variant, model_id: str, effort: str = "", *,
         if effort and variant.adapter != "cursor":
             selection += ["--effort", effort]
     selection += list(variant.extra_args)
-    return LaunchSpec(argv=tuple(argv + selection), env_set=dict(variant.env),
-                      env_unset=variant.env_unset, loggable_argv=tuple(loggable + selection))
+    return _finish_launch(variant, argv, loggable, selection)
+
+
+def build_resume(variant: Variant, resume_id: str, *, fork: bool = False,
+                 binary_path: str | None = None) -> LaunchSpec:
+    """Render an interactive resume (or fork) command for human takeover."""
+    if not isinstance(resume_id, str) or not resume_id.strip():
+        raise PlatformError(errors.TAKEOVER_NOT_SUPPORTED,
+                            f"variant {variant.id!r} requires a non-empty resume_id")
+    builder = _RESUME_FLAGS.get(variant.adapter)
+    if builder is None:
+        raise PlatformError(errors.TAKEOVER_NOT_SUPPORTED,
+                            f"adapter {variant.adapter!r} does not support interactive resume")
+    tail = builder(resume_id)
+    if fork:
+        fork_flags = _FORK_FLAGS.get(variant.adapter)
+        if fork_flags is None:
+            raise PlatformError(errors.TAKEOVER_NOT_SUPPORTED,
+                                f"adapter {variant.adapter!r} does not support session forking")
+        tail = tail + list(fork_flags)
+    argv, loggable = _argv_prefix(variant, binary_path=binary_path)
+    return _finish_launch(variant, argv, loggable, tail)

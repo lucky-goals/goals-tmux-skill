@@ -281,6 +281,8 @@
   "error.RUN_UNKNOWN": "この ID またはニックネームの実行はありません。",
   "error.RUN_BUSY": "別のスーパーバイザーがこの実行を処理中です。",
   "error.RUN_STATE_INVALID": "実行の状態がこの操作を許可していません。",
+  "error.RUN_HANDED_OFF": "この実行は人に引き継ぎ済みです。ターンを送る前に解放してください。",
+  "error.TAKEOVER_NOT_SUPPORTED": "この実行またはバリアントは人への引き継ぎに対応していません。",
   "error.LEASE_LOST": "ターンが同時実行スロットを失いました。",
   "error.ADAPTER_ERROR": "CLI がエラーを報告しました。",
   "error.TURN_TIMEOUT": "CLI の出力が長時間ありませんでした。",
@@ -362,6 +364,8 @@
   "event.config_rejected": "構成を拒否",
   "event.worktree_prepared": "ワークツリーを準備",
   "event.worktree_cleaned": "ワークツリーを削除",
+  "event.takeover_started": "人への引き継ぎを開始",
+  "event.takeover_released": "人への引き継ぎを解放",
 
   "incident.unknown": "インシデント {code}",
   "incident.rate_limited": "レート制限",

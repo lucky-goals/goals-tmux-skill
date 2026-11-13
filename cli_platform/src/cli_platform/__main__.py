@@ -99,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="remove the run's isolated git worktree and branch")
     close.add_argument("--force", action="store_true",
                        help="force worktree removal even with uncommitted changes")
+    takeover = runs.add_parser("takeover", help="hand an idle run over to a human")
+    takeover.add_argument("run")
+    release = runs.add_parser("release", help="release a handed-off run back to idle")
+    release.add_argument("run")
     events = runs.add_parser("events", help="events after a cursor")
     events.add_argument("run")
     events.add_argument("--after-seq", type=int, default=0)
@@ -243,6 +247,10 @@ def _run(args: argparse.Namespace, config) -> int:
         result = service.wait(args.run, timeout_seconds=args.timeout)
     elif command == "close":
         result = service.close(args.run, remove_worktree=args.remove_worktree, force=args.force)
+    elif command == "takeover":
+        result = service.takeover(args.run)
+    elif command == "release":
+        result = service.release(args.run)
     elif command == "reconcile":
         result = service.reconcile(args.run, args.resolve)
     else:
