@@ -183,6 +183,36 @@ class AllocatorTest(unittest.TestCase):
     def test_tmux_session_name(self):
         self.assertEqual(nicknames.tmux_session_name("gt", "bako"), "gt-bako")
 
+    def test_allocate_and_release_return_previous_ref_previous_released_at_and_reuse_eligible_at(self):
+        allocator = self.allocator(library=["bako"], cooldown=3600.0)
+        first = allocator.allocate("run-A")
+        self.assertEqual(first.ref, "bako#1")
+        self.assertIsNone(first.previous_ref)
+        self.assertIsNone(first.previous_released_at)
+
+        self.clock.now += 25.0
+        released_at = self.clock.now
+        release_record = allocator.release(first.nickname, "run-A")
+        self.assertIsNotNone(release_record)
+        reuse_eligible_at = (
+            release_record["reuse_eligible_at"]
+            if isinstance(release_record, dict)
+            else release_record.reuse_eligible_at
+        )
+        self.assertEqual(reuse_eligible_at, released_at + 3600.0)
+
+        self.clock.now += 100.0
+        second = allocator.allocate("run-B")
+        self.assertEqual(second.ref, "bako#2")
+        self.assertEqual(second.previous_ref, "bako#1")
+        self.assertEqual(second.previous_released_at, released_at)
+
+    def test_first_allocation_reports_null_previous_ref(self):
+        allocator = self.allocator(library=["bako", "lumi"], cooldown=3600.0)
+        lease = allocator.allocate("run-first")
+        self.assertIsNone(lease.previous_ref)
+        self.assertIsNone(lease.previous_released_at)
+
 
 if __name__ == "__main__":
     unittest.main()

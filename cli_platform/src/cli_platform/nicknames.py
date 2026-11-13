@@ -171,6 +171,8 @@ class NicknameLease:
     kind: str
     allocated_at: float
     cooldown_waived: bool = False
+    previous_ref: str | None = None
+    previous_released_at: float | None = None
 
     @property
     def ref(self) -> str:
@@ -234,24 +236,33 @@ class NicknameAllocator:
                 incarnation=(previous["incarnation"] + 1) if previous else 1,
                 session_id=session_id, task_id=task_id, kind=kind,
                 allocated_at=now, cooldown_waived=waived,
+                previous_ref=(previous.get("ref") or f"{name}#{previous['incarnation']}") if previous else None,
+                previous_released_at=previous.get("released_at") if previous else None,
             )
             self._create_exclusive(self._live / f"{name}.json", asdict(lease))
             return lease
 
-    def release(self, nickname: str, session_id: str) -> None:
+    def release(self, nickname: str, session_id: str) -> dict[str, object]:
         """End the binding. The name then cools down before reuse."""
         with self._locked():
             lease = self._read_lease(nickname)
             if lease is None or lease.session_id != session_id:
                 raise PlatformError(errors.NICKNAME_NOT_HELD,
                                     f"{nickname} is not held by this session")
+            released_at = self._clock()
+            record: dict[str, object] = {
+                "nickname": nickname,
+                "incarnation": lease.incarnation,
+                "ref": lease.ref,
+                "session_id": session_id,
+                "released_at": released_at,
+                "reuse_eligible_at": released_at + self._cooldown,
+            }
             # Tombstone first: a crash between the two steps leaves the name
             # live, never free without a cooldown.
-            self._replace(self._released / f"{nickname}.json", {
-                "nickname": nickname, "incarnation": lease.incarnation,
-                "session_id": session_id, "released_at": self._clock(),
-            })
+            self._replace(self._released / f"{nickname}.json", record)
             (self._live / f"{nickname}.json").unlink()
+            return record
 
     def lookup(self, nickname: str) -> NicknameLease | None:
         return self._read_lease(nickname)

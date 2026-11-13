@@ -92,6 +92,38 @@ def read_live_nicknames(state_dir: Path) -> list[dict]:
     return records
 
 
+def read_runs_index(state_dir: Path) -> list[dict]:
+    """Fold ``runs/index.jsonl`` into one latest entry per ``run_id``.
+
+    Lock-free and read-only: never creates files or directories, and ignores
+    a torn trailing line without a newline.
+    """
+    index_path = Path(state_dir) / "runs" / "index.jsonl"
+    try:
+        data = index_path.read_bytes()
+    except FileNotFoundError:
+        return []
+    complete = data[:data.rfind(b"\n") + 1] if b"\n" in data else b""
+    entries: dict[str, dict] = {}
+    for line in complete.split(b"\n"):
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        run_id = record.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            continue
+        if run_id in entries:
+            entries[run_id].update(record)
+        else:
+            entries[run_id] = dict(record)
+    return list(entries.values())
+
+
 def summarize_limits(config: PlatformConfig, state: dict, now: float) -> dict:
     """Usage per scope, queue and leases. Pure: reads ``state``, changes nothing."""
     leases = list(state.get("leases", {}).values())

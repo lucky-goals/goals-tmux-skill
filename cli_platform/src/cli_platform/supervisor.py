@@ -153,8 +153,12 @@ class Platform:
         run_dir = self.state_dir / "runs" / f"{nickname.nickname}-{request.run_id}"
         log = EventLog(run_dir / "events.jsonl", run_id=request.run_id, task_id=request.task_id,
                        nickname=nickname.nickname)
-        log.append("nickname_assigned", {"nickname": nickname.nickname, "ref": nickname.ref,
-                                         "cooldown_waived": nickname.cooldown_waived})
+        log.append("nickname_assigned", {
+            "nickname": nickname.nickname, "ref": nickname.ref,
+            "cooldown_waived": nickname.cooldown_waived,
+            "previous_ref": nickname.previous_ref,
+            "previous_released_at": nickname.previous_released_at,
+        })
         try:
             resolution = self.router.resolve(RouteRequest(
                 stage=request.stage, pin=request.pin, allow_fallback=request.allow_fallback,
@@ -162,8 +166,11 @@ class Platform:
         except PlatformError as exc:
             log.append("error", {"code": exc.code, "message": exc.message, "retryable": False,
                                  "phase": "routing", "explain": exc.details.get("explain", [])})
-            self.nicknames.release(nickname.nickname, request.run_id)
-            log.append("nickname_released", {"nickname": nickname.nickname, "ref": nickname.ref})
+            released = self.nicknames.release(nickname.nickname, request.run_id)
+            log.append("nickname_released", {
+                "nickname": nickname.nickname, "ref": nickname.ref,
+                "reuse_eligible_at": released["reuse_eligible_at"],
+            })
             raise
         log.append("route_resolved", resolution.to_dict())
 
@@ -231,6 +238,48 @@ def _config_lock(config_dir: Path) -> Iterator[None]:
         yield
     finally:
         os.close(fd)
+
+
+@contextmanager
+def _runs_index_lock(runs_dir: Path) -> Iterator[None]:
+    private_dir(runs_dir)
+    fd = os.open(runs_dir / "index.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _append_runs_index(runs_dir: Path, run: dict, state: dict) -> None:
+    """Append a run index record to ``runs/index.jsonl`` under ``index.lock``."""
+    runs_dir = Path(runs_dir)
+    index_path = runs_dir / "index.jsonl"
+    record = {
+        "v": 1,
+        "run_id": run["run_id"],
+        "nickname": run["nickname"],
+        "ref": run["ref"],
+        "task_id": run["task_id"],
+        "stage": run["stage"],
+        "state": state["state"],
+        "turns": state.get("turns", 0),
+        "transport": state.get("transport"),
+        "created_at": run["created_at"],
+        "updated_at": state.get("updated_at"),
+    }
+    line = (json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n").encode()
+    with _runs_index_lock(runs_dir):
+        # Drop any torn trailing line left by a crashed writer before appending.
+        last_record(index_path)
+        fd = os.open(index_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        try:
+            written = os.write(fd, line)
+            if written != len(line):
+                raise OSError(f"short write to {index_path}")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _file_sha256(path: Path) -> str | None:
@@ -491,7 +540,11 @@ class _Run:
         self.log = handle.log()
 
     def append(self, type: str, payload: dict, **kwargs: object) -> dict:
-        return self.log.append(type, payload, **kwargs)
+        event = self.log.append(type, payload, **kwargs)
+        if kwargs.get("source") == "adapter":
+            self.state["last_adapter_seq"] = event["seq"]
+            self.state["last_adapter_ts"] = event["ts"]
+        return event
 
     def transition(self, to: str, reason: str, *, turn_id: str | None = None, **extra: object) -> None:
         current = self.state["state"]
@@ -501,8 +554,13 @@ class _Run:
                     turn_id=turn_id)
         self.state["state"] = to
         self.save()
+        _append_runs_index(self.handle.dir.parent, self.run, self.state)
 
     def save(self) -> None:
+        self.state.setdefault("heartbeat_at", None)
+        self.state.setdefault("last_adapter_seq", None)
+        self.state.setdefault("last_adapter_ts", None)
+        self.state.setdefault("takeover_argv", None)
         self.state["as_of_seq"] = self.log.last_seq
         self.state["updated_at"] = _now()
         self.handle.write_json("state.json", self.state)
@@ -581,11 +639,24 @@ class RunService:
                "created_at": _now()}
         handle.write_json("run.json", run)
         log = handle.log()
-        log.append("nickname_assigned", {"nickname": nickname.nickname, "ref": nickname.ref,
-                                         "cooldown_waived": nickname.cooldown_waived})
-        handle.write_json("state.json", {"v": 1, "run_id": run_id, "state": "created", "turns": 0,
-                                         "requests": {}, "as_of_seq": log.last_seq,
-                                         "updated_at": _now()})
+        log.append("nickname_assigned", {
+            "nickname": nickname.nickname, "ref": nickname.ref,
+            "cooldown_waived": nickname.cooldown_waived,
+            "previous_ref": nickname.previous_ref,
+            "previous_released_at": nickname.previous_released_at,
+        })
+        state = {
+            "v": 1, "run_id": run_id, "state": "created", "turns": 0,
+            "requests": {},
+            "heartbeat_at": None,
+            "last_adapter_seq": None,
+            "last_adapter_ts": None,
+            "takeover_argv": None,
+            "as_of_seq": log.last_seq,
+            "updated_at": _now(),
+        }
+        handle.write_json("state.json", state)
+        _append_runs_index(handle.dir.parent, run, state)
         return self.status(run_id)
 
     # -- send -------------------------------------------------------------------------
@@ -736,7 +807,8 @@ class RunService:
             bound.transport.close(grace_seconds=config.execution.close_grace_seconds)
             self._release(run, turn_id, lease, "commit_failed")
             run.state["state"] = "failed"
-            run.handle.write_json("state.json", run.state)
+            run.save()
+            _append_runs_index(run.handle.dir.parent, run.run, run.state)
             raise PlatformError(errors.EVENT_APPEND_FAILED, f"turn_started not written: {exc}") from exc
         run.state.setdefault("requests", {})[request_id] = {"turn_id": turn_id}
         run.state.update(turns=int(run.state.get("turns", 0)) + 1, last_turn=turn_id,
@@ -774,8 +846,18 @@ class RunService:
             now = self._clock()
             if now - last_beat >= heartbeat_every:
                 last_beat = now
-                run.append("heartbeat", {"counters": dict(norm.counters) if norm else {}},
-                           turn_id=turn_id)
+                hb = run.append(
+                    "heartbeat",
+                    {
+                        "pid": os.getpid(),
+                        "last_adapter_seq": run.state.get("last_adapter_seq"),
+                        "last_adapter_ts": run.state.get("last_adapter_ts"),
+                        "counters": dict(norm.counters) if norm else {},
+                    },
+                    turn_id=turn_id,
+                )
+                run.state["heartbeat_at"] = hb["ts"]
+                run.save()
                 try:
                     self.platform.limiter.renew(lease.lease_id)
                 except PlatformError:
@@ -835,6 +917,12 @@ class RunService:
             span = deltas.pop(str(payload.get("message_id")), None)
             if span:
                 payload = dict(payload, complete_of=span)
+        elif pre.type == "tool_result":
+            payload = dict(payload)
+            if "bytes" not in payload:
+                summary = payload.get("output_summary")
+                payload["bytes"] = len(summary.encode("utf-8")) if isinstance(summary, str) else None
+            payload.setdefault("diff_stat", None)
         origin = {"transport": bound.launch.transport,
                   "protocol": bound.capabilities.protocol_version, "kind": pre.kind,
                   "raw_seq_last": pre.raw_seq_last}
@@ -962,8 +1050,12 @@ class RunService:
                 return self.status(run.run["run_id"])
             if "closed" not in TRANSITIONS[run.state["state"]]:
                 raise PlatformError(errors.RUN_STATE_INVALID, f"a {run.state['state']} run cannot close")
-            self.platform.nicknames.release(run.run["nickname"], run.run["run_id"])
-            run.append("nickname_released", {"nickname": run.run["nickname"], "ref": run.run["ref"]})
+            released = self.platform.nicknames.release(run.run["nickname"], run.run["run_id"])
+            run.append("nickname_released", {
+                "nickname": run.run["nickname"],
+                "ref": run.run["ref"],
+                "reuse_eligible_at": released["reuse_eligible_at"],
+            })
             run.transition("closed", "close")
         return self.status(run.run["run_id"])
 

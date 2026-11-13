@@ -387,6 +387,147 @@ class SupervisorRulesTest(RunnerCase):
         with self.assertRaises(PlatformError):
             service.send(run["run_id"], "again")
 
+    def test_runs_index_jsonl_records_create_transition_and_close_and_read_runs_index_returns_it(self):
+        service = self.service({"ag": {"adapter": "agy"}})
+        state_dir = service.platform.state_dir
+        index_path = state_dir / "runs" / "index.jsonl"
+
+        run = service.create(stage="work", cwd=str(self.work))["run"]
+        run_id = run["run_id"]
+        self.assertTrue(index_path.is_file())
+        from cli_platform.snapshots import read_runs_index
+
+        created_records = [json.loads(line) for line in index_path.read_text().splitlines() if line]
+        self.assertTrue(any(
+            rec.get("run_id") == run_id and rec.get("state") == "created"
+            and rec.get("nickname") == run["nickname"] and rec.get("ref") == run["ref"]
+            and rec.get("stage") == "work"
+            for rec in created_records
+        ))
+        after_create = read_runs_index(state_dir)
+        self.assertEqual(len(after_create), 1)
+        self.assertEqual(after_create[0]["run_id"], run_id)
+        self.assertEqual(after_create[0]["state"], "created")
+
+        result = service.send(run_id, "Say hello")
+        self.assertEqual(result["state"], "idle")
+        transition_records = [json.loads(line) for line in index_path.read_text().splitlines() if line]
+        self.assertGreater(len(transition_records), len(created_records))
+        states = [rec.get("state") for rec in transition_records if rec.get("run_id") == run_id]
+        self.assertIn("running", states)
+        self.assertIn("idle", states)
+        after_send = read_runs_index(state_dir)
+        self.assertEqual(len(after_send), 1)
+        self.assertEqual(after_send[0]["state"], "idle")
+
+        service.close(run["nickname"])
+        closed_records = [json.loads(line) for line in index_path.read_text().splitlines() if line]
+        self.assertGreater(len(closed_records), len(transition_records))
+        self.assertEqual(closed_records[-1].get("run_id"), run_id)
+        self.assertEqual(closed_records[-1].get("state"), "closed")
+
+        before_bytes = index_path.read_bytes()
+        before_tree = sorted(p.relative_to(state_dir) for p in state_dir.rglob("*"))
+        indexed = read_runs_index(state_dir)
+        self.assertEqual(index_path.read_bytes(), before_bytes)
+        self.assertEqual(sorted(p.relative_to(state_dir) for p in state_dir.rglob("*")), before_tree)
+        self.assertEqual(len(indexed), 1)
+        entry = indexed[0]
+        self.assertEqual(entry["run_id"], run_id)
+        self.assertEqual(entry["nickname"], run["nickname"])
+        self.assertEqual(entry["ref"], run["ref"])
+        self.assertEqual(entry["stage"], "work")
+        self.assertEqual(entry["state"], "closed")
+
+        missing_state = self.root / "missing-state"
+        self.assertEqual(read_runs_index(missing_state), [])
+        self.assertFalse(missing_state.exists())
+
+    def test_section_19_6_run_event_and_state_fields_are_populated(self):
+        service = self.service({"ag": {"adapter": "agy"}})
+        run = service.create(stage="work", cwd=str(self.work))["run"]
+        run_id = run["run_id"]
+        handle = service.find(run_id)
+
+        first = service.send(run_id, "read a file")
+        self.assertEqual(first["state"], "idle")
+        state = handle.read_state()
+        self.assertIn("heartbeat_at", state)
+        self.assertIn("last_adapter_seq", state)
+        self.assertIn("last_adapter_ts", state)
+        self.assertIn("takeover_argv", state)
+        self.assertIsNone(state["takeover_argv"])
+        self.assertIsInstance(state["last_adapter_seq"], int)
+        self.assertNotIsInstance(state["last_adapter_seq"], bool)
+        self.assertGreaterEqual(state["last_adapter_seq"], 1)
+        self.assertIsInstance(state["last_adapter_ts"], str)
+
+        self.wrapper("ag", "agy", "slow")
+        out: dict = {}
+        thread = threading.Thread(target=lambda: out.update(service.send(run_id, "stream")))
+        thread.start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if "heartbeat" in self.types(self.events(service, run_id)):
+                break
+            time.sleep(0.05)
+        self.assertIn("heartbeat", self.types(self.events(service, run_id)))
+        self.assertTrue(service.cancel(run_id)["requested"])
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(out["state"], "cancelled")
+
+        state_after_hb = handle.read_state()
+        self.assertIsNotNone(state_after_hb["heartbeat_at"])
+        self.assertIsInstance(state_after_hb["heartbeat_at"], str)
+        self.assertIsInstance(state_after_hb["last_adapter_seq"], int)
+        self.assertIsInstance(state_after_hb["last_adapter_ts"], str)
+        self.assertIsNone(state_after_hb["takeover_argv"])
+
+        service.close(run["nickname"])
+        events = self.events(service, run_id)
+
+        assigned = self.first(events, "nickname_assigned")["payload"]
+        self.assertIn("previous_ref", assigned)
+        self.assertIn("previous_released_at", assigned)
+        self.assertIsNone(assigned["previous_ref"])
+        self.assertIsNone(assigned["previous_released_at"])
+
+        released = self.first(events, "nickname_released")["payload"]
+        self.assertIn("reuse_eligible_at", released)
+        self.assertIsNotNone(released["reuse_eligible_at"])
+
+        heartbeat = self.first(events, "heartbeat")["payload"]
+        self.assertIn("pid", heartbeat)
+        self.assertIsInstance(heartbeat["pid"], int)
+        self.assertNotIsInstance(heartbeat["pid"], bool)
+        self.assertGreater(heartbeat["pid"], 0)
+        self.assertIn("last_adapter_ts", heartbeat)
+        self.assertIsInstance(heartbeat["last_adapter_ts"], str)
+
+        tool_result = self.first(events, "tool_result")["payload"]
+        self.assertIn("bytes", tool_result)
+        self.assertTrue(tool_result["bytes"] is None or isinstance(tool_result["bytes"], int))
+        self.assertIn("diff_stat", tool_result)
+
+    def test_run_state_json_keeps_as_of_seq(self):
+        service = self.service({"ag": {"adapter": "agy"}})
+        run = service.create(stage="work", cwd=str(self.work))["run"]
+        run_id = run["run_id"]
+        handle = service.find(run_id)
+
+        for action in (
+            lambda: None,
+            lambda: service.send(run_id, "Say hello"),
+            lambda: service.close(run["nickname"]),
+        ):
+            action()
+            state = handle.read_state()
+            events = self.events(service, run_id)
+            self.assertIsInstance(state.get("as_of_seq"), int)
+            self.assertNotIsInstance(state.get("as_of_seq"), bool)
+            self.assertEqual(state["as_of_seq"], events[-1]["seq"])
+
 
 def run_and_bin(root: Path, name: str) -> str:
     return str(root / "bin" / name)
