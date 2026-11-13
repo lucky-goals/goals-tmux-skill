@@ -256,10 +256,13 @@
   "settings.toast.saved_local": "僅在此頁面中儲存：瀏覽器儲存空間無法使用，重新載入會顯示先前的組態。",
   "settings.toast.discarded": "已捨棄未儲存的變更。",
   "settings.toast.restored": "已還原示範資料。",
+  "settings.toast.save_failed": "無法儲存組態：{detail}",
 
   "error.unknown": "錯誤 {code}",
   "error.CONFIG_INVALID": "組態檔無效。",
   "error.SECRET_IN_CONFIG": "組態中含有看似憑證的值。",
+  "error.CONFIG_CONFLICT": "載入後磁碟上的組態檔已變更。",
+  "error.CSRF_INVALID": "請求的 CSRF 權杖遺失或無效。",
   "error.NICKNAME_LIBRARY_INVALID": "暱稱庫不存在或無效。",
   "error.NICKNAME_EXHAUSTED": "所有暱稱都在使用中。",
   "error.NICKNAME_NOT_HELD": "此工作階段並未持有這個暱稱。",

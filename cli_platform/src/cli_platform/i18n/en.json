@@ -256,10 +256,13 @@
   "settings.toast.saved_local": "Saved for this page only: browser storage is unavailable, so a reload shows the previous configuration.",
   "settings.toast.discarded": "Unsaved changes discarded.",
   "settings.toast.restored": "Demo data restored.",
+  "settings.toast.save_failed": "Could not save configuration: {detail}",
 
   "error.unknown": "Error {code}",
   "error.CONFIG_INVALID": "The configuration file is invalid.",
   "error.SECRET_IN_CONFIG": "The configuration contains a value that looks like a credential.",
+  "error.CONFIG_CONFLICT": "The configuration file changed on disk since it was loaded.",
+  "error.CSRF_INVALID": "The request CSRF token is missing or invalid.",
   "error.NICKNAME_LIBRARY_INVALID": "The nickname library is missing or invalid.",
   "error.NICKNAME_EXHAUSTED": "Every nickname is in use.",
   "error.NICKNAME_NOT_HELD": "This nickname is not held by the session.",

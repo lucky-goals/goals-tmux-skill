@@ -256,10 +256,13 @@
   "settings.toast.saved_local": "このページ内でのみ保存しました：ブラウザーのストレージが使えないため、再読み込みすると以前の構成に戻ります。",
   "settings.toast.discarded": "未保存の変更を破棄しました。",
   "settings.toast.restored": "デモデータに戻しました。",
+  "settings.toast.save_failed": "構成を保存できませんでした：{detail}",
 
   "error.unknown": "エラー {code}",
   "error.CONFIG_INVALID": "構成ファイルが無効です。",
   "error.SECRET_IN_CONFIG": "構成に認証情報のような値が含まれています。",
+  "error.CONFIG_CONFLICT": "読み込み後にディスク上の構成ファイルが変更されました。",
+  "error.CSRF_INVALID": "リクエストの CSRF トークンがないか無効です。",
   "error.NICKNAME_LIBRARY_INVALID": "ニックネームライブラリがないか、無効です。",
   "error.NICKNAME_EXHAUSTED": "すべてのニックネームが使用中です。",
   "error.NICKNAME_NOT_HELD": "このニックネームはこのセッションが保持していません。",
