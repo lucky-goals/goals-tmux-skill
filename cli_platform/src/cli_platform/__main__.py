@@ -30,7 +30,7 @@ from .config import EFFORT_ORDER, Candidate, load_config
 from .errors import PlatformError
 from .i18n.core import SUPPORTED, Translator, load_catalog, negotiate, normalize
 from .router import RouteRequest
-from .scanner import scan_all
+from .scanner import publish_environment_snapshots, scan_all
 from .supervisor import (Platform, RunService, SessionRequest, publish_config_applied,
                          publish_config_rejected)
 
@@ -124,7 +124,14 @@ def main(argv: list[str] | None = None) -> int:
                                          for stage in config.stages.values()]}, indent=2))
             return 0
         if args.command == "scan":
-            print(json.dumps([item.to_dict() for item in scan_all(probe_auth=args.auth)], indent=2))
+            scans = scan_all(probe_auth=args.auth)
+            if args.state_dir is not None:
+                publish_environment_snapshots(
+                    Platform(config, scans, state_dir=args.state_dir),
+                    args.state_dir,
+                    scans,
+                )
+            print(json.dumps([item.to_dict() for item in scans], indent=2))
             return 0
         if args.command == "run":
             return _run(args, config)

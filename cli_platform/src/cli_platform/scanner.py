@@ -7,16 +7,28 @@ status command and keeps only a logged-in verdict, never its output.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterator
+
+from .events import read_stream
+from .fsutil import private_dir
+
+if TYPE_CHECKING:
+    from .supervisor import Platform
 
 _TIMEOUT_SECONDS = 8.0
 _MAX_OUTPUT_BYTES = 256 * 1024
+_ACP_HELP_RE = re.compile(r"(?<![a-zA-Z0-9])acp(?![a-zA-Z0-9])", re.IGNORECASE)
 
 # Environment handed to probes: enough to run, nothing that carries secrets.
 BASE_ENV_ALLOW = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER", "LOGNAME", "SHELL", "TERM",
@@ -41,7 +53,8 @@ ADAPTER_PROBES: tuple[AdapterProbe, ...] = (
          "settings_file": "--settings", "fallback_model": "--fallback-model"},
     ),
     AdapterProbe(
-        "cursor", ("agent", "cursor-agent"), ("--version",), (("--help",),), ("status",),
+        "cursor", ("agent", "cursor-agent"), ("--version",),
+        (("--help",), ("help", "acp"), ("acp", "--help")), ("status",),
         {"headless": "--print", "stream_json": "stream-json", "resume": "--resume",
          "model_flag": "--model", "effort_flag": "--effort", "list_models": "--list-models"},
     ),
@@ -52,12 +65,13 @@ ADAPTER_PROBES: tuple[AdapterProbe, ...] = (
         {"headless": "exec", "stream_json": "--json", "resume": "resume", "model_flag": "--model"},
     ),
     AdapterProbe(
-        "agy", ("agy", "antigravity"), ("--version",), (("--help",),), (),
+        "agy", ("agy", "antigravity"), ("--version",), (("--help",), ("acp", "--help")), (),
         {"headless": "--print", "stream_json": "stream-json", "resume": "--conversation",
          "model_flag": "--model", "effort_flag": "--effort"},
     ),
     AdapterProbe(
-        "kiro", ("kiro-cli",), ("--version",), (("chat", "--help"),), ("whoami",),
+        "kiro", ("kiro-cli",), ("--version",),
+        (("--help-all",), ("chat", "--help"), ("acp", "--help")), ("whoami",),
         {"headless": "--no-interactive", "stream_json": "stream-json", "resume": "--resume-id",
          "model_flag": "--model", "effort_flag": "--effort", "list_models": "--list-models"},
     ),
@@ -139,6 +153,7 @@ def scan_adapter(probe: AdapterProbe, *, probe_auth: bool = False, runner: Runne
             help_text += output
     if help_text:
         scan.capabilities = {name: flag in help_text for name, flag in probe.capability_flags.items()}
+        scan.capabilities["acp"] = bool(_ACP_HELP_RE.search(help_text))
     else:
         scan.problems.append("HELP_UNREADABLE")
 
@@ -153,3 +168,86 @@ def scan_adapter(probe: AdapterProbe, *, probe_auth: bool = False, runner: Runne
 
 def scan_all(*, probe_auth: bool = False, runner: Runner = _run) -> list[CliScan]:
     return [scan_adapter(probe, probe_auth=probe_auth, runner=runner) for probe in ADAPTER_PROBES]
+
+
+@contextmanager
+def _adapters_lock(adapters_dir: Path) -> Iterator[None]:
+    """Serialize access to ``adapters/`` state files alongside ``Breaker``."""
+    private_dir(adapters_dir)
+    fd = os.open(adapters_dir / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _write_private_json(path: Path, body: dict[str, object]) -> None:
+    """Atomically replace ``path`` with sorted JSON content and mode 0600."""
+    path = Path(path)
+    private_dir(path.parent)
+    temporary = path.parent / f"{path.name}.tmp-{os.getpid()}-{threading.get_ident()}"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(body, handle, sort_keys=True, indent=1)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def publish_environment_snapshots(
+    platform: Platform,
+    state_dir: Path | str,
+    scans: list[CliScan],
+) -> None:
+    """Atomically publish ``adapters/registry.json`` and ``catalog/state.json`` with ``as_of_seq``."""
+    root = Path(state_dir)
+    adapters_dir = root / "adapters"
+    with _adapters_lock(adapters_dir):
+        adapters_stream = read_stream(adapters_dir / "journal.jsonl")
+        if adapters_stream.problem == "log_corrupt":
+            raise ValueError("adapters journal is corrupt")
+        registry_body: dict[str, object] = {
+            "v": 1,
+            "as_of_seq": adapters_stream.last_seq,
+            "adapters": {scan.adapter: scan.to_dict() for scan in scans},
+            "variants": [
+                {
+                    "variant": state.variant.id,
+                    "adapter": state.variant.adapter,
+                    "account": state.variant.account,
+                    "available": state.available,
+                    "reasons": list(state.reasons),
+                    "binary_path": state.binary_path,
+                    "version": state.version,
+                    "auth_state": state.auth_state,
+                    "fingerprint": state.fingerprint,
+                    "max_parallel": state.variant.max_parallel,
+                    "settings": asdict(state.settings) if state.settings else None,
+                    "env_names": sorted(state.variant.env),
+                    "env_unset": list(state.variant.env_unset),
+                }
+                for state in platform.registry.all()
+            ],
+        }
+        _write_private_json(adapters_dir / "registry.json", registry_body)
+
+    catalog_dir = root / "catalog"
+    observed_dir = catalog_dir / "observed"
+    observed_seqs: dict[str, int] = {}
+    if observed_dir.is_dir():
+        for path in sorted(observed_dir.glob("*.jsonl")):
+            observed_seqs[path.stem] = read_stream(path).last_seq
+    for variant in platform.config.variants:
+        observed_seqs.setdefault(variant, 0)
+    catalog_body: dict[str, object] = {
+        "v": 1,
+        "as_of_seq": sum(observed_seqs.values()),
+        "observed_seqs": dict(sorted(observed_seqs.items())),
+        "entries": [
+            asdict(entry)
+            for variant in platform.config.variants
+            for entry in platform.catalog.entries(variant)
+        ],
+    }
+    _write_private_json(catalog_dir / "state.json", catalog_body)

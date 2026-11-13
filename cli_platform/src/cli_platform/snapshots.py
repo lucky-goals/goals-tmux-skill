@@ -40,17 +40,40 @@ def read_limits(state_dir: Path) -> dict:
         return empty_limits()
 
 
+def _read_snapshot_dict(path: Path) -> dict | None:
+    """Read a JSON object snapshot without locks, returning None when absent."""
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def read_config_snapshot(state_dir: Path) -> dict | None:
     """Last published configuration snapshot, or None if none exists.
 
     Lock-free and read-only: never creates files or directories. Raises
     ``ValueError`` when the snapshot file is not valid JSON.
     """
-    try:
-        data = json.loads((Path(state_dir) / "config" / "state.json").read_text())
-    except FileNotFoundError:
-        return None
-    return data if isinstance(data, dict) else None
+    return _read_snapshot_dict(Path(state_dir) / "config" / "state.json")
+
+
+def read_registry_snapshot(state_dir: Path) -> dict | None:
+    """Last published adapter and variant registry snapshot, or None if absent.
+
+    Lock-free and read-only: never creates files or directories. Raises
+    ``ValueError`` when the snapshot file is not valid JSON.
+    """
+    return _read_snapshot_dict(Path(state_dir) / "adapters" / "registry.json")
+
+
+def read_catalog_snapshot(state_dir: Path) -> dict | None:
+    """Last published merged model catalog snapshot, or None if absent.
+
+    Lock-free and read-only: never creates files or directories. Raises
+    ``ValueError`` when the snapshot file is not valid JSON.
+    """
+    return _read_snapshot_dict(Path(state_dir) / "catalog" / "state.json")
 
 
 def read_live_nicknames(state_dir: Path) -> list[dict]:
